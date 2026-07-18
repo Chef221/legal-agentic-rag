@@ -1,0 +1,20 @@
+{
+  "question": "Phạm vi áp dụng là gì?",
+  "answer": "Phạm vi áp dụng được quy định tại căn cứ được trích dẫn [E1].",
+  "citations": [
+    {
+      "evidence_id": "E1",
+      "chunk_id": "doc-001::article-1::chunk-0",
+      "document_id": "doc-001",
+      "document_title": "Luật mẫu",
+      "document_number": "01/2026/QH",
+      "article_number": "1",
+      "source_url": null
+    }
+  ],
+  "insufficient_evidence": false,
+  "warnings": [],
+  "retrieval_strategy": "hybrid_rerank",
+  "trace_id": "trace-001",
+  "metadata": {}
+}

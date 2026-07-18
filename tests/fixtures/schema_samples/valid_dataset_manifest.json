@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "dataset_name": "th1nhng0/vietnamese-legal-documents",
+  "dataset_revision": "fixture-revision",
+  "loaded_at": "2026-07-15T08:00:00+07:00",
+  "configs": ["metadata", "content", "relationships"],
+  "record_counts": {
+    "metadata": 1,
+    "content": 1,
+    "relationships": 0
+  },
+  "processing_config_hash": "fixture-config-hash",
+  "code_version": "0.1.0",
+  "warnings": []
+}

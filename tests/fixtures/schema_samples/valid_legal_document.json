@@ -1,0 +1,14 @@
+{
+  "document_id": "doc-001",
+  "title": "Luật mẫu",
+  "document_number": "01/2026/QH",
+  "effective_date": "2026-01-01",
+  "effect_status": "effective",
+  "content_html": "<p>Điều 1. Phạm vi áp dụng</p>",
+  "clean_text": null,
+  "has_content": true,
+  "source_dataset": "aio",
+  "raw_metadata": {
+    "source_record": "metadata-001"
+  }
+}

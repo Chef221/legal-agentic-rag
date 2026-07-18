@@ -1,0 +1,18 @@
+{
+  "chunk_id": "doc-001::article-1::chunk-0",
+  "document_id": "doc-001",
+  "chunk_index": 0,
+  "text": "Điều 1. Phạm vi áp dụng.",
+  "search_text": "Luật mẫu 01/2026/QH Điều 1. Phạm vi áp dụng.",
+  "token_count": 12,
+  "structure": {
+    "article_number": "1",
+    "article_title": "Phạm vi áp dụng",
+    "structure_path": ["Điều 1"]
+  },
+  "document_title": "Luật mẫu",
+  "document_number": "01/2026/QH",
+  "effect_status": "effective",
+  "source_dataset": "aio",
+  "metadata": {}
+}
