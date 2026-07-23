@@ -13,12 +13,50 @@ from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalRespons
 class VectorBackend(Protocol):
     """Store supplied vectors and search them without creating embeddings."""
 
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        """Return source artifact type, version, and processing hash."""
+        ...
+
+    @property
+    def embedding_provider_name(self) -> str:
+        """Return the provider that created the persisted document vectors."""
+        ...
+
+    @property
+    def embedding_provider_version(self) -> str:
+        """Return the provider version that created document vectors."""
+        ...
+
+    @property
+    def model_name(self) -> str:
+        """Return the embedding model identity associated with the index."""
+        ...
+
+    @property
+    def model_revision(self) -> str | None:
+        """Return the embedding model revision associated with the index."""
+        ...
+
+    @property
+    def dimension(self) -> int:
+        """Return the vector dimension required by the index."""
+        ...
+
     def build(
         self,
         chunks: Sequence[LegalChunk],
         vectors: Sequence[Sequence[float]],
+        source_manifest: ArtifactManifest,
+        *,
+        model_name: str,
+        model_revision: str | None,
+        embedding_provider_name: str,
+        embedding_provider_version: str,
+        dimension: int,
+        embedding_batch_size: int,
     ) -> ArtifactManifest:
-        """Build a vector index from aligned chunks and vectors."""
+        """Build an aligned vector index with source and model provenance."""
         ...
 
     def search(

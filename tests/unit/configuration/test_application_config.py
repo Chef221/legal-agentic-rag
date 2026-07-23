@@ -22,7 +22,7 @@ def _application_config() -> ApplicationConfig:
                 max_tokens=512,
                 min_tokens=32,
                 overlap_tokens=32,
-                tokenizer_name="fixture-tokenizer",
+                tokenizer_name="unicode_word_v1",
             ),
         ),
         online=OnlineConfig(generation=GenerationConfig(max_context_tokens=4096)),
@@ -34,6 +34,7 @@ def test_application_config_composes_without_external_framework() -> None:
     config = _application_config()
     assert config.offline.dataset.dataset_name == "fixture"
     assert config.online.agent.max_retry == 2
+    assert config.online.reranker.max_candidates == 100
     assert config.logging.level == "INFO"
 
 

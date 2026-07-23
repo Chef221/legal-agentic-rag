@@ -404,3 +404,486 @@ tools, Agent, serving hoặc evaluation trong Milestone 1.
 Chưa tạo tracing backend contract khi chưa có consumer. Milestone 1 chỉ
 tạo logging context cơ bản; tracing backend vẫn phải đi qua abstraction
 khi được triển khai ở milestone phù hợp.
+
+---
+
+## D029 — Milestone 2 Dataset Loader and Audit Boundary
+
+**Status:** Accepted
+
+Milestone 2 dùng `datasets>=5,<6` là concrete dependency duy nhất để đọc
+dataset Hugging Face đã phê duyệt. Implementation:
+
+- chỉ `AioDatasetSource` bị giới hạn với
+  `th1nhng0/vietnamese-legal-documents`;
+- load riêng `metadata`, `content`, `relationships`, split `data`;
+- hỗ trợ revision, streaming và sample limit;
+- raw field names bị cô lập trong `offline/datasets/aio` hoặc audit;
+- audit ghi schema profile, ID, join coverage, content findings, relationship
+  findings và metadata findings;
+- persisted output gồm `DatasetAuditReport` và bốn CSV issue extracts;
+- không silently overwrite report cũ;
+- không normalize, clean, parse, chunk hoặc index.
+
+Do schema Arrow của config `content` và kiểu Parquet thực tế không khớp,
+loader áp dụng `large_string` feature override ngay tại AIO boundary. Quyết
+định này không thay đổi raw content.
+
+---
+
+## D030 — Milestone 3 Conservative Document Normalization
+
+**Status:** Accepted
+
+Document normalization áp dụng policy bảo thủ:
+
+- metadata tạo document; orphan content không tạo metadata giả;
+- duplicate metadata ID bị reject toàn bộ thay vì chọn tùy ý;
+- chỉ join content khi có đúng một record hợp lệ;
+- ambiguous content không merge và không tự chọn;
+- invalid date thành null kèm issue, không đoán hoặc sửa ngày;
+- effect status/document type chỉ canonicalize bằng mapping configuration;
+- unknown raw metadata được giữ trong `raw_metadata`;
+- `nguon_thu_thap` không được coi là URL;
+- normalized HTML được giữ nguyên và cleaning vẫn thuộc Milestone 4;
+- chưa chọn artifact storage format; Milestone 3 tạo typed result và
+  manifest nhưng chưa có persistence writer.
+
+Policy này ưu tiên không gắn nhầm nội dung hoặc metadata pháp lý khi raw
+dataset có record trùng hoặc không nhất quán.
+
+---
+
+## D031 — Milestone 4 Conservative HTML Cleaning
+
+**Status:** Accepted
+
+HTML cleaning dùng `html.parser` của Python standard library và chỉ nhận
+unified `LegalDocument` cùng normalized artifact manifest. Policy:
+
+- loại `script`, `style`, `nav`, các non-content tag được cấu hình, phần tử
+  hidden và class/id noise theo exact token;
+- không xóa `header` hoặc `footer` chỉ dựa vào tag vì chúng có thể chứa tiêu
+  đề, số văn bản, chữ ký hoặc phụ lục pháp lý;
+- giữ visible table text bằng ranh giới dòng/cột đơn giản, chưa parse cấu trúc
+  bảng;
+- decode HTML entities, normalize Unicode NFC, line break và whitespace;
+- giữ dấu tiếng Việt, số, dấu câu, từ phủ định và legal markers;
+- HTML lỗi nhẹ được parser dung nạp; output rỗng và content thiếu tạo
+  structured `AuditIssue` thay vì silently skip document;
+- output giữ toàn bộ input documents, nối provenance qua cleaned artifact
+  manifest và processing config hash;
+- chưa chọn artifact storage format, vì vậy result vẫn in-memory và chưa có
+  persistence writer.
+
+Repeated header/footer không bị suy đoán từ text lặp trên toàn corpus trong
+baseline này vì có nguy cơ xóa nhầm nội dung pháp lý. Chỉ marker web-noise rõ
+ràng mới được loại.
+
+---
+
+## D032 — Milestone 5 Conservative Legal Structure Parsing
+
+**Status:** Accepted
+
+Legal structure parser dùng Python standard-library regex trên unified
+`clean_text`; không biết raw field AIO. Policy:
+
+- tạo non-overlapping blocks cho document preamble, Phần, Chương, Mục, Tiểu
+  mục, Điều, Khoản, Điểm, Phụ lục và table rows;
+- Khoản/Điểm chỉ được nhận diện trong context của Điều;
+- hỗ trợ marker số thường/La Mã và các delimiter phổ biến được xác nhận từ
+  live sample, đặc biệt dạng `Điều 1:`;
+- title dòng kế tiếp chỉ được nhận khi không giống marker/table, không kết
+  thúc bằng sentence punctuation và nằm trong character/word limits có config;
+- marker không chắc chắn không bị sửa hoặc bỏ; parser giữ text trong block cha
+  và có thể phát `unrecognized_structure_marker`;
+- mỗi non-whitespace source character phải xuất hiện đúng một lần trong block
+  output; diagnostic ghi coverage theo document;
+- block ID dùng content hash deterministic; parent luôn cùng document và đứng
+  trước child;
+- documents thiếu `clean_text` vẫn có diagnostic/issue và không bị silently
+  drop khỏi result;
+- chưa chọn artifact storage format nên result và `legal_blocks` manifest vẫn
+  in-memory, chưa có persistence writer.
+
+Parser này là structural baseline, không phải semantic legal parser. Văn bản
+không có marker rõ ràng được giữ trong một `document` block thay vì đoán cấu
+trúc.
+
+---
+
+## D033 — Milestone 6 Article-First Legal Chunking
+
+**Status:** Accepted
+
+Legal chunker chỉ dùng unified documents/blocks và áp dụng policy:
+
+- một Điều cùng descendants là retrieval unit ưu tiên;
+- Điều vượt giới hạn được group theo direct legal child units, thường là các
+  Khoản liên tiếp;
+- một unit vẫn vượt giới hạn mới dùng overlapping token windows;
+- non-article blocks tạo standalone chunks để bảo toàn toàn bộ parsed text;
+- baseline tokenizer là dependency-free `unicode_word_v1`, với defaults
+  `max_tokens=512`, `min_tokens=50`, `overlap_tokens=50`;
+- `min_tokens` chỉ tạo informational issue; không bỏ short legal chunk;
+- chunk ID hash deterministic từ document, strategy, source blocks, split và
+  text; chunk index liên tục theo document;
+- search text chỉ dùng document metadata, hierarchy và chunk text có thật;
+- validator phải xác nhận token limit, source coverage, identity, ordering và
+  metadata inheritance trước khi trả result;
+- output nối provenance bằng processing config hash và manifest
+  `legal_chunks`; chưa persist vì artifact storage format vẫn chưa chốt.
+
+Tokenizer baseline chỉ phục vụ deterministic chunk limits. Nó không đại diện
+cho tokenizer của embedding/generator model chưa được lựa chọn. Thay tokenizer
+phải tạo config hash/version mới và rebuild legal chunks cùng downstream
+artifacts.
+
+---
+
+## D034 — Milestone 7 SQLite FTS5 BM25 Reference Backend
+
+**Status:** Accepted
+
+Milestone 7 dùng SQLite FTS5 từ Python standard library làm reference backend,
+không coi đây là lựa chọn production cuối cùng. Policy:
+
+- concrete implementation nằm sau `BM25Backend`;
+- `build` nhận validated `LegalChunk` và source manifest `legal_chunks`;
+- analyzer `unicode_word_casefold_v1` dùng Unicode NFC và casefold cho lexical
+  terms, giữ dấu tiếng Việt, số và từ phủ định, không stemming/stopword removal;
+- default match mode là `any`; `all` có thể cấu hình;
+- search hỗ trợ unified exact filters, deterministic tie-breaking và trả
+  `RetrievalResponse` cùng BM25 trace/latency;
+- artifact format riêng của backend gồm `index.sqlite3` và `manifest.json`;
+- manifest/checksum/integrity/count phải tương thích trước khi load;
+- loaded connection cho phép cross-thread read nhưng mọi operation trên một
+  connection được serialize bằng backend lock để FastAPI/Gradio dùng chung an
+  toàn;
+- destination tồn tại không bị silently overwrite;
+- thay analyzer/backend/source chunks tạo config hash mới và yêu cầu rebuild.
+
+Quyết định production backend trong D021 vẫn để mở; core không phụ thuộc trực
+tiếp vào SQLite FTS5.
+
+---
+
+## D035 — Milestone 8 Multilingual E5 and NumPy Vector Reference Baseline
+
+**Status:** Accepted
+
+Người dùng ủy quyền lựa chọn tối ưu cho baseline hiện tại. Milestone 8 chọn:
+
+- `intfloat/multilingual-e5-small`, revision
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3`, license MIT;
+- `sentence-transformers>=5,<6` làm concrete provider sau
+  `EmbeddingProvider`, không hard-code model vào retrieval core;
+- E5 `passage:`/`query:` prefixes, dimension 384, max length 512 và normalized
+  embeddings; CPU mặc định phù hợp runtime không GPU;
+- `numpy_flat` float32 exact cosine làm reference `VectorBackend`;
+- offline builder batch 16; artifact ghi concrete provider name/version và
+  online dense retriever kiểm tra provider/model/revision/dimension trước query
+  embedding;
+- artifact `vectors.npy` + `chunks.jsonl` + `manifest.json`, checksums và
+  memory-mapped reload;
+- exact unified metadata filters, deterministic chunk-ID tie-breaking và
+  total latency gồm query embedding;
+- không fine-tune, không FAISS/vector database và không approximate search khi
+  chưa đo bottleneck trên corpus đầy đủ.
+
+Model hoặc revision thay đổi bắt buộc re-embed và rebuild. Production vector
+backend/model trong D021 vẫn để mở; core chỉ phụ thuộc Protocol và unified
+schemas.
+
+---
+
+## D036 — Milestone 9 Fixed Retrieval and Reciprocal Rank Fusion
+
+**Status:** Accepted
+
+Milestone 9 dùng unweighted Reciprocal Rank Fusion chuẩn với constant mặc định
+60 qua typed `RetrievalConfig`. Policy:
+
+- BM25 và dense mỗi nhánh lấy `candidate_k`, final fusion trả `top_k`;
+- chỉ rank tham gia `1 / (60 + rank)`; raw backend scores không được cộng;
+- deduplicate theo `chunk_id`, giữ rank/raw score/contribution riêng từng nhánh;
+- cùng chunk ID nhưng khác document, text hoặc metadata là lỗi;
+- RRF score giảm dần và `chunk_id` là deterministic tie-break;
+- backend công khai legal-chunks source artifact identity; hybrid từ chối hai
+  index khác source type/version/processing hash trước khi query;
+- hai nhánh chạy tuần tự và fail-closed. Cách này tránh thay đổi SQLite threading
+  policy, giữ behavior đơn giản và không silently degrade;
+- `FixedRetriever` hỗ trợ độc lập BM25, dense và hybrid, mặc định hybrid;
+- không thêm dependency và chưa triển khai reranker hoặc graph retrieval.
+
+Nếu corpus source khác, cả BM25 và vector index phải được rebuild từ cùng một
+legal-chunks artifact trước khi hybrid retrieval được phép chạy.
+
+---
+
+## D037 — Milestone 10 Multilingual Cross-Encoder Reranker
+
+**Status:** Accepted
+
+Người dùng tiếp tục ủy quyền lựa chọn baseline tối ưu. Milestone 10 chọn
+`cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`, revision
+`1427fd652930e4ba29e8149678df786c240d8825`, license Apache-2.0, qua
+`sentence-transformers` và contract `Reranker`.
+
+Lựa chọn này ưu tiên multilingual retrieval, có tiếng Việt trong training scope,
+kích thước khoảng 0.1B parameters và khả năng chạy CPU. Model
+`BAAI/bge-reranker-v2-m3` đa ngôn ngữ mạnh hơn nhưng lớn hơn đáng kể, nên chưa
+phù hợp reference baseline nhẹ khi chưa có benchmark chính thức.
+
+Policy:
+
+- model/revision/device/batch/max length/candidate limit đều qua typed config;
+- model được lazy-load, không fine-tune và không hard-code trong retrieval core;
+- reranker chỉ nhận tối đa 100 hybrid candidates và trả final `top_k`;
+- dùng raw single-label logits để giữ thông tin xếp hạng, không diễn giải như xác
+  suất và không cộng với score từ retrieval stage khác;
+- deterministic tie-break dùng prior retrieval rank rồi `chunk_id`;
+- output giữ nguyên candidate legal payload và toàn bộ RRF provenance;
+- backend error fail-closed với taxonomy initialization/model/retrieval;
+- không tạo reranker artifact vì đây là online inference với revision-pinned model;
+- dependency `sentence-transformers>=5,<6` đã có từ Milestone 8, không thêm package.
+
+Đây là reference baseline, không phải quyết định model production cuối cùng.
+Việc thay model cần benchmark trên evaluation data phù hợp sau khi thể lệ và dữ
+liệu chính thức được công bố.
+
+---
+
+## D038 — Model Selection Is Quality-Benchmark Driven
+
+**Status:** Accepted
+
+Cấu hình phần cứng local hiện tại không phải giới hạn lựa chọn model dài hạn.
+Các model Milestone 8 và 10 vẫn là reference implementations có thể tái tạo,
+không phải quality ceiling.
+
+Khi có evaluation set và GPU:
+
+- shortlist phải ưu tiên benchmark chất lượng retrieval/reranking tiếng Việt và
+  multilingual phù hợp domain pháp luật;
+- đo Recall/MRR/NDCG, latency, VRAM và throughput trước khi thay model;
+- model mạnh hơn được phép chạy trên GPU thuê ngoài qua typed config;
+- thay embedding model/revision bắt buộc re-embed và rebuild vector index;
+- fine-tuning vẫn chỉ bắt đầu khi có supervision, split và experiment plan hợp lệ;
+- core tiếp tục chỉ phụ thuộc backend Protocol, không hard-code model.
+
+---
+
+## D039 — Milestone 11 Directed Adjacency Graph Reference Baseline
+
+**Status:** Accepted
+
+Milestone 11 dùng `adjacency_json` từ Python standard library làm reference
+`GraphBackend`; đây không phải lựa chọn graph database production cuối cùng.
+
+Policy:
+
+- raw AIO relationship fields chỉ tồn tại trong AIO adapter/normalizer;
+- canonical relationship type chỉ được tạo từ explicit configuration mapping;
+- orphan endpoint, self-loop, missing endpoint/label và exact duplicate bị loại
+  khỏi production graph, đồng thời giữ structured `AuditIssue`;
+- normalized relationship mapping và graph index đều có versioned manifest,
+  SHA-256 và no-overwrite policy;
+- graph là directed document-level adjacency; legal content vẫn nằm trong chunk
+  artifacts, không bị copy vào graph;
+- traversal dùng deterministic BFS, 1 hop mặc định, tối đa 2 hop, hỗ trợ exact
+  relationship filter và trả BFS discovery path;
+- online graph retrieval luôn bắt đầu từ hybrid text seeds, chỉ retrieve chunk
+  trong reached documents, merge trong `candidate_k`, rồi cross-encoder rerank
+  đúng một lần;
+- graph không thay BM25/dense, không chạy toàn graph và không cần Agent;
+- graph/chunk artifacts phải cùng dataset/revision trước khi online query.
+
+Không thêm dependency mới. Neo4j, NetworkX hoặc backend khác chỉ được xem xét khi
+có bottleneck/consumer và benchmark thực tế.
+
+---
+
+## D040 — Milestone 12 Fail-Closed Extractive Fixed RAG
+
+**Status:** Accepted
+
+Khi chưa có gold answer, semantic evaluator và generator benchmark chính thức,
+Milestone 12 dùng `ExtractiveAnswerGenerator` dependency-free làm reference
+`AnswerGenerator`.
+
+Policy:
+
+- context builder chọn whole legal chunks theo bounded count/token budget,
+  không cắt legal text;
+- effect status chỉ ảnh hưởng ordering khi inactive labels được cấu hình rõ,
+  không suy đoán trạng thái pháp lý mới nhất;
+- fixed context grader chỉ xác nhận structural sufficiency và khai báo rõ chưa
+  semantic-grade;
+- extractive generator chỉ ghép nguyên văn evidence với `[E#]`, không thêm Điều,
+  tên luật hay kết luận pháp lý mới;
+- empty/insufficient context tạo explicit abstention không citation;
+- rule-based verifier kiểm tra exact evidence, chunk, document, article,
+  document number và source URL;
+- citation invalid làm generated answer bị loại và chuyển thành abstention;
+- verification baseline không tuyên bố semantic claim support;
+- fixed service giữ retrieval provenance, context grade và verification result
+  trong response metadata;
+- query ID là deterministic trace ID cho tới khi tracing backend có consumer;
+- không thêm LLM SDK, model hoặc dependency.
+
+Backend extractive không phải quality target cuối cùng. Generator model mạnh hơn
+sẽ được chọn qua benchmark trên GPU/evaluation data và vẫn phải đi qua
+`AnswerGenerator`.
+
+---
+
+## D041 — Milestone 13 Closed Typed Tool Registry
+
+**Status:** Accepted
+
+Milestone 13 dùng closed registry dependency-free thay vì plugin framework.
+
+Policy:
+
+- chỉ có tám `ToolName` được phê duyệt: năm retrieval strategies, context
+  grading, answer generation và citation verification;
+- retrieval tools tái sử dụng `RetrievalQuery`/`RetrievalResponse`;
+- generation-side tools có typed Pydantic inputs chứa đúng query/evidence/
+  response cần thiết;
+- wrapper chỉ gọi injected fixed service/Protocol, không được truy cập raw
+  dataset, database client hoặc artifact mutation;
+- registry không auto-discover, dynamic import, decorator-register hoặc load
+  third-party tool;
+- descriptor công bố name, description, input/output JSON schema và timeout;
+- known validation/domain failures được map sang sanitized error types;
+- exception message nội bộ, path, secret, payload và legal content không đi vào
+  error/log;
+- unexpected programming errors không bị nuốt;
+- synchronous elapsed-time budget không trả output quá hạn; hard cancellation
+  vẫn là trách nhiệm cooperative timeout của concrete external provider;
+- tool workflow được integration-test độc lập, chưa có strategy selection,
+  retry loop hoặc Agent state mutation.
+
+Không thêm dependency hoặc Agent framework.
+
+---
+
+## D042 — Milestone 14 Dependency-Free Bounded Agent Reference
+
+**Status:** Accepted
+
+Milestone 14 dùng deterministic state machine thuần Python phía sau
+`AgentWorkflow` Protocol; đây là reference implementation, không khóa lựa chọn
+Agent framework production.
+
+Policy:
+
+- Agent chỉ gọi tool qua closed `ToolRegistry.execute`;
+- route mặc định theo chất lượng là `hybrid_rerank → graph → hybrid`, có thể
+  cấu hình nhưng tối đa ba strategy duy nhất;
+- explicit requested strategy được ưu tiên, nhưng tool chưa đăng ký luôn bị
+  loại khỏi route plan;
+- `max_retry = 2`, tương ứng tối đa ba retrieval attempts;
+- query rewrite bảo thủ chỉ đổi giữa hai query form do user/input adapter cung
+  cấp, không sinh thêm legal term;
+- mỗi attempt được ghi bằng `RetrievalHistoryItem`; mọi invocation chỉ ghi ID,
+  tool name, success, sanitized error type và latency, không ghi payload;
+- timeout và lỗi không retry được dừng ngay;
+- context đủ mới được generate; citation verification fail hoặc generation
+  fail đều trả explicit abstention;
+- terminal result giữ đồng thời public `AnswerResponse`, serialized
+  `AgentState`, stop reason và total latency;
+- workflow không tải dataset, preprocess, build/sửa index hoặc truy cập raw
+  backend client.
+
+Không thêm LangGraph, LangChain hoặc dependency mới. Khi có benchmark/consumer
+cho framework khác, implementation có thể được thay phía sau `AgentWorkflow`.
+
+---
+
+## D043 — Runtime Artifact Layout and Composition Roots
+
+**Status:** Accepted
+
+Runtime Assembly dùng hai composition roots thuần Python:
+
+- `OfflineBuildRuntime` cho offline build;
+- `OnlineRuntimeFactory` cho immutable online load.
+
+Policy:
+
+- mọi artifact directory là một safe relative segment cấu hình trong
+  `ArtifactConfig`;
+- processed records còn thiếu persistence dùng deterministic UTF-8 JSONL,
+  manifest và SHA-256;
+- runtime không overwrite build cũ, kể cả khi generic config bật overwrite;
+- offline runtime materialize raw components một lần để audit/normalization dùng
+  cùng snapshot; chưa tuyên bố tối ưu full-corpus memory;
+- legal-chunk manifest lưu normalized-document lineage để đối chiếu graph;
+- online startup kiểm tra chunk checksum, dataset/revision, BM25/vector source
+  identity, graph lineage và embedding identity;
+- online factory chỉ gọi backend `load`, không gọi `build` hoặc `persist`;
+- concrete AIO/reference backend chỉ xuất hiện trong composition root, không đi
+  vào Agent/API core;
+- runtime nhận injected source/provider/backend cho deterministic test;
+- không thêm CLI, API, UI, framework config hoặc dependency mới trong bước này.
+
+---
+
+## D044 — Milestone 15 Single-Process FastAPI and Gradio Serving
+
+**Status:** Accepted
+
+Milestone 15 dùng một FastAPI process và optional Gradio UI mount trong cùng
+application:
+
+- FastAPI lifespan load một immutable `OnlineRuntime` và fail-fast nếu artifacts
+  không tương thích;
+- versioned API prefix mặc định `/api/v1`;
+- health, retrieval và answer dùng unified Pydantic schemas;
+- `ServingService` tạo query ID, bảo toàn Unicode tiếng Việt và enforce giới hạn;
+- API không truy cập concrete backend, raw dataset hoặc offline pipeline;
+- Gradio chỉ là diagnostic UI và dùng chung runtime, không build runtime thứ hai;
+- JSON config loader là explicit baseline, chưa thêm Hydra,
+  `pydantic-settings` hoặc environment composition;
+- default bind là `127.0.0.1`; chưa tuyên bố production security;
+- domain errors được phân loại thành response an toàn, không trả exception detail;
+- CLI gồm build artifacts và serve, không tự build artifacts khi server startup.
+
+Dependencies mới:
+
+- runtime: FastAPI, Uvicorn và Gradio;
+- development: HTTPX2 cho ASGI integration tests.
+
+Không thêm authentication, CORS, rate limiting, Docker, reverse proxy, cache,
+message queue hoặc cloud deployment trong milestone này.
+
+---
+
+## D045 — Milestone 16 Label-Aware Evaluation Baseline
+
+**Status:** Accepted
+
+Evaluation dùng JSONL cases độc lập competition format:
+
+- mỗi case có stable ID, question, target granularity `chunk|document` và
+  positive graded relevance map;
+- document-level ranking deduplicate nhiều chunks cùng document trước khi tính
+  metric;
+- retrieval metrics là Recall@k, Precision@k, MRR và graded NDCG@k;
+- generation chỉ tính exact match, abstention accuracy và citation
+  precision/recall khi nhãn tương ứng tồn tại;
+- không tự suy diễn answer correctness, groundedness hoặc unsupported claim
+  rate khi chưa có gold/human labels;
+- benchmark exact bytes được nhận diện bằng SHA-256;
+- report ghi artifact versions, code version, metric sample counts, latency và
+  portable resource observations;
+- report directory immutable, không silently overwrite;
+- evaluator đi qua Protocol và runner chỉ gọi `OnlineRuntime`, không biết
+  concrete retrieval/model backend;
+- không thêm dependency hoặc dataset ngoài AIO.
+
+Fixture labels chỉ dùng để test code metric, không được tuyên bố là official
+benchmark hay gold chất lượng.

@@ -114,6 +114,12 @@ business logic.
 
 ## 4. Milestone 2 — Dataset Loader and Audit
 
+**Status:** Completed
+
+Milestone đã được xác nhận bằng unit/integration tests không dùng network
+và live smoke test sample 1 record cho cả ba config. Schema thực tế và
+revision kiểm tra được ghi trong `docs/03-DATASET-AIO.md`.
+
 ### Objectives
 
 - load metadata;
@@ -144,6 +150,12 @@ business logic.
 
 ## 5. Milestone 3 — Document Normalization
 
+**Status:** Completed
+
+Implementation gồm AIO field projection, deterministic ID/null/date
+normalization, conservative metadata-content join, structured issues,
+normalized artifact manifest và local unit/integration tests.
+
 ### Objectives
 
 - map raw fields;
@@ -171,6 +183,13 @@ business logic.
 
 ## 6. Milestone 4 — HTML Cleaner
 
+**Status:** Completed
+
+Implementation dùng `html.parser` của Python, exact-match noise policy,
+Unicode NFC/whitespace normalization, typed cleaning result, upstream
+manifest validation và local unit/integration tests. Không có parser cấu trúc
+pháp lý trong milestone này.
+
 ### Objectives
 
 - chuyển HTML thành clean text;
@@ -195,6 +214,13 @@ business logic.
 ---
 
 ## 7. Milestone 5 — Legal Structure Parser
+
+**Status:** Completed
+
+Implementation dùng deterministic line-based rules cho Phần/Chương/Mục/Tiểu
+mục/Điều/Khoản/Điểm/Phụ lục và table rows. Output gồm non-overlapping
+`LegalBlock`, per-document diagnostics, full text coverage, structured issues
+và legal-block artifact manifest. Không có chunking trong milestone này.
 
 ### Objectives
 
@@ -223,6 +249,13 @@ business logic.
 
 ## 8. Milestone 6 — Legal Chunker
 
+**Status:** Completed
+
+Implementation ưu tiên one-article chunks, group Khoản liên tiếp khi Điều dài,
+và chỉ dùng overlapping Unicode token windows khi một legal unit vẫn vượt
+giới hạn. Standalone blocks giữ preamble/unstructured text. Output gồm
+validated `LegalChunk`, diagnostics, full block coverage và artifact manifest.
+
 ### Objectives
 
 - chunk theo Điều;
@@ -249,6 +282,14 @@ business logic.
 
 ## 9. Milestone 7 — BM25 Index
 
+**Status:** Completed
+
+Implementation dùng SQLite FTS5 reference backend qua `BM25Backend`, analyzer
+Unicode bảo toàn dấu/số/từ phủ định, exact unified filters và deterministic
+tie-breaking. Artifact gồm `index.sqlite3` cùng `manifest.json`, có checksum,
+provenance, compatibility validation và không silently overwrite. Persist/reload
+được xác nhận bằng unit và integration tests; không có dependency mới.
+
 ### Objectives
 
 - build BM25 index;
@@ -274,6 +315,14 @@ business logic.
 ---
 
 ## 10. Milestone 8 — Vector Index
+
+**Status:** Completed
+
+Implementation dùng revision-pinned `intfloat/multilingual-e5-small` qua
+`EmbeddingProvider`, passage/query prefixes và normalized 384-dimensional
+embeddings. NumPy flat reference backend thực hiện exact cosine retrieval,
+unified filters, persistence/reload, checksum và memory mapping. Model provider
+đã được live-smoke trên CPU; unit/integration tests không gọi network.
 
 ### Objectives
 
@@ -303,6 +352,15 @@ business logic.
 
 ## 11. Milestone 9 — Hybrid RRF
 
+**Status:** Completed
+
+Implementation chạy BM25 và dense trên candidate pool, kiểm tra hai index cùng
+legal-chunks source identity, deduplicate theo chunk ID và fuse bằng unweighted
+RRF constant 60. Output giữ raw rank/score và contribution của từng nhánh,
+deterministic tie-break, namespaced warnings và total latency. `FixedRetriever`
+route BM25/dense/hybrid độc lập; unit/integration tests không dùng network hoặc
+model nặng.
+
 ### Objectives
 
 - chạy BM25 và dense;
@@ -328,6 +386,15 @@ business logic.
 
 ## 12. Milestone 10 — Cross-Encoder Reranker
 
+**Status:** Completed
+
+Implementation thêm revision-pinned multilingual CrossEncoder phía sau
+`Reranker`, lazy-load model, chấm bounded hybrid candidates và trả final top-k.
+Reranking service giữ nguyên legal payload, artifact provenance cùng toàn bộ
+BM25/dense/RRF trace, ghi thêm raw reranker score và total latency. Unit tests
+dùng fixture model deterministic; integration test đi qua BM25 + dense + RRF +
+reranker mà không cần network.
+
 ### Objectives
 
 - rerank candidate set;
@@ -352,6 +419,8 @@ business logic.
 
 ## 13. Milestone 11 — Graph Index and Retrieval
 
+**Status:** Completed
+
 ### Objectives
 
 - normalize relationships;
@@ -375,9 +444,23 @@ business logic.
 - seed document truy xuất được related documents;
 - graph không thay thế text retrieval.
 
+### Implemented Baseline
+
+- AIO relationship normalization với explicit mapping và structured issues;
+- versioned relationship mapping artifact với checksum/no-overwrite;
+- persisted directed `adjacency_json` reference backend;
+- deterministic BFS 1 hop mặc định, tối đa 2 hop và relationship filter;
+- hybrid text seeds, related-document chunk retrieval, bounded merge và final
+  cross-encoder rerank;
+- graph path/hop trace và fixed `graph` routing không cần Agent;
+- unit/integration tests cho invalid edges, persistence/reload, traversal,
+  artifact compatibility và end-to-end graph retrieval.
+
 ---
 
 ## 14. Milestone 12 — Fixed End-to-End RAG
+
+**Status:** Completed
 
 ### Objectives
 
@@ -403,9 +486,22 @@ business logic.
 - thiếu evidence thì abstain;
 - trace ID được trả về.
 
+### Implemented Baseline
+
+- bounded context builder giữ whole legal chunks và retrieval provenance;
+- transparent structural context grader, không nhận là semantic grader;
+- dependency-free extractive answer generator phía sau `AnswerGenerator`;
+- exact rule-based citation verifier phía sau `CitationVerifier`;
+- fixed retrieval-to-answer service với explicit abstention;
+- fail-closed replacement khi generator trả citation không hợp lệ;
+- typed context/generation/grading config và `ContextBuildResult`;
+- unit/integration tests từ hybrid RRF + cross-encoder tới verified answer.
+
 ---
 
 ## 15. Milestone 13 — Tool Wrappers
+
+**Status:** Completed
 
 ### Objectives
 
@@ -434,9 +530,22 @@ business logic.
 - lỗi được chuẩn hóa;
 - tool có mô tả rõ.
 
+### Implemented Baseline
+
+- closed enum và typed invocation/error/descriptor schemas;
+- `TypedTool` Protocol không có generic base implementation;
+- năm fixed retrieval wrappers;
+- context grading, answer generation và citation verification wrappers;
+- explicit eight-tool factory và deterministic closed registry;
+- schema discovery, output-contract validation và sanitized error mapping;
+- timeout-budget classification, payload-free logging và no hidden exceptions;
+- unit/integration tests chạy retrieval → grade → generate → verify không Agent.
+
 ---
 
 ## 16. Milestone 14 — Agentic Workflow
+
+**Status:** Completed
 
 ### Objectives
 
@@ -463,9 +572,53 @@ business logic.
 - workflow dừng đúng;
 - trace có thể debug.
 
+### Implemented Baseline
+
+- dependency-free deterministic workflow phía sau `AgentWorkflow` Protocol;
+- quality-first registered route plan `hybrid_rerank → graph → hybrid`;
+- explicit requested-strategy priority và closed-registry filtering;
+- conservative user-text-only query rewrite;
+- bounded maximum of two retries and explicit terminal stop reasons;
+- typed retrieval history, terminal state/result consistency validation;
+- fail-closed abstention cho generation/citation/tool failure;
+- payload-free invocation trace và workflow summary logging;
+- unit/integration tests cho retry, stopping, tool restriction và error paths.
+
+---
+
+## 16.1 Runtime Assembly
+
+**Status:** Completed
+
+### Objectives
+
+- ghép offline modules thành một reproducible artifact build;
+- persist processed artifacts còn thiếu;
+- load và validate complete online artifact set;
+- tạo một application runtime sẵn sàng cho serving.
+
+### Implemented Baseline
+
+- `OfflineBuildRuntime` cho AIO audit-to-index pipeline;
+- deterministic JSONL processed artifacts với manifest/checksum;
+- configurable safe artifact layout và immutable preflight;
+- BM25/vector/graph build và persistence trong cùng snapshot;
+- `OnlineRuntimeFactory` fail-fast trên checksum, lineage và model identity;
+- composition của fixed retrieval, tools và bounded Agent;
+- Agent query rewrite được BM25/dense sử dụng thật;
+- fixture integration test từ raw records tới verified answer sau reload.
+
+### Limitations
+
+- raw snapshot đang materialize trong memory;
+- build chưa hỗ trợ resume hoặc transactional recovery;
+- CLI chỉ nhận một file JSON typed config, chưa có environment composition.
+
 ---
 
 ## 17. Milestone 15 — Serving
+
+**Status:** Completed
 
 ### Objectives
 
@@ -491,9 +644,34 @@ business logic.
 - trace ID được trả;
 - secrets không bị lộ.
 
+### Implemented Baseline
+
+- FastAPI application factory với lifespan load đúng một `OnlineRuntime`;
+- versioned endpoints `/api/v1/health`, `/api/v1/retrieve` và
+  `/api/v1/answer`;
+- bounded `LegalQuestionRequest`, NFC/whitespace normalization và UUID query ID;
+- unified health/error schemas, error mapping fail-closed và không lộ backend
+  detail;
+- optional Gradio diagnostic UI mount tại `/ui`, dùng chung runtime;
+- SQLite BM25 read được serialize cross-thread để Gradio worker dùng an toàn
+  connection đã load trong FastAPI lifespan;
+- explicit JSON config loader cùng `legal-rag-build` và `legal-rag-serve`;
+- localhost default, configurable route/port/limits, OpenAPI docs tùy chọn;
+- unit/integration tests cho lifecycle, schema, health, API errors và UI mount.
+
+### Limitations
+
+- chưa có authentication, rate limiting, CORS policy hoặc HTTPS termination;
+- chưa có Docker/cloud deployment configuration;
+- request pipeline đồng bộ và phù hợp baseline local, chưa benchmark tải đồng
+  thời;
+- Gradio chỉ dành cho chạy thử và quan sát, không phải production frontend.
+
 ---
 
 ## 18. Milestone 16 — Evaluation
+
+**Status:** Completed
 
 ### Objectives
 
@@ -527,6 +705,31 @@ Khi có gold answers hoặc human labels:
 - citation precision;
 - citation recall;
 - unsupported claim rate.
+
+### Implemented Baseline
+
+- backend-neutral `RetrievalEvaluator` và `GenerationEvaluator` Protocol;
+- JSONL `EvaluationCase` dùng stable chunk/document IDs và graded relevance;
+- Recall@k, Precision@k, MRR và NDCG@k bằng standard formulas;
+- automatic exact match, abstention accuracy và citation precision/recall chỉ
+  khi case có nhãn tương ứng;
+- bounded runner trên immutable `OnlineRuntime`, tiếp tục theo case khi lỗi và
+  hỗ trợ fail-fast cấu hình;
+- benchmark SHA-256, artifact versions, code version và metric case counts;
+- observed retrieval/generation latency, p50/p95, process CPU time và Python
+  traced-memory;
+- immutable `summary.json`, `cases.jsonl`, `errors.jsonl`;
+- CLI `legal-rag-evaluate`;
+- unit/integration tests cho metric arithmetic, document deduplication, missing
+  labels, benchmark validation, no-overwrite và aggregation.
+
+### Limitations
+
+- chưa có official competition gold benchmark;
+- không tự tạo synthetic QA làm gold;
+- answer correctness, groundedness và unsupported claim rate chưa được công bố
+  nếu thiếu gold/human labels;
+- traced-memory chỉ đo Python allocations, không phải toàn bộ RSS/GPU memory.
 
 ---
 

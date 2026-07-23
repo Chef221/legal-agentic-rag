@@ -13,8 +13,17 @@ from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalRespons
 class BM25Backend(Protocol):
     """Build, persist, load, and query a BM25 index over legal chunks."""
 
-    def build(self, chunks: Iterable[LegalChunk]) -> ArtifactManifest:
-        """Build an index from validated chunks and return its manifest."""
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        """Return source artifact type, version, and processing hash."""
+        ...
+
+    def build(
+        self,
+        chunks: Iterable[LegalChunk],
+        source_manifest: ArtifactManifest,
+    ) -> ArtifactManifest:
+        """Build from a validated legal-chunks artifact with provenance."""
         ...
 
     def search(self, query: RetrievalQuery) -> RetrievalResponse:

@@ -1,0 +1,87 @@
+"""Offline orchestration from legal chunk text to a vector index artifact."""
+
+from collections.abc import Sequence
+import logging
+
+from legal_agentic_rag.configuration.offline import VectorIndexConfig
+from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
+from legal_agentic_rag.contracts.vector_backend import VectorBackend
+from legal_agentic_rag.exceptions import (
+    ArtifactCompatibilityError,
+    DataValidationError,
+)
+from legal_agentic_rag.schemas.legal_documents import LegalChunk
+from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class VectorIndexBuilder:
+    """Batch document embeddings and pass aligned vectors to a backend."""
+
+    def __init__(
+        self,
+        provider: EmbeddingProvider,
+        backend: VectorBackend,
+        config: VectorIndexConfig | None = None,
+    ) -> None:
+        self._provider = provider
+        self._backend = backend
+        self._config = config or VectorIndexConfig()
+
+    def build(
+        self,
+        chunks: Sequence[LegalChunk],
+        source_manifest: ArtifactManifest,
+    ) -> ArtifactManifest:
+        """Embed every chunk exactly once and build the vector artifact."""
+        chunk_list = list(chunks)
+        if source_manifest.artifact_type != ArtifactType.LEGAL_CHUNKS:
+            raise ArtifactCompatibilityError(
+                "Vector builder requires a legal-chunks source artifact"
+            )
+        if source_manifest.record_count != len(chunk_list):
+            raise DataValidationError(
+                "Legal-chunks manifest count does not match vector build input"
+            )
+        vectors: list[Sequence[float]] = []
+        batch_size = self._config.embedding_batch_size
+        dimension = self._provider.dimension
+        for start in range(0, len(chunk_list), batch_size):
+            batch = chunk_list[start : start + batch_size]
+            batch_vectors = list(
+                self._provider.embed_documents(
+                    [chunk.search_text for chunk in batch],
+                    batch_size=batch_size,
+                )
+            )
+            if len(batch_vectors) != len(batch):
+                raise DataValidationError(
+                    "Embedding provider returned a mismatched batch size"
+                )
+            if any(len(vector) != dimension for vector in batch_vectors):
+                raise DataValidationError(
+                    "Embedding provider returned a mismatched dimension"
+                )
+            vectors.extend(batch_vectors)
+        manifest = self._backend.build(
+            chunk_list,
+            vectors,
+            source_manifest,
+            model_name=self._provider.model_name,
+            model_revision=self._provider.model_revision,
+            embedding_provider_name=self._provider.provider_name,
+            embedding_provider_version=self._provider.provider_version,
+            dimension=dimension,
+            embedding_batch_size=batch_size,
+        )
+        _LOGGER.info(
+            "vector_index_build_completed",
+            extra={
+                "backend": manifest.backend,
+                "chunk_count": len(chunk_list),
+                "model_name": self._provider.model_name,
+                "dimension": dimension,
+            },
+        )
+        return manifest

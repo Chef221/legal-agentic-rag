@@ -1,0 +1,32 @@
+[
+  {
+    "doc_id": "doc-1",
+    "other_doc_id": "doc-2",
+    "relationship": "Sửa đổi"
+  },
+  {
+    "doc_id": "doc-1",
+    "other_doc_id": "doc-2",
+    "relationship": "Sửa đổi"
+  },
+  {
+    "doc_id": "doc-2",
+    "other_doc_id": "doc-1",
+    "relationship": "Được sửa đổi bởi"
+  },
+  {
+    "doc_id": "doc-1",
+    "other_doc_id": "doc-1",
+    "relationship": "Liên quan"
+  },
+  {
+    "doc_id": "doc-1",
+    "other_doc_id": "ghost",
+    "relationship": "Hướng dẫn"
+  },
+  {
+    "doc_id": "ghost",
+    "other_doc_id": "doc-1",
+    "relationship": "Được hướng dẫn bởi"
+  }
+]

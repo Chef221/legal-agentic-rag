@@ -166,16 +166,37 @@ Chịu trách nhiệm:
 - context grading;
 - trace logging.
 
+Milestone 14 triển khai reference workflow dạng deterministic state machine.
+Workflow đi qua `AgentWorkflow` Protocol, chỉ gọi closed `ToolRegistry`, dùng
+quality-first route plan có giới hạn và không truy cập dataset/index/backend
+client trực tiếp. Đây là reference implementation, không phải quyết định cuối
+cùng về Agent framework production.
+
 ### 3.7 Serving Layer
 
 Chịu trách nhiệm:
 
-- API;
-- UI;
-- health checks;
+- FastAPI health, retrieval và answer endpoints;
+- optional Gradio diagnostic UI;
 - request validation;
 - response serialization;
-- latency monitoring.
+- một startup/shutdown lifecycle cho immutable online runtime.
+
+Baseline local chưa chịu trách nhiệm authentication, TLS, rate limiting hoặc
+production deployment.
+
+### 3.8 Evaluation Layer
+
+Chịu trách nhiệm:
+
+- load labeled benchmark qua competition-neutral schema;
+- gọi immutable online runtime;
+- tính retrieval và available generation metrics;
+- tổng hợp latency/resource observations;
+- persist summary, per-case results và sanitized errors.
+
+Evaluation không tạo gold labels, không fine-tune model và không thay đổi
+artifacts.
 
 ---
 
@@ -276,11 +297,37 @@ Agent chỉ gọi typed tools.
 
 Agent không gọi trực tiếp internal database client.
 
+Milestone 13 thực hiện boundary này bằng:
+
+- closed `ToolName` enum với đúng tám capability đã phê duyệt;
+- Pydantic input/output cho mọi invocation;
+- explicit dependency injection, không dynamic import hoặc auto-discovery;
+- registry chỉ nhận object thoả `TypedTool`;
+- descriptor công bố description, input schema, output schema và timeout budget;
+- raw backend client, dataset loading và artifact mutation không nằm trong tool
+  input;
+- payload/legal content không được ghi vào invocation log.
+
 ### 7.5 Serving Boundary
 
 API không được truy cập trực tiếp raw dataset hoặc database implementation.
 
 API gọi application service hoặc workflow interface.
+
+`ServingService` là boundary duy nhất chuyển public request thành
+`RetrievalQuery`. FastAPI và Gradio dùng chung một `OnlineRuntime` được load
+trong lifespan; health chỉ công bố artifact type/version/count/backend/model,
+không công bố local path.
+
+### 7.6 Runtime Assembly Boundary
+
+Runtime assembly là composition root duy nhất được biết concrete reference
+backend. `OfflineBuildRuntime` ghép các offline stage và persist immutable
+artifacts; `OnlineRuntimeFactory` chỉ load artifacts đã có, validate checksum,
+lineage, dataset/model/backend compatibility rồi tạo `OnlineRuntime`.
+
+Online runtime không được gọi dataset source, cleaner, parser, chunker hoặc
+method `build`/`persist` của backend.
 
 ---
 

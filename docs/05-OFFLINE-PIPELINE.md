@@ -114,6 +114,17 @@ Output:
 - `duplicate_records.csv`;
 - audit logs.
 
+### 3.5 Milestone 2 Implementation Boundary
+
+Milestone 2 triển khai audit theo các nguyên tắc:
+
+- raw AIO field names chỉ xuất hiện trong dataset adapter và audit;
+- audit chỉ đọc, thống kê và phân loại issue, không sửa raw record;
+- relationship label và effect status không bị tự canonicalize;
+- unknown-value check chỉ bật khi có accepted set trong configuration;
+- JSON/CSV report không silently overwrite kết quả cũ;
+- normalization và join thành `LegalDocument` vẫn thuộc Milestone 3.
+
 ---
 
 ## 4. Step 3: Normalize Documents
@@ -146,6 +157,24 @@ Output:
 - normalized documents;
 - normalization warnings;
 - normalized document manifest.
+
+### 4.1 Milestone 3 Implementation Policy
+
+- metadata là nguồn authoritative để tạo `LegalDocument`;
+- metadata ID trùng bị reject toàn bộ theo ID, không tự chọn một record;
+- content chỉ được gắn khi ID có đúng một content record hợp lệ;
+- nhiều content cùng ID không bị merge hoặc tự chọn; document được giữ với
+  `has_content = false` và issue rõ ràng;
+- orphan content không tạo metadata giả;
+- ngày không parse được thành null và sinh warning, ngày parse được nhưng
+  thứ tự bất thường vẫn được giữ nguyên;
+- effect status và document type chỉ canonicalize qua mapping configuration
+  rõ ràng; nếu không có mapping thì giữ nhãn nguồn sau khi trim;
+- `nguon_thu_thap` không được suy diễn thành URL và vẫn nằm trong
+  `raw_metadata`;
+- HTML không bị clean hoặc sửa trong bước này;
+- result trả về in-memory cùng `ArtifactManifest`; persistence writer được
+  trì hoãn cho tới khi artifact storage format được phê duyệt.
 
 ---
 
@@ -211,6 +240,29 @@ Không thực hiện:
 - removal of numbers;
 - removal of negative words.
 
+### 5.4 Milestone 4 Implementation Policy
+
+Milestone 4 dùng Python standard-library `html.parser` và nhận duy nhất
+unified `LegalDocument` cùng manifest `normalized_documents`:
+
+- tag non-content và noise class/id được cấu hình bằng exact token;
+- phần tử `hidden`, `aria-hidden=true`, `display:none` hoặc
+  `visibility:hidden` bị loại;
+- `header` và `footer` được giữ mặc định để tránh mất title, document number,
+  signature hoặc appendix;
+- table text được giữ với newline giữa row và ` | ` giữa cell; cấu trúc pháp
+  lý của bảng chưa được parse;
+- Unicode được normalize về NFC; HTML entity, control character, whitespace
+  và line break được normalize deterministic;
+- missing content và empty clean output tạo structured issue, không làm mất
+  document;
+- output là `HtmlCleaningResult` in-memory với cleaned artifact manifest;
+  persistence writer tiếp tục trì hoãn tới khi artifact storage format được
+  phê duyệt.
+
+Không tự suy đoán repeated header/footer bằng corpus-wide text matching vì
+policy đó có thể xóa nhầm nội dung pháp lý lặp hợp lệ.
+
 ---
 
 ## 6. Step 5: Parse Legal Structure
@@ -257,6 +309,31 @@ Output có thể gồm các `LegalBlock`:
 ```
 
 Parser không được tự sửa nội dung pháp lý.
+
+### 6.1 Milestone 5 Implementation Policy
+
+Milestone 5 dùng parser quy tắc theo line và chỉ nhận unified
+`LegalDocument.clean_text` cùng manifest `cleaned_documents`:
+
+- nhận diện Phần, Chương, Mục, Tiểu mục, Điều, Khoản, Điểm và Phụ lục bằng
+  marker tiếng Việt rõ ràng;
+- hỗ trợ Điều số thường hoặc La Mã, delimiter `.`, `:`, `-`, `–`, `—` và
+  title inline hoặc một dòng title ngắn kế tiếp;
+- chỉ nhận dạng Khoản/Điểm khi đang có Điều để tránh biến danh sách hành chính
+  độc lập thành hierarchy pháp lý giả;
+- numbering thiếu cấp hoặc không liên tục vẫn được giữ, không tự sửa;
+- marker không đủ chắc chắn được giữ như ordinary text và có structured issue;
+- preamble/văn bản không cấu trúc tạo block `document`; table rows liên tiếp
+  tạo block `table` kế thừa hierarchy;
+- block text không chồng lấp và coverage đo bằng non-whitespace characters;
+- block ID là hash deterministic từ document ID, order, type và preserved
+  block text;
+- output là `LegalStructureParsingResult` in-memory cùng manifest
+  `legal_blocks`; persistence writer tiếp tục trì hoãn tới khi artifact storage
+  format được phê duyệt.
+
+Parser không suy diễn semantic heading, không sửa chính tả và không gộp text
+vào chunk. Chunking vẫn thuộc Milestone 6.
 
 ---
 
@@ -319,7 +396,38 @@ Nếu không có article number:
 {document_id}::section-{structure_hash}::chunk-{chunk_index}
 ```
 
-### 7.4 Token Split Fallback
+### 7.4 Milestone 6 Implementation Policy
+
+Milestone 6 chỉ nhận unified `LegalDocument`, `LegalBlock` và manifest
+`legal_blocks`:
+
+- Điều cùng toàn bộ descendant blocks tạo một chunk khi không vượt
+  `max_tokens`;
+- Điều dài được chia bằng cách gom các direct child legal units, ưu tiên các
+  Khoản liên tiếp và không vượt giới hạn;
+- nếu một legal unit vẫn quá dài, tokenizer `unicode_word_v1` tạo sliding
+  windows với overlap cấu hình;
+- block ngoài Điều tạo standalone chunk để không mất preamble, heading, phụ
+  lục, table hoặc văn bản không cấu trúc;
+- defaults baseline là `max_tokens=512`, `min_tokens=50`,
+  `overlap_tokens=50`; `min_tokens` là ngưỡng cảnh báo, không phải lý do xóa
+  chunk hợp lệ;
+- chunk ID là content hash deterministic; `chunk_index` liên tục theo từng
+  document;
+- mỗi chunk giữ source block IDs, strategy, tokenizer, split index/count,
+  inherited document metadata và `LegalStructure`;
+- `search_text` chỉ thêm metadata/hierarchy có thật và preserved chunk text;
+- validator kiểm tra ID, token count/limit, source-block coverage, metadata
+  inheritance và chunk ordering;
+- output là `LegalChunkingResult` in-memory cùng manifest `legal_chunks`;
+  persistence writer tiếp tục trì hoãn tới khi artifact storage format được
+  phê duyệt.
+
+`unicode_word_v1` không được xem là tokenizer của embedding model hoặc LLM.
+Khi model chính thức được chọn, tokenizer/config và artifacts phải được đánh
+giá lại, version và rebuild rõ ràng.
+
+### 7.5 Token Split Fallback
 
 Token split chỉ được dùng khi legal boundary không đủ.
 
@@ -388,6 +496,25 @@ BM25 builder phải hỗ trợ:
 
 BM25 index không được chứa raw HTML.
 
+### 9.1 Milestone 7 Implementation Policy
+
+Baseline dùng SQLite FTS5 như một reference backend phía sau `BM25Backend`:
+
+- input là toàn bộ `LegalChunk` cùng manifest `legal_chunks` tương ứng;
+- analyzer `unicode_word_casefold_v1` normalize NFC/case cho lexical matching
+  nhưng không sửa `text` hoặc metadata gốc;
+- giữ dấu tiếng Việt, số và từ phủ định; không stemming hoặc stopword removal;
+- build theo thứ tự chunk ID ổn định và tie-break theo chunk ID;
+- artifact versioned gồm `index.sqlite3` và `manifest.json` với SHA-256 checksum;
+- persist từ chối destination đã tồn tại; reload kiểm tra manifest, backend,
+  analyzer, match mode, checksum, SQLite integrity và record count;
+- manifest ghi source artifact version/config hash, SQLite version và backend;
+- không thêm dependency vì dùng `sqlite3` trong Python standard library.
+
+Đây là reference baseline, không phải quyết định production backend cuối cùng.
+Khi đổi backend hoặc analyzer phải tạo artifact version/config hash mới và
+rebuild index.
+
 ---
 
 ## 10. Step 9: Build Vector Index
@@ -429,6 +556,30 @@ Vector backend phải hỗ trợ:
 
 Embedding model cụ thể chưa được chốt trong tài liệu kiến trúc.
 
+### 10.1 Milestone 8 Implementation Policy
+
+Dense baseline hiện dùng:
+
+- model `intfloat/multilingual-e5-small` pin tại revision
+  `614241f622f53c4eeff9890bdc4f31cfecc418b3` (MIT);
+- `sentence-transformers>=5,<6` phía sau `EmbeddingProvider`;
+- prefix `passage:` cho `LegalChunk.search_text`, prefix `query:` cho query;
+- dimension 384, max sequence length 512 và L2-normalized embeddings;
+- CPU là device mặc định vì runtime hiện không có NVIDIA GPU; device vẫn cấu hình;
+- batching mặc định 16 và model download chỉ xảy ra khi cache chưa có cùng
+  `local_files_only = false`;
+- NumPy float32 flat matrix làm reference `VectorBackend`, exact cosine search;
+- artifact gồm `vectors.npy`, `chunks.jsonl`, `manifest.json` và SHA-256 cho
+  numeric/chunk payload;
+- manifest ghi cả embedding provider name/version; reload memory-map vector
+  matrix và kiểm tra provider, model, revision, dimension, normalization, dtype,
+  metric, checksums, record count và chunk order;
+- persist từ chối destination đã tồn tại.
+
+Chưa dùng FAISS hoặc vector database vì chưa đo corpus-scale bottleneck và
+chưa có resource limit chính thức. Khi đổi model/revision/dimension/provider,
+phải re-embed toàn corpus và rebuild vector index; không tái sử dụng artifact cũ.
+
 ---
 
 ## 11. Step 10: Normalize Relationships
@@ -447,6 +598,17 @@ Công việc:
 - giữ invalid edge trong audit artifact.
 
 Không được map relationship type bằng phỏng đoán không kiểm chứng.
+
+### 11.1 Milestone 11 Implementation Policy
+
+- raw field AIO chỉ được đọc qua `AioRecordAdapter`;
+- chỉ canonicalize label khi có mapping cấu hình rõ ràng;
+- label chưa map vẫn được giữ ở `raw_relationship` và canonical type là null;
+- orphan endpoint, self-loop, endpoint/label thiếu và exact duplicate bị loại
+  khỏi graph, đồng thời tạo `AuditIssue`;
+- accepted edges được sort deterministic;
+- relationship artifact gồm `relationships.jsonl`, `manifest.json` và SHA-256;
+- persistence từ chối ghi đè destination đã tồn tại.
 
 ---
 
@@ -492,6 +654,21 @@ Graph backend phải hỗ trợ:
 - persistence;
 - reload;
 - graph manifest.
+
+### 12.4 Milestone 11 Reference Backend
+
+Milestone 11 dùng `adjacency_json` từ Python standard library làm reference
+`GraphBackend`, không phải quyết định production cuối cùng.
+
+- graph chỉ lưu document IDs và unified directed relationships, không nhân bản
+  toàn bộ legal content;
+- source document manifest và relationship manifest phải cùng dataset/revision;
+- relationship manifest phải trỏ đúng processing hash của normalized documents;
+- artifact gồm `graph.json`, `manifest.json` và SHA-256;
+- load kiểm tra backend/version/checksum/count/order/endpoints;
+- traversal là deterministic BFS, 1 hop mặc định và tối đa 2 hop;
+- filter theo canonical type; nếu canonical type chưa có thì dùng raw label;
+- mỗi reached document chỉ có một BFS discovery path ngắn nhất trong trace.
 
 ---
 
@@ -549,3 +726,30 @@ Offline pipeline phải:
 - ghi code version;
 - hỗ trợ resume khi khả thi;
 - không silently overwrite incompatible artifacts.
+
+---
+
+## 16. Runtime Assembly
+
+`OfflineBuildRuntime` là composition root cho baseline:
+
+```text
+AIO metadata/content/relationships snapshot
+→ audit
+→ normalize documents
+→ clean HTML
+→ parse legal blocks
+→ legal chunks
+→ normalize relationships
+→ build BM25/vector/graph
+→ persist immutable artifact set
+```
+
+Processed payloads `normalized_documents`, `cleaned_documents`,
+`legal_blocks` và `legal_chunks` dùng deterministic JSONL kèm manifest và
+SHA-256. Relationship/BM25/vector/graph tiếp tục dùng artifact store riêng của
+từng module. Tất cả directory nằm dưới configured `ArtifactConfig.root_path`;
+runtime preflight và từ chối overwrite trước khi load dataset.
+
+Baseline materialize ba raw streams trong bộ nhớ để audit và normalization dùng
+cùng snapshot. Streaming spool chỉ được thêm sau khi đo memory bottleneck.

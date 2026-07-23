@@ -87,6 +87,44 @@ class ContextGrade(BaseModel):
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
 
+class ContextBuildResult(BaseModel):
+    """Bounded evidence selection result produced from ranked retrieval hits."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evidence: list[Evidence] = Field(default_factory=list)
+    input_hit_count: int = Field(ge=0)
+    selected_count: int = Field(ge=0)
+    omitted_hit_count: int = Field(ge=0)
+    duplicate_hit_count: int = Field(ge=0)
+    estimated_token_count: int = Field(ge=0)
+    truncated: bool = False
+    warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "ContextBuildResult":
+        """Keep evidence, omission, duplicate, and truncation counts aligned."""
+        if self.selected_count != len(self.evidence):
+            raise ValueError("selected_count must equal evidence count")
+        if (
+            self.selected_count
+            + self.omitted_hit_count
+            + self.duplicate_hit_count
+            != self.input_hit_count
+        ):
+            raise ValueError("every retrieval hit must be selected or classified")
+        if self.truncated != bool(self.omitted_hit_count):
+            raise ValueError("truncated must be true exactly when hits were omitted")
+        evidence_ids = [item.evidence_id for item in self.evidence]
+        chunk_ids = [item.chunk_id for item in self.evidence]
+        if (
+            len(evidence_ids) != len(set(evidence_ids))
+            or len(chunk_ids) != len(set(chunk_ids))
+        ):
+            raise ValueError("selected evidence identities must be unique")
+        return self
+
+
 class Citation(BaseModel):
     """Reference from an answer to an existing evidence record."""
 

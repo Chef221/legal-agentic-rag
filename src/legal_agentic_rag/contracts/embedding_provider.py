@@ -9,6 +9,16 @@ class EmbeddingProvider(Protocol):
     """Create vectors while exposing the identity required by manifests."""
 
     @property
+    def provider_name(self) -> str:
+        """Return the concrete embedding provider identity."""
+        ...
+
+    @property
+    def provider_version(self) -> str:
+        """Return the concrete embedding provider package version."""
+        ...
+
+    @property
     def model_name(self) -> str:
         """Return the configured embedding model name."""
         ...
@@ -23,7 +33,12 @@ class EmbeddingProvider(Protocol):
         """Return the fixed output vector dimension."""
         ...
 
-    def embed_documents(self, texts: Sequence[str]) -> Sequence[Sequence[float]]:
+    def embed_documents(
+        self,
+        texts: Sequence[str],
+        *,
+        batch_size: int,
+    ) -> Sequence[Sequence[float]]:
         """Embed a batch of legal chunk search texts."""
         ...
 

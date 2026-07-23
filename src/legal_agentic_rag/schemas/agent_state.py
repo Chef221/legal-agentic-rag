@@ -1,10 +1,24 @@
-"""Typed state contracts reserved for the later bounded Agent workflow."""
+"""Typed state and result contracts for the bounded Agent workflow."""
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from enum import StrEnum
 
-from legal_agentic_rag.schemas.answering import Citation, ContextGrade, Evidence
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
+
+from legal_agentic_rag.schemas.answering import (
+    AnswerResponse,
+    Citation,
+    ContextGrade,
+    Evidence,
+)
 from legal_agentic_rag.schemas.retrieval import (
     RetrievalHit,
     RetrievalQuery,
@@ -37,7 +51,7 @@ class RetrievalHistoryItem(BaseModel):
 
 
 class AgentState(BaseModel):
-    """Serializable state contract for a future bounded Agent workflow."""
+    """Serializable state of one bounded Agent workflow run."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -86,3 +100,50 @@ class AgentState(BaseModel):
         if attempts != sorted(attempts) or len(attempts) != len(set(attempts)):
             raise ValueError("retrieval history attempts must be unique and ordered")
         return values
+
+
+class AgentStopReason(StrEnum):
+    """Explicit terminal reasons for a bounded Agent run."""
+
+    ANSWER_VERIFIED = "answer_verified"
+    MAX_RETRY_REACHED = "max_retry_reached"
+    NO_NEW_STRATEGY = "no_new_strategy"
+    NON_RETRYABLE_TOOL_ERROR = "non_retryable_tool_error"
+    TIMEOUT = "timeout"
+    GENERATION_FAILED = "generation_failed"
+    CITATION_VERIFICATION_FAILED = "citation_verification_failed"
+
+
+class AgentRunResult(BaseModel):
+    """Final answer and inspectable state returned by an Agent workflow."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    state: AgentState
+    response: AnswerResponse
+    stop_reason: AgentStopReason
+    total_latency_ms: float = Field(default=0.0, ge=0)
+
+    @model_validator(mode="after")
+    def validate_state_response_alignment(self) -> "AgentRunResult":
+        """Keep the public answer aligned with the serialized terminal state."""
+        if self.response.trace_id != self.state.trace_id:
+            raise ValueError("response trace_id must match Agent state")
+        if self.response.answer != self.state.answer:
+            raise ValueError("response answer must match Agent state")
+        if self.response.citations != self.state.citations:
+            raise ValueError("response citations must match Agent state")
+        if (
+            self.state.selected_strategy is not None
+            and self.response.retrieval_strategy != self.state.selected_strategy
+        ):
+            raise ValueError("response strategy must match terminal Agent state")
+        if self.state.retry_count != max(0, len(self.state.retrieval_history) - 1):
+            raise ValueError("retry_count must equal completed attempts minus one")
+        if (
+            self.stop_reason == AgentStopReason.ANSWER_VERIFIED
+        ) == self.response.insufficient_evidence:
+            raise ValueError(
+                "only answer_verified may return a non-abstaining response"
+            )
+        return self

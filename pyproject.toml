@@ -4,18 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legal-agentic-rag"
-version = "0.1.0"
-description = "Unified contracts and scaffold for Vietnamese Legal Agentic RAG"
+version = "0.17.0"
+description = "Vietnamese legal RAG with immutable artifacts, API, and local UI"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "datasets>=5,<6",
+    "fastapi>=0.139,<1",
+    "gradio>=6,<7",
+    "numpy>=1.26,<3",
     "pydantic>=2,<3",
+    "sentence-transformers>=5,<6",
+    "uvicorn>=0.30,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
+    "httpx2>=2,<3",
     "pytest>=8",
 ]
+
+[project.scripts]
+legal-rag-build = "legal_agentic_rag.serving.cli:build_main"
+legal-rag-evaluate = "legal_agentic_rag.serving.cli:evaluate_main"
+legal-rag-serve = "legal_agentic_rag.serving.cli:serve_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

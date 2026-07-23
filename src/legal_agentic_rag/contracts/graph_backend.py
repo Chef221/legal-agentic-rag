@@ -18,8 +18,16 @@ class GraphBackend(Protocol):
         self,
         documents: Iterable[LegalDocument],
         relationships: Iterable[LegalRelationship],
+        *,
+        document_manifest: ArtifactManifest,
+        relationship_manifest: ArtifactManifest,
     ) -> ArtifactManifest:
         """Build a document-level graph from normalized inputs."""
+        ...
+
+    @property
+    def manifest(self) -> ArtifactManifest:
+        """Return the manifest for the ready graph artifact."""
         ...
 
     def traverse(
@@ -28,7 +36,7 @@ class GraphBackend(Protocol):
         max_hops: int,
         relationship_types: Sequence[str] | None = None,
     ) -> Sequence[GraphPathStep]:
-        """Return bounded graph paths starting from text-retrieval seeds."""
+        """Return deterministic BFS discovery edges from retrieval seeds."""
         ...
 
     def persist(self, destination: Path) -> ArtifactManifest:

@@ -15,6 +15,16 @@ class Reranker(Protocol):
     """Rerank only candidates produced by retrieval."""
 
     @property
+    def provider_name(self) -> str:
+        """Return the concrete reranker provider identity."""
+        ...
+
+    @property
+    def provider_version(self) -> str:
+        """Return the concrete reranker provider version."""
+        ...
+
+    @property
     def model_name(self) -> str:
         """Return the configured reranker model name."""
         ...
@@ -27,5 +37,5 @@ class Reranker(Protocol):
     def rerank(
         self, query: RetrievalQuery, candidates: Sequence[RetrievalHit]
     ) -> RetrievalResponse:
-        """Return a reranked response for the bounded candidate set."""
+        """Score and rerank only the supplied bounded candidate set."""
         ...

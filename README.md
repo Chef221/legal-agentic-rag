@@ -6,14 +6,45 @@ Hệ thống Agentic RAG cho bài toán trả lời câu hỏi pháp luật Vi�
 
 Dự án đã hoàn thành:
 
-`Milestone 1 — Project Scaffold`
+`Milestone 16 — Evaluation`
 
-Hiện repository có unified schemas, backend contracts, typed
-configuration, exception taxonomy, logging foundation và test structure.
+Hệ thống có composition root để build toàn bộ AIO artifacts, online factory để
+reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/Gradio để
+chạy thử baseline. Startup kiểm tra checksum, dataset lineage và embedding
+identity trước khi nhận query.
 
-Chưa triển khai offline data pipeline hoặc business logic.
+Evaluation framework hỗ trợ labeled JSONL benchmark, Recall/Precision/MRR/NDCG,
+available generation metrics, latency/resource summary và error analysis.
 
-Chưa triển khai Agent.
+## Local Baseline
+
+```powershell
+python -m pip install -e ".[dev]"
+Copy-Item configs/baseline.example.json configs/baseline.local.json
+# Chỉnh configs/baseline.local.json nếu cần.
+legal-rag-build --config configs/baseline.local.json
+legal-rag-serve --config configs/baseline.local.json
+```
+
+Chạy benchmark có nhãn:
+
+```powershell
+legal-rag-evaluate `
+  --config configs/baseline.local.json `
+  --benchmark path/to/benchmark.jsonl `
+  --output reports/evaluation-run
+```
+
+Sau khi server sẵn sàng:
+
+- UI: `http://127.0.0.1:8000/ui`
+- API docs: `http://127.0.0.1:8000/docs`
+- health: `http://127.0.0.1:8000/api/v1/health`
+- retrieval: `POST /api/v1/retrieve`
+- answer: `POST /api/v1/answer`
+
+UI hiện là giao diện chẩn đoán local, chưa có authentication hoặc cấu hình
+deployment production.
 
 ## Current Dataset
 

@@ -92,14 +92,20 @@ class LegalDocument(BaseModel):
         "scope",
         "application_info",
         "source_url",
-        "content_html",
-        "clean_text",
         mode="before",
     )
     @classmethod
     def normalize_optional_text(cls, value: object) -> object:
         """Normalize empty optional strings to null."""
         return _optional_text(value)
+
+    @field_validator("content_html", "clean_text", mode="before")
+    @classmethod
+    def preserve_optional_legal_text(cls, value: object) -> object:
+        """Map whitespace-only text to null without altering non-empty content."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 class LegalStructure(BaseModel):

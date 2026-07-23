@@ -1,14 +1,43 @@
 """Public unified schema models."""
 
-from legal_agentic_rag.schemas.agent_state import AgentState, RetrievalHistoryItem
+from legal_agentic_rag.schemas.agent_state import (
+    AgentRunResult,
+    AgentState,
+    AgentStopReason,
+    RetrievalHistoryItem,
+)
 from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     Citation,
     CitationVerificationResult,
+    ContextBuildResult,
     ContextGrade,
     Evidence,
 )
-from legal_agentic_rag.schemas.auditing import AuditIssue, AuditSeverity
+from legal_agentic_rag.schemas.auditing import (
+    AuditFieldProfile,
+    AuditIssue,
+    AuditSeverity,
+    ComponentAuditSummary,
+    DatasetAuditReport,
+    JoinAuditSummary,
+)
+from legal_agentic_rag.schemas.cleaning import HtmlCleaningResult
+from legal_agentic_rag.schemas.evaluation import (
+    EvaluationCase,
+    EvaluationCaseResult,
+    EvaluationResourceUsage,
+    EvaluationRunResult,
+    EvaluationSummary,
+    EvaluationTargetGranularity,
+    GenerationCaseMetrics,
+    LatencySummary,
+    RetrievalCaseMetrics,
+)
+from legal_agentic_rag.schemas.chunking import (
+    DocumentChunkingDiagnostic,
+    LegalChunkingResult,
+)
 from legal_agentic_rag.schemas.legal_documents import (
     LegalBlock,
     LegalBlockType,
@@ -23,6 +52,11 @@ from legal_agentic_rag.schemas.manifests import (
     ArtifactValidationResult,
     DatasetManifest,
 )
+from legal_agentic_rag.schemas.normalization import DocumentNormalizationResult
+from legal_agentic_rag.schemas.parsing import (
+    DocumentParsingDiagnostic,
+    LegalStructureParsingResult,
+)
 from legal_agentic_rag.schemas.retrieval import (
     GraphPathStep,
     RetrievalFilters,
@@ -32,32 +66,94 @@ from legal_agentic_rag.schemas.retrieval import (
     RetrievalStrategy,
     RetrievalTrace,
 )
+from legal_agentic_rag.schemas.relationship_processing import (
+    RelationshipNormalizationResult,
+)
+from legal_agentic_rag.schemas.runtime import OfflineBuildResult
+from legal_agentic_rag.schemas.serving import (
+    ApiErrorDetail,
+    ApiErrorResponse,
+    ArtifactHealth,
+    HealthResponse,
+    LegalQuestionRequest,
+    ServiceStatus,
+)
+from legal_agentic_rag.schemas.tools import (
+    AnswerGenerationInput,
+    CitationVerificationInput,
+    ContextGradingInput,
+    ToolDescriptor,
+    ToolError,
+    ToolErrorType,
+    ToolInvocationRequest,
+    ToolInvocationResult,
+    ToolName,
+)
 
 __all__ = [
     "AgentState",
+    "ApiErrorDetail",
+    "ApiErrorResponse",
+    "AgentRunResult",
+    "AgentStopReason",
     "AnswerResponse",
+    "AnswerGenerationInput",
     "ArtifactManifest",
     "ArtifactType",
     "ArtifactValidationResult",
+    "ArtifactHealth",
+    "AuditFieldProfile",
     "AuditIssue",
     "AuditSeverity",
     "Citation",
     "CitationVerificationResult",
+    "CitationVerificationInput",
+    "ContextBuildResult",
     "ContextGrade",
+    "ContextGradingInput",
+    "ComponentAuditSummary",
+    "DatasetAuditReport",
     "DatasetManifest",
+    "DocumentNormalizationResult",
+    "DocumentParsingDiagnostic",
+    "DocumentChunkingDiagnostic",
     "Evidence",
+    "EvaluationCase",
+    "EvaluationCaseResult",
+    "EvaluationResourceUsage",
+    "EvaluationRunResult",
+    "EvaluationSummary",
+    "EvaluationTargetGranularity",
+    "GenerationCaseMetrics",
     "GraphPathStep",
+    "HtmlCleaningResult",
+    "HealthResponse",
     "LegalBlock",
     "LegalBlockType",
     "LegalChunk",
+    "LegalChunkingResult",
     "LegalDocument",
     "LegalRelationship",
     "LegalStructure",
+    "LegalStructureParsingResult",
+    "LegalQuestionRequest",
+    "LatencySummary",
+    "OfflineBuildResult",
+    "JoinAuditSummary",
     "RetrievalFilters",
+    "RetrievalCaseMetrics",
     "RetrievalHistoryItem",
     "RetrievalHit",
     "RetrievalQuery",
+    "RelationshipNormalizationResult",
+    "ServiceStatus",
     "RetrievalResponse",
     "RetrievalStrategy",
     "RetrievalTrace",
+    "ToolDescriptor",
+    "ToolError",
+    "ToolErrorType",
+    "ToolInvocationRequest",
+    "ToolInvocationResult",
+    "ToolName",
 ]

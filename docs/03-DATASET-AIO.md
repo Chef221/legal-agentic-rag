@@ -44,6 +44,27 @@ data audit.
 
 Không được dựa hoàn toàn vào mô tả tài liệu mà bỏ qua schema thực tế.
 
+### 3.1 Schema Verified in Milestone 2
+
+Live smoke test ngày 2026-07-18 tại revision
+`0a39ad7eae8e6c188cb225c4b1443c3b346461d8` xác nhận:
+
+- config `metadata`, split `data`: `id`, `title`, `so_ky_hieu`,
+  `loai_van_ban`, `ngay_ban_hanh`, `ngay_co_hieu_luc`,
+  `ngay_het_hieu_luc`, `tinh_trang_hieu_luc`, `co_quan_ban_hanh`,
+  `chuc_danh`, `nguoi_ky`, `nganh`, `linh_vuc`, `pham_vi`,
+  `thong_tin_ap_dung`, `nguon_thu_thap`, `ngay_dang_cong_bao`;
+- config `content`, split `data`: `id`, `content_html`;
+- config `relationships`, split `data`: `doc_id`, `other_doc_id`,
+  `relationship`.
+
+Revision `main` có thể thay đổi. Manifest của mỗi ingestion vẫn là nguồn
+truy vết cho lần chạy đó.
+
+Config `content` hiện có metadata Arrow khai báo `string` nhưng Parquet dùng
+`large_string`. Loader AIO áp dụng feature override `large_string` chỉ tại
+dataset boundary để tránh narrowing overflow; raw text không bị thay đổi.
+
 ---
 
 ## 4. Metadata Component
@@ -80,6 +101,31 @@ Các trường có thể gồm:
 Tên trường thực tế có thể khác.
 
 Dataset adapter chịu trách nhiệm ánh xạ raw field sang unified schema.
+
+### 4.1 Milestone 3 Field Mapping
+
+| Raw AIO | Unified `LegalDocument` |
+|---|---|
+| `id` | `document_id` |
+| `title` | `title` |
+| `so_ky_hieu` | `document_number` |
+| `loai_van_ban` | `document_type` |
+| `ngay_ban_hanh` | `issuance_date` |
+| `ngay_co_hieu_luc` | `effective_date` |
+| `ngay_het_hieu_luc` | `expiry_date` |
+| `tinh_trang_hieu_luc` | `effect_status` |
+| `co_quan_ban_hanh` | `issuing_authority` |
+| `chuc_danh` | `position_title` |
+| `nguoi_ky` | `signer` |
+| `nganh` | `sector` |
+| `linh_vuc` | `legal_field` |
+| `pham_vi` | `scope` |
+| `thong_tin_ap_dung` | `application_info` |
+| `ngay_dang_cong_bao` | `publication_date` |
+| `source_url` nếu tồn tại và hợp lệ | `source_url` |
+
+Toàn bộ metadata record, kể cả field chưa map như `nguon_thu_thap`, được
+giữ trong `raw_metadata`.
 
 ---
 

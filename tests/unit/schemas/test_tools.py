@@ -1,0 +1,59 @@
+"""Schema invariants for typed tool invocation boundaries."""
+
+import pytest
+from pydantic import ValidationError
+
+from legal_agentic_rag.schemas import (
+    ToolError,
+    ToolErrorType,
+    ToolInvocationRequest,
+    ToolInvocationResult,
+    ToolName,
+)
+
+
+def test_tool_invocation_result_requires_exactly_output_or_error() -> None:
+    """Success and failure envelopes cannot be ambiguous."""
+    success = ToolInvocationResult(
+        invocation_id="invoke-1",
+        tool_name=ToolName.BM25_SEARCH,
+        success=True,
+        output={},
+    )
+    failure = ToolInvocationResult(
+        invocation_id="invoke-2",
+        tool_name=ToolName.BM25_SEARCH,
+        success=False,
+        error=ToolError(
+            error_type=ToolErrorType.INVALID_INPUT,
+            message="Invalid input.",
+        ),
+    )
+
+    assert success.error is None
+    assert failure.output is None
+    with pytest.raises(ValidationError):
+        ToolInvocationResult(
+            invocation_id="invoke-3",
+            tool_name=ToolName.BM25_SEARCH,
+            success=True,
+        )
+
+
+def test_tool_request_rejects_unknown_fields_and_empty_identity() -> None:
+    """The registry boundary stays closed and traceable."""
+    with pytest.raises(ValidationError):
+        ToolInvocationRequest(
+            invocation_id=" ",
+            tool_name=ToolName.BM25_SEARCH,
+            payload={},
+        )
+    with pytest.raises(ValidationError):
+        ToolInvocationRequest.model_validate(
+            {
+                "invocation_id": "invoke",
+                "tool_name": "bm25_search",
+                "payload": {},
+                "raw_database_client": "forbidden",
+            }
+        )

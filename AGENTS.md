@@ -1329,7 +1329,7 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 1 — Project Scaffold (Completed)
+Milestone 16 — Evaluation (Completed)
 ```
 
 Milestone 1 đã tạo:
@@ -1343,24 +1343,193 @@ Milestone 1 đã tạo:
 - unit và integration test structure;
 - small unified-schema fixtures.
 
-Milestone 1 không triển khai business logic.
+Milestone 2 đã tạo:
 
-Hiện chưa được phép triển khai nếu chưa có yêu cầu milestone mới:
+- production AIO dataset source qua Hugging Face `datasets`;
+- raw-field adapter cô lập theo dataset;
+- sample limit, streaming, revision và dataset manifest;
+- schema, identity, join, content, metadata và relationship audit;
+- versioned JSON audit report và CSV issue reports;
+- small raw AIO fixtures, unit tests và local integration test.
 
-- dataset loader production và dataset audit;
-- cleaner;
-- parser;
-- chunker;
-- index;
-- retrieval;
-- generator;
-- Agent;
-- API.
+Milestone 3 đã tạo:
 
-Bước tiếp theo chỉ sau khi người dùng phê duyệt phạm vi:
+- AIO raw-field projection sang stable normalization inputs;
+- deterministic ID, null, date, URL và configurable label normalization;
+- conservative metadata-content join;
+- duplicate/invalid record rejection có structured issue;
+- unified `LegalDocument` outputs và normalized artifact manifest;
+- unit tests và loader-to-normalizer integration test.
+
+Milestone 4 đã tạo:
+
+- deterministic HTML cleaner dùng Python standard library;
+- explicit tag/class/id và hidden-element noise policy;
+- Unicode NFC, entity, whitespace và line-break normalization;
+- bảo toàn legal markers, số, phủ định, bảng và visible legal text;
+- typed cleaning result, structured issues và cleaned artifact manifest;
+- fixture HTML, unit tests và normalizer-to-cleaner integration test.
+
+Milestone 5 đã tạo:
+
+- deterministic line-based Vietnamese legal structure parser;
+- hierarchy cho Phần, Chương, Mục, Tiểu mục, Điều, Khoản và Điểm;
+- document, appendix và table blocks không chồng lấp text;
+- deterministic block IDs, parent links và inherited `LegalStructure`;
+- per-document coverage diagnostics và structured parser issues;
+- legal-block artifact manifest, fixtures, unit và integration tests.
+
+Milestone 6 đã tạo:
+
+- article-first legal chunker với clause grouping và token fallback;
+- dependency-free Unicode baseline tokenizer có bounded overlap;
+- deterministic chunk IDs, per-document indexes và search text;
+- source block provenance và document/legal metadata inheritance;
+- legal chunk validator cùng per-document block coverage diagnostics;
+- legal-chunks artifact manifest, unit và integration tests.
+
+Milestone 7 đã tạo:
+
+- SQLite FTS5 reference backend phía sau `BM25Backend`;
+- deterministic Unicode analyzer giữ dấu tiếng Việt, số và từ phủ định;
+- BM25 build/search cùng unified filters, hit metadata, trace và latency;
+- versioned SQLite artifact, JSON manifest và SHA-256 checksum;
+- compatibility validation, persistence, reload và no-overwrite policy;
+- serialized cross-thread reads cho FastAPI/Gradio shared runtime;
+- unit và integration tests từ legal chunks đến persisted BM25 query.
+
+Milestone 7 không triển khai embedding, vector index hoặc hybrid retrieval.
+
+Milestone 8 đã tạo:
+
+- pinned multilingual E5 embedding provider qua `EmbeddingProvider`;
+- passage/query prefixes, normalized 384-dimensional embeddings và CPU default;
+- batched offline vector index builder;
+- NumPy float32 exact cosine backend qua `VectorBackend`;
+- versioned vector/chunk artifacts, manifests, checksums và memory-mapped reload;
+- strict provider/model/revision/dimension compatibility trước dense query;
+- unified filters, dense retrieval trace, model compatibility và total latency;
+- unit/integration tests cùng live model smoke test không dùng AIO data.
+
+Milestone 8 không triển khai hybrid RRF, reranking hoặc graph retrieval.
+
+Milestone 9 đã tạo:
+
+- standard unweighted Reciprocal Rank Fusion với configurable constant 60;
+- candidate-k retrieval cho BM25/dense và final top-k fusion;
+- chunk-ID deduplication cùng per-branch rank, raw score và RRF contribution;
+- source-artifact compatibility giữa BM25 và vector index;
+- deterministic tie-breaking, namespaced warnings và fail-closed branch errors;
+- fixed routing cho BM25, dense và hybrid không cần Agent;
+- unit/integration tests dùng persisted reference backends và fixture embedding.
+
+Milestone 9 không triển khai reranking, graph retrieval, generator hoặc Agent.
+
+Milestone 10 đã tạo:
+
+- revision-pinned multilingual cross-encoder qua `Reranker` Protocol;
+- typed model, device, batching, max-length và candidate-limit configuration;
+- lazy model loading và tách lỗi initialization khỏi lỗi inference;
+- bounded hybrid-candidate reranking với deterministic tie-breaking;
+- bảo toàn legal payload, BM25/dense/RRF provenance và artifact versions;
+- fixed routing cho strategy `hybrid_rerank` không cần Agent;
+- unit/integration tests với fixture model và live multilingual model smoke test.
+
+Milestone 10 không triển khai graph retrieval, generator hoặc Agent.
+
+Milestone 11 đã tạo:
+
+- AIO relationship normalization với explicit canonical mapping;
+- structured rejection cho invalid endpoint, orphan, self-loop và duplicate;
+- versioned relationship artifact với manifest, checksum và no-overwrite;
+- persisted directed adjacency graph phía sau `GraphBackend`;
+- deterministic BFS 1 hop mặc định và tối đa 2 hop;
+- hybrid text seeds, related-document chunk retrieval và bounded final rerank;
+- graph hop/path trace cùng fixed strategy `graph` không cần Agent;
+- unit/integration tests cho normalization, persistence, traversal và retrieval.
+
+Milestone 11 không triển khai generator, Agent hoặc API.
+
+Milestone 12 đã tạo:
+
+- bounded context builder giữ whole legal chunks và retrieval provenance;
+- structural context grader công khai chưa semantic-grade;
+- dependency-free extractive generator qua `AnswerGenerator`;
+- exact rule-based verifier qua `CitationVerifier`;
+- fixed retrieval-to-answer orchestration với deterministic trace ID;
+- explicit abstention khi context thiếu hoặc citation verification thất bại;
+- response metadata giữ context grade, verification và artifact versions;
+- unit/integration tests tới verified grounded answer.
+
+Milestone 12 không triển khai LLM generator, tool wrappers, Agent hoặc API.
+
+Milestone 13 đã tạo:
+
+- closed `ToolName` enum với đúng tám approved capabilities;
+- typed inputs, descriptors, invocation results và sanitized errors;
+- năm fixed retrieval wrappers;
+- context grading, answer generation và citation verification wrappers;
+- explicit registry/factory không plugin discovery hoặc dynamic import;
+- output-contract validation, timeout budget và safe domain-error mapping;
+- payload-free invocation logging;
+- unit/integration workflow tests không dùng Agent.
+
+Milestone 13 không triển khai strategy selection, retry workflow, Agent framework
+hoặc API.
+
+Milestone 14 đã tạo:
+
+- dependency-free deterministic Agent phía sau `AgentWorkflow` Protocol;
+- quality-first route plan chỉ dùng registered retrieval tools;
+- conservative query rewrite không tạo thêm legal term;
+- `max_retry = 2` và explicit stopping reasons;
+- typed terminal `AgentRunResult` giữ answer, state và latency;
+- fail-closed abstention khi generation/citation/tool failure;
+- payload-free invocation trace và workflow logging;
+- unit/integration tests cho retry, stopping, tool restriction và error paths.
+
+Milestone 14 không triển khai runtime assembly, API, UI hoặc LLM generator.
+
+Runtime Assembly đã tạo:
+
+- `OfflineBuildRuntime` ghép AIO source tới BM25/vector/graph artifacts;
+- deterministic JSONL persistence cho processed documents/blocks/chunks;
+- manifest, checksum, no-overwrite và configurable artifact layout;
+- `OnlineRuntimeFactory` load/validate artifacts và ghép complete Agent runtime;
+- startup compatibility cho dataset, chunk/index source, graph lineage và
+  embedding identity;
+- BM25/dense dùng Agent rewritten query khi retry;
+- integration test từ raw fixture tới verified answer sau persistence/reload.
+
+Milestone 15 đã tạo:
+
+- FastAPI lifespan load một immutable `OnlineRuntime` và fail-fast startup;
+- versioned health, retrieval và answer endpoints;
+- typed bounded public request, health và safe-error schemas;
+- serving service chuẩn hóa Unicode/whitespace và tạo query ID;
+- optional Gradio diagnostic UI dùng chung runtime;
+- explicit JSON config loader cùng build/serve CLI;
+- localhost-safe defaults và configurable serving limits;
+- unit/integration tests cho API lifecycle, errors, health và UI mount.
+
+Milestone 16 đã tạo:
+
+- competition-neutral JSONL evaluation cases với chunk/document labels;
+- `RetrievalEvaluator` và `GenerationEvaluator` Protocol;
+- Recall@k, Precision@k, MRR và graded NDCG@k;
+- available exact match, abstention và citation metrics;
+- benchmark/config/artifact/code provenance;
+- per-case results, sanitized errors, latency và resource summary;
+- immutable JSON/JSONL reports cùng `legal-rag-evaluate` CLI;
+- unit/integration tests cho metric arithmetic và complete runner.
+
+Milestone 16 không tạo official/synthetic gold benchmark, không fine-tune model
+và không tuyên bố semantic metrics khi thiếu gold/human labels.
+
+Bước tiếp theo chỉ sau khi người dùng yêu cầu và có thông tin BTC:
 
 ```text
-Milestone 2 — Dataset Loader and Audit
+Milestone 17 — Competition Adaptation
 ```
 
 ---

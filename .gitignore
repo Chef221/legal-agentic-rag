@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-tmp*/
 .mypy_cache/
 .ruff_cache/
 .coverage
@@ -10,9 +11,12 @@ htmlcov/
 # Virtual environments and local secrets
 .venv/
 venv/
+.python/
+.pip-cache/
 .env
 .env.*
 !.env.example
+configs/*.local.json
 
 # Packaging output
 build/
@@ -26,6 +30,7 @@ models/
 checkpoints/
 cache/
 logs/
+reports/
 *.log
 
 # Editor and operating-system files

@@ -1,0 +1,35 @@
+[
+  {
+    "id": "doc-1",
+    "title": "Luật mẫu số một",
+    "so_ky_hieu": "01/2026/QH",
+    "loai_van_ban": "Luật",
+    "ngay_ban_hanh": "01/01/2026",
+    "ngay_co_hieu_luc": "01/02/2026",
+    "ngay_het_hieu_luc": null,
+    "tinh_trang_hieu_luc": "Còn hiệu lực",
+    "source_url": "https://example.test/doc-1"
+  },
+  {
+    "id": "doc-2",
+    "title": "Văn bản thiếu nội dung",
+    "so_ky_hieu": "",
+    "loai_van_ban": "Nghị định",
+    "ngay_ban_hanh": "không-phải-ngày",
+    "ngay_co_hieu_luc": "2025-01-01",
+    "ngay_het_hieu_luc": "2024-01-01",
+    "tinh_trang_hieu_luc": "Không rõ",
+    "source_url": null
+  },
+  {
+    "id": "doc-1",
+    "title": "Bản metadata trùng ID",
+    "so_ky_hieu": "01/2026/QH",
+    "loai_van_ban": "Luật",
+    "ngay_ban_hanh": "01/01/2026",
+    "ngay_co_hieu_luc": "01/02/2026",
+    "ngay_het_hieu_luc": null,
+    "tinh_trang_hieu_luc": "Còn hiệu lực",
+    "source_url": "https://example.test/doc-1-copy"
+  }
+]

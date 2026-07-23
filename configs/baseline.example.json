@@ -1,0 +1,31 @@
+{
+  "artifacts": {
+    "root_path": "artifacts"
+  },
+  "offline": {
+    "dataset": {
+      "dataset_name": "th1nhng0/vietnamese-legal-documents",
+      "dataset_revision": null,
+      "sample_limit": 100,
+      "streaming": false
+    },
+    "relationship_normalization": {
+      "relationship_type_mapping": {}
+    }
+  },
+  "online": {},
+  "logging": {
+    "level": "INFO"
+  },
+  "serving": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "ui_enabled": true
+  },
+  "evaluation": {
+    "cutoffs": [1, 5, 10],
+    "strategy": "hybrid_rerank",
+    "candidate_k": 100,
+    "run_generation": true
+  }
+}
