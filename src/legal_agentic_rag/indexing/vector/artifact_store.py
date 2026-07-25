@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -11,9 +12,11 @@ import tempfile
 import numpy as np
 from pydantic import ValidationError
 
+from legal_agentic_rag.contracts.vector_backend import VectorBuildBatch
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     BackendInitializationError,
+    DataValidationError,
 )
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
@@ -21,6 +24,120 @@ from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 VECTORS_FILENAME = "vectors.npy"
 CHUNKS_FILENAME = "chunks.jsonl"
 MANIFEST_FILENAME = "manifest.json"
+
+
+def persist_vector_batches(
+    *,
+    batches: Iterable[VectorBuildBatch],
+    destination: Path,
+    manifest: ArtifactManifest,
+    dimension: int,
+) -> ArtifactManifest:
+    """Persist bounded vector batches directly into an atomic artifact."""
+    destination = destination.resolve()
+    if destination.exists():
+        raise BackendInitializationError(
+            "Vector artifact destination already exists"
+        )
+    if not destination.parent.exists():
+        raise BackendInitializationError(
+            "Vector artifact parent directory does not exist"
+        )
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent)
+    )
+    destination_created = False
+    try:
+        vectors_path = temporary / VECTORS_FILENAME
+        chunks_path = temporary / CHUNKS_FILENAME
+        vectors = np.lib.format.open_memmap(
+            vectors_path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(manifest.record_count, dimension),
+        )
+        offset = 0
+        seen_chunk_ids: set[str] = set()
+        with chunks_path.open("w", encoding="utf-8", newline="\n") as stream:
+            for batch in batches:
+                chunk_values = list(batch.chunks)
+                matrix = np.asarray(batch.vectors, dtype=np.float32)
+                if matrix.shape != (len(chunk_values), dimension):
+                    raise DataValidationError(
+                        "Vector batch shape does not match chunks"
+                    )
+                if not np.isfinite(matrix).all():
+                    raise DataValidationError(
+                        "Vector batch contains non-finite values"
+                    )
+                if chunk_values:
+                    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+                    if np.any(norms <= 0):
+                        raise DataValidationError(
+                            "Vector batch contains a zero vector"
+                        )
+                    matrix = matrix / norms
+                end = offset + len(chunk_values)
+                if end > manifest.record_count:
+                    raise DataValidationError(
+                        "Vector batches exceed source manifest count"
+                    )
+                vectors[offset:end] = matrix
+                for chunk in chunk_values:
+                    if chunk.chunk_id in seen_chunk_ids:
+                        raise DataValidationError(
+                            "Vector build requires unique chunk IDs"
+                        )
+                    seen_chunk_ids.add(chunk.chunk_id)
+                    stream.write(chunk.model_dump_json())
+                    stream.write("\n")
+                offset = end
+        vectors.flush()
+        del vectors
+        if offset != manifest.record_count:
+            raise DataValidationError(
+                "Vector batch count differs from source manifest"
+            )
+        metadata = dict(manifest.metadata)
+        metadata.update(
+            {
+                "vectors_filename": VECTORS_FILENAME,
+                "vectors_sha256": _sha256_file(vectors_path),
+                "chunks_filename": CHUNKS_FILENAME,
+                "chunks_sha256": _sha256_file(chunks_path),
+                "manifest_filename": MANIFEST_FILENAME,
+                "chunk_order": "source_artifact_order",
+            }
+        )
+        final_manifest = manifest.model_copy(update={"metadata": metadata})
+        (temporary / MANIFEST_FILENAME).write_text(
+            json.dumps(
+                final_manifest.model_dump(mode="json"),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        destination.mkdir(exist_ok=False)
+        destination_created = True
+        for staged_file in temporary.iterdir():
+            staged_file.replace(destination / staged_file.name)
+        temporary.rmdir()
+        return final_manifest
+    except (OSError, ValueError) as error:
+        shutil.rmtree(temporary, ignore_errors=True)
+        if destination_created:
+            shutil.rmtree(destination, ignore_errors=True)
+        raise BackendInitializationError(
+            "Vector artifact could not be persisted"
+        ) from error
+    except Exception:
+        shutil.rmtree(temporary, ignore_errors=True)
+        if destination_created:
+            shutil.rmtree(destination, ignore_errors=True)
+        raise
 
 
 def persist_vector_artifact(
@@ -158,7 +275,10 @@ def load_vector_artifact(
     chunk_ids = [chunk.chunk_id for chunk in chunks]
     if len(chunk_ids) != len(set(chunk_ids)):
         raise ArtifactCompatibilityError("Vector artifact contains duplicate chunk IDs")
-    if chunk_ids != sorted(chunk_ids):
+    chunk_order = stored_manifest.metadata.get("chunk_order")
+    if chunk_order not in (None, "source_artifact_order"):
+        raise ArtifactCompatibilityError("Vector artifact chunk order is incompatible")
+    if chunk_order is None and chunk_ids != sorted(chunk_ids):
         raise ArtifactCompatibilityError("Vector artifact chunk order is incompatible")
     if vectors.size:
         if not np.isfinite(vectors).all():

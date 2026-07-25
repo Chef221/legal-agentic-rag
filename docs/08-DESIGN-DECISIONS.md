@@ -1003,3 +1003,38 @@ State schema `1.0` chỉ lưu nondeterministic digest, không lưu config gốc,
 không thể migrate hoặc chứng minh tương đương an toàn. Runtime phải fail closed,
 giữ artifact cũ để chẩn đoán và yêu cầu artifact root mới. Cross-process tests
 với nhiều `PYTHONHASHSEED` bảo vệ invariant này. Quyết định không thêm dependency.
+
+---
+
+## D050 — Measured OOM Requires Bounded Document and Index Processing
+
+**Status:** Accepted
+
+Full-corpus run trên Colab 12 GiB đo được legacy `legal-rag-build` bị Linux
+OOM-kill trong legal structure parser ở khoảng 10,8 GiB anonymous RSS. Đây là
+bottleneck đã đo, không phải suy đoán hoặc GPU limitation.
+
+Version `0.20.0` áp dụng policy:
+
+- parser/chunker giữ tối đa một document cùng blocks/chunks của document đó;
+- cleaned, block và chunk JSONL đi qua typed one-pass iterator;
+- processed artifact dùng staging writer incremental và chỉ publish atomically
+  sau count/manifest/checksum validation;
+- per-document output phải tương đương thuật toán parser/chunker hiện có;
+- BM25 build dùng disk-backed SQLite và configurable bounded insert batches;
+- vector builder embed bounded batches trực tiếp vào disk-backed NumPy memmap;
+- vector rows và chunk records giữ deterministic source-artifact order;
+- source artifact checksum thay corpus-sized chunk-ID list trong processing
+  hash;
+- progress logging là configurable nhưng không log legal content;
+- không thêm dependency, model, dataset hoặc thay retrieval/generation logic.
+
+In-process `ParsedLegalDocument`, `ChunkedLegalDocument` và `VectorBuildBatch`
+có consumer rõ ràng nhưng không trở thành persisted unified schema. Legacy
+list-based parser/chunker API được giữ cho fixture và bounded callers; production
+offline composition dùng streaming path.
+
+Do exact code/config identity là resume invariant, partial build `0.19.x` không
+được sửa state để chạy tiếp bằng `0.20.0`. Full rerun phải dùng artifact root
+mới. Full-corpus completion vẫn cần report thật `is_full_corpus = true` và
+`is_valid = true`.

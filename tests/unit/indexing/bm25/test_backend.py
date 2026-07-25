@@ -61,7 +61,7 @@ def test_backend_builds_manifest_and_satisfies_protocol(
     assert isinstance(backend, BM25Backend)
     assert manifest.artifact_type == ArtifactType.BM25_INDEX
     assert manifest.backend == "sqlite_fts5"
-    assert manifest.code_version == "0.19.1"
+    assert manifest.code_version == "0.20.0"
     assert manifest.record_count == 3
     assert manifest.dataset_revision == "fixture-revision"
     assert manifest.metadata["analyzer_name"] == "unicode_word_casefold_v1"
@@ -73,6 +73,27 @@ def test_backend_builds_manifest_and_satisfies_protocol(
         "1.0",
         "chunk-config-hash",
     )
+
+
+def test_backend_consumes_chunk_stream_in_configured_batches(
+    legal_chunks: list[LegalChunk],
+    chunk_manifest: ArtifactManifest,
+) -> None:
+    """BM25 build accepts a one-pass corpus without a corpus-sized row list."""
+    iteration_count = 0
+
+    def chunks():
+        nonlocal iteration_count
+        iteration_count += 1
+        yield from legal_chunks
+
+    backend = SQLiteFTS5BM25Backend(
+        BM25IndexConfig(write_batch_size=1),
+    )
+    manifest = backend.build(chunks(), chunk_manifest)
+
+    assert iteration_count == 1
+    assert manifest.record_count == len(legal_chunks)
 
 
 def test_search_ranks_lexical_match_and_returns_chunk_metadata(

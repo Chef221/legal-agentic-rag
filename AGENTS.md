@@ -1555,6 +1555,17 @@ Milestone 17.2 đã sửa:
 - subprocess regression test với nhiều `PYTHONHASHSEED`;
 - patch version `0.19.1`, không thêm dependency.
 
+Milestone 17.3 đã sửa:
+
+- xác nhận legacy parser OOM-kill ở khoảng 10,8 GiB RSS trên Colab 12 GiB;
+- one-document-at-a-time parser/chunker production path;
+- incremental atomic legal-block/legal-chunk artifact writers;
+- configurable document-processing progress logs;
+- disk-backed batched SQLite BM25 build;
+- batched embedding trực tiếp vào disk-backed NumPy memmap;
+- one-pass/equivalence/failure-safety regression tests;
+- version `0.20.0`, không thêm dependency.
+
 Milestone 17 chưa được đánh dấu Completed vì chưa chạy xong full AIO build trên
 môi trường đủ RAM/GPU và chưa có report thật đồng thời:
 

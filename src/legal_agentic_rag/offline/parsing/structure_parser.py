@@ -123,7 +123,9 @@ class _DraftBlock:
 
 
 @dataclass
-class _ParsedDocument:
+class ParsedLegalDocument:
+    """Memory-bounded parser output for one cleaned legal document."""
+
     blocks: list[LegalBlock]
     diagnostic: DocumentParsingDiagnostic
     issues: list[AuditIssue] = field(default_factory=list)
@@ -170,15 +172,21 @@ class LegalStructureParser:
         structured_count = sum(item.has_recognized_structure for item in diagnostics)
         missing_count = len(input_documents) - parsed_count
         unstructured_count = parsed_count - structured_count
-        manifest = self._manifest(
+        manifest = self.build_manifest(
             source_manifest=source_manifest,
-            blocks=blocks,
-            diagnostics=diagnostics,
+            block_count=len(blocks),
+            document_count=len(diagnostics),
             issue_count=len(issues),
             parsed_count=parsed_count,
             missing_count=missing_count,
             structured_count=structured_count,
             unstructured_count=unstructured_count,
+            source_characters=sum(
+                item.source_non_whitespace_characters for item in diagnostics
+            ),
+            covered_characters=sum(
+                item.covered_non_whitespace_characters for item in diagnostics
+            ),
         )
         result = LegalStructureParsingResult(
             documents=input_documents,
@@ -204,10 +212,14 @@ class LegalStructureParser:
         )
         return result
 
-    def _parse_document(self, document: LegalDocument) -> _ParsedDocument:
+    def parse_document(self, document: LegalDocument) -> ParsedLegalDocument:
+        """Parse one document without retaining any corpus-level state."""
+        return self._parse_document(document)
+
+    def _parse_document(self, document: LegalDocument) -> ParsedLegalDocument:
         clean_text = document.clean_text
         if clean_text is None:
-            return _ParsedDocument(
+            return ParsedLegalDocument(
                 blocks=[],
                 diagnostic=DocumentParsingDiagnostic(
                     document_id=document.document_id,
@@ -311,7 +323,7 @@ class LegalStructureParser:
                 )
             )
         coverage = covered_characters / source_characters if source_characters else 0.0
-        return _ParsedDocument(
+        return ParsedLegalDocument(
             blocks=blocks,
             diagnostic=DocumentParsingDiagnostic(
                 document_id=document.document_id,
@@ -586,27 +598,24 @@ class LegalStructureParser:
                 "Legal structure parser input document IDs must be unique"
             )
 
-    def _manifest(
+    def build_manifest(
         self,
         *,
         source_manifest: ArtifactManifest,
-        blocks: list[LegalBlock],
-        diagnostics: list[DocumentParsingDiagnostic],
+        block_count: int,
+        document_count: int,
         issue_count: int,
         parsed_count: int,
         missing_count: int,
         structured_count: int,
         unstructured_count: int,
+        source_characters: int,
+        covered_characters: int,
     ) -> ArtifactManifest:
+        """Build aggregate legal-block provenance from streaming counters."""
         warnings = list(source_manifest.warnings)
         if issue_count:
             warnings.append(f"Legal structure parsing produced {issue_count} issues")
-        source_characters = sum(
-            item.source_non_whitespace_characters for item in diagnostics
-        )
-        covered_characters = sum(
-            item.covered_non_whitespace_characters for item in diagnostics
-        )
         return ArtifactManifest(
             schema_version="1.0",
             artifact_type=ArtifactType.LEGAL_BLOCKS,
@@ -614,7 +623,7 @@ class LegalStructureParser:
             dataset_name=source_manifest.dataset_name,
             dataset_revision=source_manifest.dataset_revision,
             created_at=self._clock(),
-            record_count=len(blocks),
+            record_count=block_count,
             processing_config_hash=self._config_hash(source_manifest),
             code_version=__version__,
             warnings=warnings,
@@ -622,7 +631,7 @@ class LegalStructureParser:
                 "source_artifact_type": source_manifest.artifact_type.value,
                 "source_artifact_version": source_manifest.artifact_version,
                 "source_processing_config_hash": source_manifest.processing_config_hash,
-                "input_document_count": len(diagnostics),
+                "input_document_count": document_count,
                 "parsed_document_count": parsed_count,
                 "missing_clean_text_count": missing_count,
                 "structured_document_count": structured_count,

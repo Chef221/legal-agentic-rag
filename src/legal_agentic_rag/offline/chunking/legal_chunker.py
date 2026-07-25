@@ -45,6 +45,15 @@ class _ChunkDraft:
     split_count: int = 1
 
 
+@dataclass
+class ChunkedLegalDocument:
+    """Memory-bounded chunker output for one parsed legal document."""
+
+    chunks: list[LegalChunk]
+    diagnostic: DocumentChunkingDiagnostic
+    issues: list[AuditIssue]
+
+
 class LegalChunker:
     """Build retrieval chunks while preserving legal boundaries and provenance."""
 
@@ -99,64 +108,19 @@ class LegalChunker:
         issues: list[AuditIssue] = []
         for document in document_list:
             document_blocks = blocks_by_document[document.document_id]
-            document_chunks = self._chunk_document(document, document_blocks)
-            chunks.extend(document_chunks)
-            covered_ids = {
-                source_id
-                for chunk in document_chunks
-                for source_id in self._source_block_ids(chunk)
-            }
-            article_unit_count = sum(
-                block.block_type == LegalBlockType.ARTICLE
-                for block in document_blocks
-            )
-            token_fallback_count = sum(
-                chunk.metadata.get("chunk_strategy") == "token_fallback"
-                for chunk in document_chunks
-            )
-            diagnostics.append(
-                DocumentChunkingDiagnostic(
-                    document_id=document.document_id,
-                    source_block_count=len(document_blocks),
-                    covered_block_count=len(covered_ids),
-                    chunk_count=len(document_chunks),
-                    article_unit_count=article_unit_count,
-                    token_fallback_chunk_count=token_fallback_count,
-                    block_coverage=(
-                        len(covered_ids) / len(document_blocks)
-                        if document_blocks
-                        else 0.0
-                    ),
-                    has_chunks=bool(document_chunks),
-                )
-            )
-            if not document_blocks:
-                issues.append(
-                    self._issue(
-                        "missing_legal_blocks",
-                        AuditSeverity.WARNING,
-                        document.document_id,
-                        "Document has no parsed legal blocks to chunk",
-                    )
-                )
-
-        validation_issues = self._validator.validate(
-            documents=document_list,
-            blocks=block_list,
-            chunks=chunks,
-        )
-        if any(issue.severity == AuditSeverity.ERROR for issue in validation_issues):
-            raise DataValidationError("Generated legal chunks failed validation")
-        issues.extend(validation_issues)
+            chunked = self.chunk_document(document, document_blocks)
+            chunks.extend(chunked.chunks)
+            diagnostics.append(chunked.diagnostic)
+            issues.extend(chunked.issues)
         strategy_counts = self._strategy_counts(chunks)
         documents_with_chunks = sum(item.has_chunks for item in diagnostics)
-        manifest = self._manifest(
+        manifest = self.build_manifest(
             source_manifest=source_manifest,
             chunk_count=len(chunks),
             document_count=len(document_list),
             block_count=len(block_list),
             documents_with_chunks=documents_with_chunks,
-            issues=issues,
+            issue_count=len(issues),
             strategy_counts=strategy_counts,
         )
         result = LegalChunkingResult(
@@ -187,6 +151,60 @@ class LegalChunker:
             },
         )
         return result
+
+    def chunk_document(
+        self,
+        document: LegalDocument,
+        blocks: list[LegalBlock],
+    ) -> ChunkedLegalDocument:
+        """Create and validate chunks for one document in bounded memory."""
+        document_chunks = self._chunk_document(document, blocks)
+        covered_ids = {
+            source_id
+            for chunk in document_chunks
+            for source_id in self._source_block_ids(chunk)
+        }
+        diagnostic = DocumentChunkingDiagnostic(
+            document_id=document.document_id,
+            source_block_count=len(blocks),
+            covered_block_count=len(covered_ids),
+            chunk_count=len(document_chunks),
+            article_unit_count=sum(
+                block.block_type == LegalBlockType.ARTICLE for block in blocks
+            ),
+            token_fallback_chunk_count=sum(
+                chunk.metadata.get("chunk_strategy") == "token_fallback"
+                for chunk in document_chunks
+            ),
+            block_coverage=(len(covered_ids) / len(blocks) if blocks else 0.0),
+            has_chunks=bool(document_chunks),
+        )
+        issues: list[AuditIssue] = []
+        if not blocks:
+            issues.append(
+                self._issue(
+                    "missing_legal_blocks",
+                    AuditSeverity.WARNING,
+                    document.document_id,
+                    "Document has no parsed legal blocks to chunk",
+                )
+            )
+        validation_issues = self._validator.validate(
+            documents=[document],
+            blocks=blocks,
+            chunks=document_chunks,
+        )
+        if any(
+            issue.severity == AuditSeverity.ERROR
+            for issue in validation_issues
+        ):
+            raise DataValidationError("Generated legal chunks failed validation")
+        issues.extend(validation_issues)
+        return ChunkedLegalDocument(
+            chunks=document_chunks,
+            diagnostic=diagnostic,
+            issues=issues,
+        )
 
     def _chunk_document(
         self,
@@ -520,7 +538,7 @@ class LegalChunker:
                     "Legal block order indexes must be contiguous per document"
                 )
 
-    def _manifest(
+    def build_manifest(
         self,
         *,
         source_manifest: ArtifactManifest,
@@ -528,12 +546,13 @@ class LegalChunker:
         document_count: int,
         block_count: int,
         documents_with_chunks: int,
-        issues: list[AuditIssue],
+        issue_count: int,
         strategy_counts: dict[str, int],
     ) -> ArtifactManifest:
+        """Build aggregate legal-chunk provenance from streaming counters."""
         warnings = list(source_manifest.warnings)
-        if issues:
-            warnings.append(f"Legal chunking produced {len(issues)} issues")
+        if issue_count:
+            warnings.append(f"Legal chunking produced {issue_count} issues")
         return ArtifactManifest(
             schema_version="1.0",
             artifact_type=ArtifactType.LEGAL_CHUNKS,
@@ -558,7 +577,7 @@ class LegalChunker:
                 "clause_fallback_chunk_count": strategy_counts["clause_group"],
                 "token_fallback_chunk_count": strategy_counts["token_fallback"],
                 "standalone_chunk_count": strategy_counts["standalone_block"],
-                "chunking_issue_count": len(issues),
+                "chunking_issue_count": issue_count,
                 "tokenizer_name": self._config.tokenizer_name,
             },
         )

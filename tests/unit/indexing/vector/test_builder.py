@@ -1,6 +1,7 @@
 """Tests for batched offline vector index orchestration."""
 
 from collections.abc import Sequence
+from pathlib import Path
 
 import pytest
 
@@ -84,3 +85,61 @@ def test_builder_rejects_provider_count_and_dimension_mismatch(
         VectorIndexBuilder(WrongDimensionProvider(), NumpyVectorBackend()).build(
             vector_chunks, vector_source_manifest
         )
+
+
+def test_streaming_builder_persists_one_pass_batches(
+    tmp_path: Path,
+    vector_chunks: list[LegalChunk],
+    vector_source_manifest: ArtifactManifest,
+) -> None:
+    """Production vector build writes bounded batches directly to disk."""
+    provider = _FixtureProvider()
+    destination = tmp_path / "vector"
+    backend = NumpyVectorBackend()
+
+    stored = VectorIndexBuilder(
+        provider,
+        backend,
+        VectorIndexConfig(embedding_batch_size=2),
+    ).build_persisted(
+        iter(vector_chunks),
+        vector_source_manifest,
+        destination,
+    )
+    loaded = NumpyVectorBackend()
+    loaded.load(destination, stored)
+
+    assert stored.record_count == len(vector_chunks)
+    assert stored.metadata["chunk_order"] == "source_artifact_order"
+    assert [len(batch) for batch, _ in provider.batches] == [2, 1]
+    assert loaded.dimension == 2
+
+
+def test_streaming_builder_does_not_publish_failed_artifact(
+    tmp_path: Path,
+    vector_chunks: list[LegalChunk],
+    vector_source_manifest: ArtifactManifest,
+) -> None:
+    """A provider mismatch leaves no loadable vector destination."""
+    class MissingProvider(_FixtureProvider):
+        def embed_documents(
+            self,
+            texts: Sequence[str],
+            *,
+            batch_size: int,
+        ) -> list[list[float]]:
+            _ = (texts, batch_size)
+            return []
+
+    destination = tmp_path / "failed-vector"
+    with pytest.raises(DataValidationError, match="mismatched batch"):
+        VectorIndexBuilder(
+            MissingProvider(),
+            NumpyVectorBackend(),
+        ).build_persisted(
+            iter(vector_chunks),
+            vector_source_manifest,
+            destination,
+        )
+
+    assert not destination.exists()

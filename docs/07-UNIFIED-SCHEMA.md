@@ -921,6 +921,13 @@ Canonical hashing sắp xếp mapping key và set/frozenset nhưng giữ thứ t
 list/tuple. State schema `1.0` bị từ chối vì digest cũ không đủ dữ liệu để
 migrate hoặc chứng minh config tương đương một cách an toàn.
 
+Streaming execution từ version `0.20.0` không thay field của `LegalDocument`,
+`LegalBlock`, `LegalChunk` hoặc `ArtifactManifest`. `ParsedLegalDocument`,
+`ChunkedLegalDocument` và `VectorBuildBatch` chỉ là bounded in-process transfer
+objects có consumer trực tiếp; chúng không phải persisted unified schemas.
+Manifest vector mới có metadata `chunk_order = "source_artifact_order"` để mô
+tả alignment giữa chunk JSONL và vector rows.
+
 ---
 
 ## 19. Schema Evolution

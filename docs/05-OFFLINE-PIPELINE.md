@@ -815,3 +815,29 @@ Failure trước normalized checkpoint, partial file không hợp lệ hoặc co
 đổi phải dùng artifact root mới; runtime không tự xóa hay overwrite dữ liệu.
 State schema `1.0` không thể migrate an toàn vì chỉ lưu digest cũ, không lưu
 config gốc; runtime từ chối state này và yêu cầu artifact root mới.
+
+### 17.2 Memory-Bounded Document Processing and Indexing
+
+Full profile từ version `0.20.0` không materialize complete cleaned, block hoặc
+chunk stage trong parser/index build:
+
+- cleaned JSONL được checksum rồi đọc bằng one-pass typed iterator;
+- parser và chunker xử lý một document tại một thời điểm;
+- legal blocks và chunks được ghi incremental vào staging JSONL;
+- staging artifact chỉ được publish sau khi count, manifest và checksum hợp lệ;
+- progress được log theo
+  `offline.execution.document_processing_progress_interval`;
+- BM25 đọc chunk stream một lần, insert theo
+  `offline.bm25.write_batch_size` vào SQLite disk-backed;
+- vector builder embed theo batch và ghi thẳng vào NumPy memmap cùng chunk JSONL;
+- vector row order giữ deterministic source-artifact order;
+- lỗi Python giữa chừng không publish destination artifact không hoàn chỉnh.
+
+Thay đổi này xuất phát từ full-corpus measurement trên Colab 12 GiB: legacy
+parser bị OOM-kill ở khoảng 10,8 GiB anonymous RSS. GPU không giải quyết stage
+CPU/RAM này. Thuật toán nhận dạng legal structure, chunk boundaries và unified
+record schema không đổi.
+
+Build `0.19.x` không được resume bằng code `0.20.0` vì build state khóa exact
+code/config identity. Phải giữ artifact cũ để chẩn đoán và dùng artifact root
+mới; không sửa tay `build_state.json`.

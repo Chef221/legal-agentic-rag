@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import logging
 from pathlib import Path
 import sqlite3
+import tempfile
 from threading import RLock
 from time import perf_counter
 from typing import Callable
@@ -62,6 +63,7 @@ class SQLiteFTS5BM25Backend:
         self._lock = RLock()
         self._connection: sqlite3.Connection | None = None
         self._manifest: ArtifactManifest | None = None
+        self._temporary_index_path: Path | None = None
 
     @property
     def source_artifact_identity(self) -> tuple[str, str, str]:
@@ -88,41 +90,68 @@ class SQLiteFTS5BM25Backend:
         chunks: Iterable[LegalChunk],
         source_manifest: ArtifactManifest,
     ) -> ArtifactManifest:
-        """Build an in-memory BM25 index from validated legal chunks."""
+        """Build a disk-backed BM25 index from a one-pass chunk stream."""
         with self._lock:
-            chunk_list = list(chunks)
-            self._validate_build_input(chunk_list, source_manifest)
-            connection = self._new_connection()
+            self._validate_source_manifest(source_manifest)
+            temporary_file = tempfile.NamedTemporaryFile(
+                prefix="legal-rag-bm25-",
+                suffix=".sqlite3",
+                delete=False,
+            )
+            temporary_file.close()
+            temporary_path = Path(temporary_file.name)
+            try:
+                connection = self._new_connection(temporary_path)
+            except Exception:
+                temporary_path.unlink(missing_ok=True)
+                raise
+            count = 0
+            seen_chunk_ids: set[str] = set()
             try:
                 self._create_schema(connection)
-                rows = [
-                    self._chunk_row(chunk)
-                    for chunk in sorted(chunk_list, key=lambda item: item.chunk_id)
-                ]
-                connection.executemany(
-                    f"""
-                    INSERT INTO {_TABLE_NAME} (
-                        chunk_id, document_id, document_type, legal_field,
-                        effect_status, search_terms, chunk_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    rows,
-                )
+                rows: list[tuple[str | None, ...]] = []
+                for chunk in chunks:
+                    if chunk.chunk_id in seen_chunk_ids:
+                        raise DataValidationError(
+                            "BM25 build requires unique chunk IDs"
+                        )
+                    seen_chunk_ids.add(chunk.chunk_id)
+                    rows.append(self._chunk_row(chunk))
+                    count += 1
+                    if len(rows) >= self._config.write_batch_size:
+                        self._insert_rows(connection, rows)
+                        rows.clear()
+                if rows:
+                    self._insert_rows(connection, rows)
                 connection.commit()
+                if count != source_manifest.record_count:
+                    raise DataValidationError(
+                        "Legal-chunks manifest count does not match BM25 build input"
+                    )
+            except DataValidationError:
+                connection.close()
+                temporary_path.unlink(missing_ok=True)
+                raise
             except sqlite3.Error as error:
                 connection.close()
+                temporary_path.unlink(missing_ok=True)
                 raise BackendInitializationError(
                     "Failed to build SQLite FTS5 index"
                 ) from error
+            except Exception:
+                connection.close()
+                temporary_path.unlink(missing_ok=True)
+                raise
 
             self.close()
             self._connection = connection
-            self._manifest = self._build_manifest(chunk_list, source_manifest)
+            self._temporary_index_path = temporary_path
+            self._manifest = self._build_manifest(count, source_manifest)
             _LOGGER.info(
                 "bm25_index_built",
                 extra={
                     "backend": self.backend_name,
-                    "chunk_count": len(chunk_list),
+                    "chunk_count": count,
                     "dataset_name": source_manifest.dataset_name,
                 },
             )
@@ -224,17 +253,38 @@ class SQLiteFTS5BM25Backend:
         with self._lock:
             if self._connection is not None:
                 self._connection.close()
+            if self._temporary_index_path is not None:
+                self._temporary_index_path.unlink(missing_ok=True)
             self._connection = None
             self._manifest = None
+            self._temporary_index_path = None
 
-    def _new_connection(self) -> sqlite3.Connection:
+    def _new_connection(self, path: Path | None = None) -> sqlite3.Connection:
         try:
-            connection = sqlite3.connect(":memory:", check_same_thread=False)
+            connection = sqlite3.connect(
+                str(path) if path is not None else ":memory:",
+                check_same_thread=False,
+            )
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
             return connection
         except sqlite3.Error as error:
             raise BackendInitializationError("SQLite backend cannot initialize") from error
+
+    @staticmethod
+    def _insert_rows(
+        connection: sqlite3.Connection,
+        rows: list[tuple[str | None, ...]],
+    ) -> None:
+        connection.executemany(
+            f"""
+            INSERT INTO {_TABLE_NAME} (
+                chunk_id, document_id, document_type, legal_field,
+                effect_status, search_terms, chunk_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
@@ -267,7 +317,7 @@ class SQLiteFTS5BM25Backend:
 
     def _build_manifest(
         self,
-        chunks: list[LegalChunk],
+        chunk_count: int,
         source_manifest: ArtifactManifest,
     ) -> ArtifactManifest:
         config_hash_payload = {
@@ -275,7 +325,9 @@ class SQLiteFTS5BM25Backend:
             "source_artifact_type": source_manifest.artifact_type.value,
             "source_artifact_version": source_manifest.artifact_version,
             "source_processing_config_hash": source_manifest.processing_config_hash,
-            "chunk_ids": sorted(chunk.chunk_id for chunk in chunks),
+            "source_payload_sha256": source_manifest.metadata.get(
+                "payload_sha256"
+            ),
         }
         processing_config_hash = canonical_sha256(config_hash_payload)
         return ArtifactManifest(
@@ -285,7 +337,7 @@ class SQLiteFTS5BM25Backend:
             dataset_name=source_manifest.dataset_name,
             dataset_revision=source_manifest.dataset_revision,
             created_at=self._clock(),
-            record_count=len(chunks),
+            record_count=chunk_count,
             processing_config_hash=processing_config_hash,
             code_version=__version__,
             backend=self.backend_name,
@@ -368,18 +420,8 @@ class SQLiteFTS5BM25Backend:
         return self._connection, self._manifest
 
     @staticmethod
-    def _validate_build_input(
-        chunks: list[LegalChunk],
-        source_manifest: ArtifactManifest,
-    ) -> None:
+    def _validate_source_manifest(source_manifest: ArtifactManifest) -> None:
         if source_manifest.artifact_type != ArtifactType.LEGAL_CHUNKS:
             raise ArtifactCompatibilityError(
                 "BM25 build requires a legal-chunks source artifact"
             )
-        if source_manifest.record_count != len(chunks):
-            raise DataValidationError(
-                "Legal-chunks manifest count does not match BM25 build input"
-            )
-        chunk_ids = [chunk.chunk_id for chunk in chunks]
-        if len(chunk_ids) != len(set(chunk_ids)):
-            raise DataValidationError("BM25 build requires unique chunk IDs")

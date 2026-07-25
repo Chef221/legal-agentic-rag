@@ -1,12 +1,21 @@
 """Protocol for persistent vector storage and similarity search."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest
 from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalResponse
+
+
+@dataclass(frozen=True)
+class VectorBuildBatch:
+    """One bounded aligned batch passed from an embedder to vector storage."""
+
+    chunks: Sequence[LegalChunk]
+    vectors: Sequence[Sequence[float]]
 
 
 @runtime_checkable
@@ -67,6 +76,22 @@ class VectorBackend(Protocol):
 
     def persist(self, destination: Path) -> ArtifactManifest:
         """Persist the current vector index and return its manifest."""
+        ...
+
+    def build_persisted(
+        self,
+        batches: Iterable[VectorBuildBatch],
+        source_manifest: ArtifactManifest,
+        destination: Path,
+        *,
+        model_name: str,
+        model_revision: str | None,
+        embedding_provider_name: str,
+        embedding_provider_version: str,
+        dimension: int,
+        embedding_batch_size: int,
+    ) -> ArtifactManifest:
+        """Atomically persist an index from bounded aligned batches."""
         ...
 
     def load(self, source: Path, manifest: ArtifactManifest) -> None:

@@ -187,6 +187,7 @@ class BM25IndexConfig(BaseModel):
         "unicode_word_casefold_v1"
     )
     match_mode: Literal["any", "all"] = "any"
+    write_batch_size: int = Field(default=1_000, gt=0)
 
 
 class EmbeddingConfig(BaseModel):
@@ -278,6 +279,7 @@ class OfflineExecutionConfig(BaseModel):
     resume_partial_build: bool = False
     bounded_source_passes: bool = False
     release_stage_memory: Literal[True] = True
+    document_processing_progress_interval: int = Field(default=1_000, gt=0)
 
 
 class OfflineConfig(BaseModel):

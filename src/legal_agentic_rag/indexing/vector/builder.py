@@ -1,13 +1,18 @@
 """Offline orchestration from legal chunk text to a vector index artifact."""
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from itertools import islice
 import logging
+from pathlib import Path
 
 import numpy as np
 
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
 from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
-from legal_agentic_rag.contracts.vector_backend import VectorBackend
+from legal_agentic_rag.contracts.vector_backend import (
+    VectorBackend,
+    VectorBuildBatch,
+)
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     DataValidationError,
@@ -90,3 +95,73 @@ class VectorIndexBuilder:
             },
         )
         return manifest
+
+    def build_persisted(
+        self,
+        chunks: Iterable[LegalChunk],
+        source_manifest: ArtifactManifest,
+        destination: Path,
+    ) -> ArtifactManifest:
+        """Embed and persist a one-pass chunk stream in bounded batches."""
+        if source_manifest.artifact_type != ArtifactType.LEGAL_CHUNKS:
+            raise ArtifactCompatibilityError(
+                "Vector builder requires a legal-chunks source artifact"
+            )
+        batch_size = self._config.embedding_batch_size
+        dimension = self._provider.dimension
+        batches = self._embedded_batches(
+            chunks,
+            batch_size=batch_size,
+            dimension=dimension,
+        )
+        manifest = self._backend.build_persisted(
+            batches,
+            source_manifest,
+            destination,
+            model_name=self._provider.model_name,
+            model_revision=self._provider.model_revision,
+            embedding_provider_name=self._provider.provider_name,
+            embedding_provider_version=self._provider.provider_version,
+            dimension=dimension,
+            embedding_batch_size=batch_size,
+        )
+        _LOGGER.info(
+            "vector_index_streaming_build_completed",
+            extra={
+                "backend": manifest.backend,
+                "chunk_count": manifest.record_count,
+                "model_name": self._provider.model_name,
+                "dimension": dimension,
+            },
+        )
+        return manifest
+
+    def _embedded_batches(
+        self,
+        chunks: Iterable[LegalChunk],
+        *,
+        batch_size: int,
+        dimension: int,
+    ) -> Iterator[VectorBuildBatch]:
+        iterator = iter(chunks)
+        while True:
+            batch = list(islice(iterator, batch_size))
+            if not batch:
+                return
+            batch_vectors = np.asarray(
+                list(
+                    self._provider.embed_documents(
+                        [chunk.search_text for chunk in batch],
+                        batch_size=batch_size,
+                    )
+                ),
+                dtype=np.float32,
+            )
+            if batch_vectors.shape != (len(batch), dimension):
+                raise DataValidationError(
+                    "Embedding provider returned a mismatched batch"
+                )
+            yield VectorBuildBatch(
+                chunks=batch,
+                vectors=batch_vectors,
+            )

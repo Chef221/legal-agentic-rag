@@ -42,6 +42,9 @@ from legal_agentic_rag.offline.datasets.aio import (
     AioDocumentNormalizer,
     AioRelationshipNormalizer,
 )
+from legal_agentic_rag.offline.document_processing import (
+    StreamingDocumentProcessor,
+)
 from legal_agentic_rag.offline.parsing import LegalStructureParser
 from legal_agentic_rag.offline.relationships import (
     load_relationship_artifact,
@@ -65,6 +68,7 @@ from legal_agentic_rag.runtime.artifact_store import (
     load_model_artifact,
     persist_dataset_manifest,
     persist_model_artifact,
+    stream_model_artifact,
 )
 from legal_agentic_rag.runtime.build_validation import (
     ArtifactSetValidator,
@@ -305,24 +309,26 @@ class OfflineBuildRuntime:
         del relationship_values, relationship_records
         self._release_stage_memory("relationship_graph")
 
+        cleaned_directory = self._directory("cleaned_documents_directory")
+        blocks_directory = self._directory("legal_blocks_directory")
         chunks_directory = self._directory("legal_chunks_directory")
         if chunks_directory.exists():
-            chunks, chunk_manifest = load_model_artifact(
+            chunk_manifest = load_artifact_manifest(
                 chunks_directory,
                 expected_type=ArtifactType.LEGAL_CHUNKS,
-                record_type=LegalChunk,
+                verify_payload=True,
             )
             processing_issue_count += self._manifest_issue_count(
                 chunk_manifest,
                 "chunking_issue_count",
             )
             cleaned_manifest = load_artifact_manifest(
-                self._directory("cleaned_documents_directory"),
+                cleaned_directory,
                 expected_type=ArtifactType.CLEANED_DOCUMENTS,
                 verify_payload=True,
             )
             block_manifest = load_artifact_manifest(
-                self._directory("legal_blocks_directory"),
+                blocks_directory,
                 expected_type=ArtifactType.LEGAL_BLOCKS,
                 verify_payload=True,
             )
@@ -337,12 +343,11 @@ class OfflineBuildRuntime:
             del normalized_documents
             self._release_stage_memory("normalized_documents")
         else:
-            cleaned_directory = self._directory("cleaned_documents_directory")
             if cleaned_directory.exists():
-                cleaned_documents, cleaned_manifest = load_model_artifact(
+                cleaned_manifest = load_artifact_manifest(
                     cleaned_directory,
                     expected_type=ArtifactType.CLEANED_DOCUMENTS,
-                    record_type=LegalDocument,
+                    verify_payload=True,
                 )
                 processing_issue_count += self._manifest_issue_count(
                     cleaned_manifest,
@@ -362,66 +367,64 @@ class OfflineBuildRuntime:
                     manifest=cleaned_result.manifest,
                 )
                 processing_issue_count += len(cleaned_result.issues)
-                del cleaned_result
+                del cleaned_result, cleaned_documents
             manifests[ArtifactType.CLEANED_DOCUMENTS] = cleaned_manifest
             output_paths["cleaned_documents"] = str(cleaned_directory)
             del normalized_documents
-            for document in cleaned_documents:
-                document.content_html = None
             self._release_stage_memory("normalized_html")
 
-            blocks_directory = self._directory("legal_blocks_directory")
+            cleaned_documents, verified_cleaned_manifest = stream_model_artifact(
+                cleaned_directory,
+                expected_type=ArtifactType.CLEANED_DOCUMENTS,
+                record_type=LegalDocument,
+            )
+            if verified_cleaned_manifest != cleaned_manifest:
+                raise ArtifactCompatibilityError(
+                    "Cleaned document manifest changed during processing"
+                )
+            processing_documents = self._documents_without_html(
+                cleaned_documents
+            )
+            processor = StreamingDocumentProcessor(
+                LegalStructureParser(
+                    self._config.offline.legal_structure_parser
+                ),
+                LegalChunker(self._config.offline.chunking),
+                progress_interval_documents=(
+                    self._config.offline.execution
+                    .document_processing_progress_interval
+                ),
+            )
             if blocks_directory.exists():
-                blocks, block_manifest = load_model_artifact(
+                blocks, block_manifest = stream_model_artifact(
                     blocks_directory,
                     expected_type=ArtifactType.LEGAL_BLOCKS,
                     record_type=LegalBlock,
                 )
-                processing_issue_count += self._manifest_issue_count(
-                    block_manifest,
-                    "parser_issue_count",
+                processed = processor.chunk_existing_blocks(
+                    documents=processing_documents,
+                    blocks=blocks,
+                    source_manifest=block_manifest,
+                    normalized_processing_config_hash=normalized_hash,
+                    chunks_destination=chunks_directory,
                 )
             else:
-                parsed_result = LegalStructureParser(
-                    self._config.offline.legal_structure_parser
-                ).parse(
-                    documents=cleaned_documents,
+                processed = processor.process(
+                    documents=processing_documents,
                     source_manifest=cleaned_manifest,
+                    normalized_processing_config_hash=normalized_hash,
+                    blocks_destination=blocks_directory,
+                    chunks_destination=chunks_directory,
                 )
-                blocks = parsed_result.blocks
-                block_manifest = persist_model_artifact(
-                    records=blocks,
-                    destination=blocks_directory,
-                    manifest=parsed_result.manifest,
-                )
-                processing_issue_count += len(parsed_result.issues)
-                del parsed_result
+            block_manifest = processed.block_manifest
+            chunk_manifest = processed.chunk_manifest
+            processing_issue_count += (
+                processed.parser_issue_count
+                + processed.chunking_issue_count
+            )
             manifests[ArtifactType.LEGAL_BLOCKS] = block_manifest
             output_paths["legal_blocks"] = str(blocks_directory)
-
-            chunked_result = LegalChunker(
-                self._config.offline.chunking
-            ).chunk(
-                documents=cleaned_documents,
-                blocks=blocks,
-                source_manifest=block_manifest,
-            )
-            chunks = chunked_result.chunks
-            chunk_manifest = chunked_result.manifest.model_copy(
-                update={
-                    "metadata": {
-                        **chunked_result.manifest.metadata,
-                        "runtime_normalized_processing_config_hash": normalized_hash,
-                    }
-                }
-            )
-            chunk_manifest = persist_model_artifact(
-                records=chunks,
-                destination=chunks_directory,
-                manifest=chunk_manifest,
-            )
-            processing_issue_count += len(chunked_result.issues)
-            del chunked_result, cleaned_documents, blocks
+            del processed, processor, processing_documents
             self._release_stage_memory("document_processing")
 
         manifests.setdefault(ArtifactType.CLEANED_DOCUMENTS, cleaned_manifest)
@@ -444,6 +447,15 @@ class OfflineBuildRuntime:
             )
         else:
             bm25_backend = self._require_backend(self._bm25, "BM25")
+            chunks, verified_chunk_manifest = stream_model_artifact(
+                chunks_directory,
+                expected_type=ArtifactType.LEGAL_CHUNKS,
+                record_type=LegalChunk,
+            )
+            if verified_chunk_manifest != chunk_manifest:
+                raise ArtifactCompatibilityError(
+                    "Legal chunk manifest changed during BM25 build"
+                )
             bm25_backend.build(chunks, chunk_manifest)
             bm25_manifest = bm25_backend.persist(bm25_directory)
             close = getattr(bm25_backend, "close", None)
@@ -463,17 +475,28 @@ class OfflineBuildRuntime:
             )
         else:
             vector_backend = self._require_backend(self._vector, "vector")
-            VectorIndexBuilder(
+            chunks, verified_chunk_manifest = stream_model_artifact(
+                chunks_directory,
+                expected_type=ArtifactType.LEGAL_CHUNKS,
+                record_type=LegalChunk,
+            )
+            if verified_chunk_manifest != chunk_manifest:
+                raise ArtifactCompatibilityError(
+                    "Legal chunk manifest changed during vector build"
+                )
+            vector_manifest = VectorIndexBuilder(
                 self._embedding_provider,
                 vector_backend,
                 self._config.offline.vector_index,
-            ).build(chunks, chunk_manifest)
-            vector_manifest = vector_backend.persist(vector_directory)
+            ).build_persisted(
+                chunks,
+                chunk_manifest,
+                vector_directory,
+            )
             self._vector = None
             del vector_backend
         manifests[ArtifactType.VECTOR_INDEX] = vector_manifest
         output_paths["vector_index"] = str(vector_directory)
-        del chunks
         self._release_stage_memory("vector")
 
         validation_report = ArtifactSetValidator(
@@ -694,6 +717,15 @@ class OfflineBuildRuntime:
             for value in (rejected, duplicates)
             if isinstance(value, int) and value >= 0
         )
+
+    @staticmethod
+    def _documents_without_html(
+        documents: Iterable[LegalDocument],
+    ) -> Iterable[LegalDocument]:
+        """Drop HTML references after the cleaned artifact checksum passes."""
+        for document in documents:
+            document.content_html = None
+            yield document
 
     @staticmethod
     def _require_backend(backend: object | None, label: str) -> object:

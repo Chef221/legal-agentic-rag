@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -14,6 +14,7 @@ import numpy as np
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
+from legal_agentic_rag.contracts.vector_backend import VectorBuildBatch
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     BackendInitializationError,
@@ -22,6 +23,7 @@ from legal_agentic_rag.exceptions import (
 )
 from legal_agentic_rag.indexing.vector.artifact_store import (
     load_vector_artifact,
+    persist_vector_batches,
     persist_vector_artifact,
 )
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
@@ -221,6 +223,59 @@ class NumpyVectorBackend:
         self._manifest = final_manifest
         return final_manifest
 
+    def build_persisted(
+        self,
+        batches: Iterable[VectorBuildBatch],
+        source_manifest: ArtifactManifest,
+        destination: Path,
+        *,
+        model_name: str,
+        model_revision: str | None,
+        embedding_provider_name: str,
+        embedding_provider_version: str,
+        dimension: int,
+        embedding_batch_size: int,
+    ) -> ArtifactManifest:
+        """Persist a bounded batch stream without retaining corpus chunks."""
+        self._validate_source_identity(
+            source_manifest,
+            model_name=model_name,
+            embedding_provider_name=embedding_provider_name,
+            embedding_provider_version=embedding_provider_version,
+            dimension=dimension,
+            embedding_batch_size=embedding_batch_size,
+        )
+        if not model_revision:
+            raise DataValidationError(
+                "Vector build requires pinned model identity"
+            )
+        manifest = self._build_manifest(
+            source_manifest.record_count,
+            source_manifest,
+            model_name=model_name,
+            model_revision=model_revision,
+            embedding_provider_name=embedding_provider_name,
+            embedding_provider_version=embedding_provider_version,
+            dimension=dimension,
+            embedding_batch_size=embedding_batch_size,
+        )
+        stored = persist_vector_batches(
+            batches=batches,
+            destination=destination,
+            manifest=manifest,
+            dimension=dimension,
+        )
+        _LOGGER.info(
+            "vector_index_persisted_from_batches",
+            extra={
+                "backend": self.backend_name,
+                "chunk_count": stored.record_count,
+                "model_name": model_name,
+                "dimension": dimension,
+            },
+        )
+        return stored
+
     def load(self, source: Path, manifest: ArtifactManifest) -> None:
         """Load a compatible memory-mapped exact cosine vector artifact."""
         vectors, chunks, stored_manifest = load_vector_artifact(
@@ -290,7 +345,7 @@ class NumpyVectorBackend:
 
     def _build_manifest(
         self,
-        chunks: list[LegalChunk],
+        chunks: list[LegalChunk] | int,
         source_manifest: ArtifactManifest,
         *,
         model_name: str,
@@ -300,6 +355,7 @@ class NumpyVectorBackend:
         dimension: int,
         embedding_batch_size: int,
     ) -> ArtifactManifest:
+        chunk_count = chunks if isinstance(chunks, int) else len(chunks)
         hash_payload = {
             "config": self._config,
             "source_artifact_version": source_manifest.artifact_version,
@@ -309,7 +365,9 @@ class NumpyVectorBackend:
             "embedding_provider_name": embedding_provider_name,
             "embedding_provider_version": embedding_provider_version,
             "dimension": dimension,
-            "chunk_ids": [chunk.chunk_id for chunk in chunks],
+            "source_payload_sha256": source_manifest.metadata.get(
+                "payload_sha256"
+            ),
         }
         config_hash = canonical_sha256(hash_payload)
         return ArtifactManifest(
@@ -319,7 +377,7 @@ class NumpyVectorBackend:
             dataset_name=source_manifest.dataset_name,
             dataset_revision=source_manifest.dataset_revision,
             created_at=self._clock(),
-            record_count=len(chunks),
+            record_count=chunk_count,
             processing_config_hash=config_hash,
             code_version=__version__,
             backend=self.backend_name,
@@ -372,10 +430,14 @@ class NumpyVectorBackend:
         dimension: int,
         embedding_batch_size: int,
     ) -> None:
-        if source_manifest.artifact_type != ArtifactType.LEGAL_CHUNKS:
-            raise ArtifactCompatibilityError(
-                "Vector build requires a legal-chunks source artifact"
-            )
+        NumpyVectorBackend._validate_source_identity(
+            source_manifest,
+            model_name=model_name,
+            embedding_provider_name=embedding_provider_name,
+            embedding_provider_version=embedding_provider_version,
+            dimension=dimension,
+            embedding_batch_size=embedding_batch_size,
+        )
         if source_manifest.record_count != len(chunks):
             raise DataValidationError(
                 "Legal-chunks manifest count does not match vector build input"
@@ -383,8 +445,25 @@ class NumpyVectorBackend:
         chunk_ids = [chunk.chunk_id for chunk in chunks]
         if len(chunk_ids) != len(set(chunk_ids)):
             raise DataValidationError("Vector build requires unique chunk IDs")
-        if not model_name.strip() or not model_revision:
+        if not model_revision:
             raise DataValidationError("Vector build requires pinned model identity")
+
+    @staticmethod
+    def _validate_source_identity(
+        source_manifest: ArtifactManifest,
+        *,
+        model_name: str,
+        embedding_provider_name: str,
+        embedding_provider_version: str,
+        dimension: int,
+        embedding_batch_size: int,
+    ) -> None:
+        if source_manifest.artifact_type != ArtifactType.LEGAL_CHUNKS:
+            raise ArtifactCompatibilityError(
+                "Vector build requires a legal-chunks source artifact"
+            )
+        if not model_name.strip():
+            raise DataValidationError("Vector build requires model identity")
         if not embedding_provider_name.strip() or not embedding_provider_version.strip():
             raise DataValidationError("Vector build requires embedding provider identity")
         if dimension <= 0 or embedding_batch_size <= 0:

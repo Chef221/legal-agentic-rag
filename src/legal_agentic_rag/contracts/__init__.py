@@ -14,7 +14,10 @@ from legal_agentic_rag.contracts.evaluators import (
 )
 from legal_agentic_rag.contracts.graph_backend import GraphBackend
 from legal_agentic_rag.contracts.reranker import Reranker
-from legal_agentic_rag.contracts.vector_backend import VectorBackend
+from legal_agentic_rag.contracts.vector_backend import (
+    VectorBackend,
+    VectorBuildBatch,
+)
 
 __all__ = [
     "AnswerGenerator",
@@ -31,4 +34,5 @@ __all__ = [
     "Reranker",
     "RetrievalEvaluator",
     "VectorBackend",
+    "VectorBuildBatch",
 ]

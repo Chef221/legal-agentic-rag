@@ -781,6 +781,20 @@ runtime
   `PYTHONHASHSEED` khác nhau;
 - phát hành bản vá `0.19.1`, không thêm dependency.
 
+### Milestone 17.3 Full-Corpus OOM Remediation
+
+- measurement trên Colab 12 GiB xác nhận legacy parser bị kernel OOM-kill ở
+  khoảng 10,8 GiB anonymous RSS;
+- cleaned artifact được đọc bằng typed one-pass iterator;
+- parser và chunker xử lý từng document, không giữ complete corpus lists;
+- block/chunk JSONL được stage incremental và publish atomically;
+- configurable document progress logging;
+- BM25 disk-backed insert theo batch, không giữ corpus rows;
+- vector embedding theo batch vào disk-backed NumPy memmap;
+- persisted vector/chunk alignment giữ source-artifact order;
+- regression tests cho one-pass behavior, output equivalence và failure safety;
+- version `0.20.0`, không thêm dependency.
+
 ### Done When
 
 - full AIO build chạy xong trong một artifact root mới;
@@ -792,13 +806,12 @@ runtime
 
 ### Current Limitation
 
-Full profile không còn giữ đồng thời raw snapshot và toàn bộ processed stages.
-Tuy nhiên normalizer vẫn cần disk-derived ID indexes và parser/chunker vẫn xử lý
-complete stage lists. Dataset content đã cache khoảng 3,94 GB Arrow; chưa có số
-đo peak RSS thật cho full run. Máy phát triển 16 GB RAM và CPU không đủ cơ sở để
-cam kết build/embedding hoàn tất trong thời gian hợp lý. Vì vậy code và tests đã
-hoàn tất nhưng milestone chưa được đánh dấu Completed trước khi có full
-validation report từ môi trường đủ tài nguyên.
+Normalizer vẫn cần disk-derived ID indexes và cleaner hiện materialize stage
+output trước khi persist, nhưng hai stage này đã hoàn thành trên Colab 12 GiB
+trong full-corpus measurement. Parser/chunker/BM25/vector build đã chuyển sang
+bounded execution sau OOM measurement. Milestone vẫn chưa được đánh dấu
+Completed trước khi version `0.20.0` tạo được full validation report thật và
+online smoke test load được artifact set.
 
 ---
 

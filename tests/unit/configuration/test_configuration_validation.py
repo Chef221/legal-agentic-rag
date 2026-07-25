@@ -35,6 +35,8 @@ def test_bm25_index_config_rejects_unknown_analyzer_or_match_mode() -> None:
         BM25IndexConfig(analyzer_name="unknown")
     with pytest.raises(ValidationError):
         BM25IndexConfig(match_mode="phrase")
+    with pytest.raises(ValidationError):
+        BM25IndexConfig(write_batch_size=0)
 
 
 def test_embedding_and_vector_defaults_are_pinned_and_bounded() -> None:
@@ -255,8 +257,14 @@ def test_offline_execution_only_resumes_when_explicitly_enabled() -> None:
     assert OfflineExecutionConfig(
         resume_partial_build=True
     ).release_stage_memory is True
+    assert (
+        OfflineExecutionConfig().document_processing_progress_interval
+        == 1_000
+    )
     with pytest.raises(ValidationError):
         OfflineExecutionConfig(release_stage_memory=False)
+    with pytest.raises(ValidationError):
+        OfflineExecutionConfig(document_processing_progress_interval=0)
     with pytest.raises(ValidationError, match="pinned revision"):
         OfflineConfig(
             dataset=DatasetSourceConfig(dataset_name="fixture"),

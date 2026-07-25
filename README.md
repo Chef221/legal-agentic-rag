@@ -71,6 +71,11 @@ Từ phiên bản `0.19.1`, config hash được canonical hóa để ổn đị
 process Python. Partial state schema `1.0` từ bản cũ phải giữ nguyên để chẩn
 đoán và chạy lại trong một artifact root mới; không sửa hoặc xóa state cũ.
 
+Từ phiên bản `0.20.0`, parser/chunker xử lý từng document; block/chunk artifact
+được ghi incremental, BM25 dùng disk-backed batched inserts và vector embedding
+ghi theo batch vào NumPy memmap. Bản này sửa OOM đã đo ở legacy parser trên
+runtime 12 GiB. Build `0.19.x` phải dùng artifact root khác khi chạy `0.20.0`.
+
 Chạy benchmark có nhãn:
 
 ```powershell

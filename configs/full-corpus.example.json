@@ -18,7 +18,8 @@
     "execution": {
       "resume_partial_build": true,
       "bounded_source_passes": true,
-      "release_stage_memory": true
+      "release_stage_memory": true,
+      "document_processing_progress_interval": 1000
     },
     "relationship_normalization": {
       "relationship_type_mapping": {}

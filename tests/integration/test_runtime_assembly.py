@@ -341,7 +341,11 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     provider = _FixtureEmbeddingProvider()
 
     class _FailingVectorBackend(NumpyVectorBackend):
-        def build(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        def build_persisted(  # type: ignore[no-untyped-def]
+            self,
+            *args: object,
+            **kwargs: object,
+        ):
             raise BackendInitializationError("fixture vector failure")
 
     with pytest.raises(BackendInitializationError, match="fixture vector"):
