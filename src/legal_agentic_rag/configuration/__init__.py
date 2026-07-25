@@ -2,6 +2,7 @@
 
 from legal_agentic_rag.configuration.application import ApplicationConfig
 from legal_agentic_rag.configuration.artifacts import ArtifactConfig
+from legal_agentic_rag.configuration.build_validation import BuildValidationConfig
 from legal_agentic_rag.configuration.evaluation import EvaluationConfig
 from legal_agentic_rag.configuration.observability import LoggingConfig
 from legal_agentic_rag.configuration.serving import ServingConfig
@@ -16,6 +17,7 @@ from legal_agentic_rag.configuration.offline import (
     HtmlCleaningConfig,
     IndexBuildConfig,
     LegalStructureParserConfig,
+    OfflineExecutionConfig,
     OfflineConfig,
     RelationshipNormalizationConfig,
     VectorIndexConfig,
@@ -34,6 +36,7 @@ __all__ = [
     "ApplicationConfig",
     "ArtifactConfig",
     "BM25IndexConfig",
+    "BuildValidationConfig",
     "ChunkingConfig",
     "ContextGradingConfig",
     "DatasetAuditConfig",
@@ -48,6 +51,7 @@ __all__ = [
     "LegalStructureParserConfig",
     "LoggingConfig",
     "OfflineConfig",
+    "OfflineExecutionConfig",
     "OnlineConfig",
     "RerankerConfig",
     "ServingConfig",

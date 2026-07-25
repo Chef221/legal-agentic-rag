@@ -733,7 +733,109 @@ Khi có gold answers hoặc human labels:
 
 ---
 
-## 19. Milestone 17 — Competition Adaptation
+## 19. Milestone 17 — Full Corpus Build and Baseline Validation
+
+**Status:** Implementation complete; full-corpus execution pending capable
+runtime
+
+### Objectives
+
+- tạo profile full AIO có revision và expected counts rõ ràng;
+- từ chối sample hoặc unpinned input trước build;
+- validate integrity, count và lineage của complete artifact set;
+- tạo bằng chứng machine-readable trước khi gọi artifact ready.
+
+### Implemented Baseline
+
+- typed `BuildValidationConfig`;
+- `configs/full-corpus.example.json` pin revision, bỏ sample limit và khai báo
+  expected counts;
+- `BuildValidationReport` cùng per-artifact `ArtifactValidationResult`;
+- checksum/count validation cho JSONL, relationships, SQLite BM25, NumPy vector
+  và adjacency graph;
+- cross-artifact dataset identity và processing-hash lineage;
+- immutable `build_validation.json` sau mỗi offline build;
+- read-only `legal-rag-validate`;
+- unit/integration tests cho policy, valid build và tampered payload.
+
+### Milestone 17.1 Memory-Safe Execution
+
+- full profile bật repeatable bounded source passes trên pinned revision;
+- persist từng stage và giải phóng stage trước khỏi memory;
+- giữ raw HTML trên disk nhưng bỏ reference khỏi downstream processing view;
+- NumPy `float32` preallocation thay cho Python vector list;
+- typed `build_state.json` khóa exact application config và code version;
+- resume partial build sau normalized checkpoint;
+- dependency validation giữa cleaned/blocks/chunks/indexes/graph;
+- integration test cố ý làm vector stage thất bại rồi resume thành công;
+- resume với config thay đổi bị từ chối.
+
+### Done When
+
+- full AIO build chạy xong trong một artifact root mới;
+- persisted report có `is_full_corpus = true`;
+- persisted report có `is_valid = true`;
+- online runtime load được artifact set;
+- smoke retrieval/answer chạy được trên full index;
+- artifact và dataset lớn không bị commit.
+
+### Current Limitation
+
+Full profile không còn giữ đồng thời raw snapshot và toàn bộ processed stages.
+Tuy nhiên normalizer vẫn cần disk-derived ID indexes và parser/chunker vẫn xử lý
+complete stage lists. Dataset content đã cache khoảng 3,94 GB Arrow; chưa có số
+đo peak RSS thật cho full run. Máy phát triển 16 GB RAM và CPU không đủ cơ sở để
+cam kết build/embedding hoàn tất trong thời gian hợp lý. Vì vậy code và tests đã
+hoàn tất nhưng milestone chưa được đánh dấu Completed trước khi có full
+validation report từ môi trường đủ tài nguyên.
+
+---
+
+## 20. Milestone 18 — Model-backed Answer Generator
+
+**Status:** Implementation complete; model benchmark pending GPU and labeled
+evaluation data
+
+### Objectives
+
+- sinh câu trả lời tiếng Việt thay vì chỉ trình bày evidence nguyên văn;
+- giữ generator backend/model-neutral;
+- từ chối citation/model output không truy ngược selected evidence;
+- giữ UI hoạt động khi chưa có model server.
+
+### Implemented Baseline
+
+- `ChatModelProvider` Protocol;
+- dependency-free OpenAI-compatible provider;
+- typed backend/endpoint/model/revision/timeout/output-token configuration;
+- API key lookup bằng tên environment variable;
+- evidence-only Vietnamese prompt với untrusted-content boundary;
+- strict `ModelAnswerDraft` JSON parsing;
+- evidence-ID allowlist và required `[E#]` markers;
+- deterministic system-built `Citation`;
+- explicit model abstention và existing citation verifier;
+- extractive default/fallback mode;
+- unit tests không network cho prompt, parser, config, transport và failures.
+
+### Done When
+
+- model mode được bật bằng explicit local config;
+- valid completion trở thành verified `AnswerResponse`;
+- invented evidence ID, missing marker và invalid JSON đều fail closed;
+- timeout/HTTP/model-envelope errors được phân loại;
+- default test suite không gọi model thật;
+- docs, schema và design decision thống nhất.
+
+### Current Limitation
+
+M18 chưa chọn hoặc benchmark model cuối cùng, chưa fine-tune và chưa
+semantic-verify support của từng claim. OpenAI-compatible endpoint phải hỗ trợ
+JSON response mode. Chất lượng thực tế chỉ được kết luận sau benchmark có nhãn
+trên GPU; lựa chọn model không bị giới hạn bởi CPU của máy phát triển.
+
+---
+
+## 21. Future — Competition Adaptation
 
 ### Objectives
 
@@ -760,7 +862,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 20. Milestone Execution Rules
+## 22. Milestone Execution Rules
 
 Mỗi milestone phải:
 

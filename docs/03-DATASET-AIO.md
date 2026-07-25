@@ -61,6 +61,17 @@ Live smoke test ngày 2026-07-18 tại revision
 Revision `main` có thể thay đổi. Manifest của mỗi ingestion vẫn là nguồn
 truy vết cho lần chạy đó.
 
+Full-corpus build profile của Milestone 17 pin revision
+`0a39ad7eae8e6c188cb225c4b1443c3b346461d8` và dùng các expected counts đã xác
+minh từ dataset metadata:
+
+- metadata: 153.420 records;
+- content: 178.665 records;
+- relationships: 897.890 records.
+
+Các số này chỉ thuộc AIO profile. Core validator nhận chúng qua configuration và
+không hard-code dataset-specific count.
+
 Config `content` hiện có metadata Arrow khai báo `string` nhưng Parquet dùng
 `large_string`. Loader AIO áp dụng feature override `large_string` chỉ tại
 dataset boundary để tránh narrowing overflow; raw text không bị thay đổi.

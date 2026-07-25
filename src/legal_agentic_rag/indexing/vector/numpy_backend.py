@@ -365,7 +365,7 @@ class NumpyVectorBackend:
             norms = np.linalg.norm(matrix, axis=1, keepdims=True)
             if np.any(norms <= 0):
                 raise DataValidationError("Vector matrix contains a zero vector")
-            matrix = matrix / norms
+            matrix /= norms
         return matrix
 
     @staticmethod

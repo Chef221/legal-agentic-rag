@@ -153,6 +153,57 @@ class Citation(BaseModel):
         return _optional_text(value)
 
 
+class ModelAnswerDraft(BaseModel):
+    """Strict model output before trusted citation metadata is attached."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    cited_evidence_ids: list[str] = Field(default_factory=list)
+    insufficient_evidence: bool
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("answer")
+    @classmethod
+    def validate_answer(cls, value: str) -> str:
+        """Reject an empty model answer."""
+        return _non_empty(value)
+
+    @field_validator("cited_evidence_ids")
+    @classmethod
+    def validate_evidence_ids(cls, values: list[str]) -> list[str]:
+        """Require valid, unique evidence references."""
+        normalized = [_non_empty(value) for value in values]
+        if any(
+            not value.startswith("E")
+            or not value[1:].isdigit()
+            or value[1] == "0"
+            for value in normalized
+        ):
+            raise ValueError("cited evidence IDs must use the E<number> format")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("cited evidence IDs must be unique")
+        return normalized
+
+    @field_validator("warnings")
+    @classmethod
+    def validate_warnings(cls, values: list[str]) -> list[str]:
+        """Normalize non-empty warnings while preserving their order."""
+        normalized = [_non_empty(value) for value in values]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("model warnings must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_grounding_state(self) -> "ModelAnswerDraft":
+        """Align citation presence with the model's sufficiency decision."""
+        if self.insufficient_evidence and self.cited_evidence_ids:
+            raise ValueError("an insufficient draft must not cite evidence")
+        if not self.insufficient_evidence and not self.cited_evidence_ids:
+            raise ValueError("a grounded draft requires cited evidence")
+        return self
+
+
 class AnswerResponse(BaseModel):
     """Final grounded answer response or explicit abstention."""
 

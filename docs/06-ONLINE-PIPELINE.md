@@ -383,6 +383,44 @@ Generator phải:
 - giữ cảnh báo hiệu lực;
 - tránh khẳng định pháp lý tuyệt đối.
 
+### 10.1 Milestone 18 Model-backed Generation
+
+M18 giữ `AnswerGenerator` làm core boundary và thêm `ChatModelProvider` cho ranh
+giới model server. Concrete baseline gọi một endpoint Chat Completions tương
+thích OpenAI bằng Python standard library; model, revision, endpoint, timeout,
+output-token limit và tên biến môi trường chứa API key đều do typed config cung
+cấp.
+
+Luồng model-backed:
+
+```text
+Selected Evidence
+→ evidence-only Vietnamese prompt
+→ JSON-mode model completion
+→ ModelAnswerDraft validation
+→ evidence-ID allowlist
+→ system-built Citation metadata
+→ existing CitationVerifier
+→ AnswerResponse hoặc Abstention
+```
+
+Model chỉ được tạo:
+
+- answer text có marker `[E#]`;
+- danh sách `cited_evidence_ids`;
+- `insufficient_evidence`;
+- warnings.
+
+Model không được tự tạo `chunk_id`, `document_id`, số văn bản, số Điều hoặc URL
+citation. Các field này luôn được hệ thống ánh xạ từ `Evidence` đã chọn. Unknown
+evidence ID, JSON sai schema hoặc marker bị thiếu đều fail closed thành model
+error; Agent hiện tại xử lý lỗi theo retry/stopping policy có giới hạn.
+
+`extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
+config và phải có endpoint cùng model name/revision đã pin. M18 chưa chọn model
+production, chưa fine-tune, chưa semantic-verify từng claim và không gọi model
+thật trong test mặc định.
+
 ---
 
 ## 11. Citation Verification

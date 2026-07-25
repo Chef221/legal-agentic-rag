@@ -20,6 +20,20 @@ def test_example_configuration_loads() -> None:
     )
 
 
+def test_full_corpus_configuration_is_pinned_and_unsampled() -> None:
+    """The committed full build profile makes its completeness claim measurable."""
+    path = Path(__file__).parents[3] / "configs" / "full-corpus.example.json"
+
+    config = load_application_config(path)
+
+    assert config.offline.dataset.dataset_revision == (
+        "0a39ad7eae8e6c188cb225c4b1443c3b346461d8"
+    )
+    assert config.offline.dataset.sample_limit is None
+    assert config.build_validation.require_full_corpus is True
+    assert config.build_validation.expected_record_counts["metadata"] == 153_420
+
+
 def test_config_loader_wraps_invalid_json_without_leaking_details(
     tmp_path: Path,
 ) -> None:

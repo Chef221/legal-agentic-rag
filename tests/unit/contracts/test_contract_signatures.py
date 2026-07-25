@@ -6,6 +6,7 @@ from legal_agentic_rag.contracts import (
     AgentWorkflow,
     AnswerGenerator,
     BM25Backend,
+    ChatModelProvider,
     CitationVerifier,
     ContextGrader,
     DatasetSource,
@@ -23,6 +24,7 @@ def test_contracts_expose_only_domain_capabilities() -> None:
     expected_methods = {
         DatasetSource: {"iter_records", "dataset_manifest"},
         BM25Backend: {"build", "search", "persist", "load"},
+        ChatModelProvider: {"complete"},
         EmbeddingProvider: {"embed_documents", "embed_query"},
         VectorBackend: {"build", "search", "persist", "load"},
         Reranker: {"rerank"},
@@ -106,6 +108,22 @@ def test_reranker_contract_exposes_provider_and_model_identity() -> None:
         "self",
         "query",
         "candidates",
+    ]
+
+
+def test_chat_model_contract_exposes_reproducible_identity() -> None:
+    """Generator providers retain model identity without a shared base backend."""
+    assert {
+        "provider_name",
+        "provider_version",
+        "model_name",
+        "model_revision",
+        "complete",
+    }.issubset(ChatModelProvider.__dict__)
+    assert list(signature(ChatModelProvider.complete).parameters) == [
+        "self",
+        "system_instruction",
+        "user_prompt",
     ]
 
 

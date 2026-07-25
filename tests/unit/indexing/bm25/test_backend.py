@@ -61,7 +61,7 @@ def test_backend_builds_manifest_and_satisfies_protocol(
     assert isinstance(backend, BM25Backend)
     assert manifest.artifact_type == ArtifactType.BM25_INDEX
     assert manifest.backend == "sqlite_fts5"
-    assert manifest.code_version == "0.17.0"
+    assert manifest.code_version == "0.19.0"
     assert manifest.record_count == 3
     assert manifest.dataset_revision == "fixture-revision"
     assert manifest.metadata["analyzer_name"] == "unicode_word_casefold_v1"

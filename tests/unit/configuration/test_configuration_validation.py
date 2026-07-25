@@ -7,6 +7,7 @@ from legal_agentic_rag.configuration import (
     AgentConfig,
     ArtifactConfig,
     BM25IndexConfig,
+    BuildValidationConfig,
     ChunkingConfig,
     ContextGradingConfig,
     DatasetAuditConfig,
@@ -18,6 +19,8 @@ from legal_agentic_rag.configuration import (
     HtmlCleaningConfig,
     LegalStructureParserConfig,
     LoggingConfig,
+    OfflineConfig,
+    OfflineExecutionConfig,
     RetrievalConfig,
     RelationshipNormalizationConfig,
     RerankerConfig,
@@ -93,11 +96,37 @@ def test_generation_and_context_grading_defaults_are_bounded() -> None:
 
     assert generation.max_context_tokens == 4096
     assert generation.max_evidence == 8
+    assert generation.backend == "extractive"
     assert grading.minimum_evidence_count == 1
     with pytest.raises(ValidationError):
         GenerationConfig(max_evidence=101)
     with pytest.raises(ValidationError):
         GenerationConfig(model_name="model-without-revision")
+    with pytest.raises(ValidationError, match="endpoint_url"):
+        GenerationConfig(
+            backend="openai_compatible",
+            model_name="fixture-model",
+            model_revision="fixture-revision",
+        )
+    model_generation = GenerationConfig(
+        backend="openai_compatible",
+        endpoint_url="http://127.0.0.1:8001/v1/chat/completions",
+        api_key_env="LEGAL_RAG_MODEL_API_KEY",
+        model_name="fixture-model",
+        model_revision="fixture-revision",
+    )
+    assert model_generation.endpoint_url.endswith("/v1/chat/completions")
+    with pytest.raises(ValidationError, match="must not contain"):
+        GenerationConfig(
+            endpoint_url="http://127.0.0.1:8001/v1/chat/completions"
+        )
+    with pytest.raises(ValidationError, match="HTTP"):
+        GenerationConfig(
+            backend="openai_compatible",
+            endpoint_url="file:///tmp/model",
+            model_name="fixture-model",
+            model_revision="fixture-revision",
+        )
     with pytest.raises(ValidationError):
         ContextGradingConfig(minimum_evidence_count=0)
 
@@ -188,6 +217,50 @@ def test_dataset_source_requires_distinct_component_configs() -> None:
             dataset_name="th1nhng0/vietnamese-legal-documents",
             metadata_config="metadata",
             content_config="metadata",
+        )
+
+
+def test_full_corpus_validation_requires_pinned_expected_counts() -> None:
+    """A build cannot claim full-corpus coverage without measurable provenance."""
+    with pytest.raises(ValidationError, match="pinned revision"):
+        BuildValidationConfig(require_full_corpus=True)
+    with pytest.raises(ValidationError, match="expected record counts"):
+        BuildValidationConfig(
+            require_full_corpus=True,
+            require_pinned_dataset_revision=True,
+        )
+    policy = BuildValidationConfig(
+        require_full_corpus=True,
+        require_pinned_dataset_revision=True,
+        expected_record_counts={
+            " metadata ": 153_420,
+            "content": 178_665,
+            "relationships": 897_890,
+        },
+    )
+    assert policy.expected_record_counts["metadata"] == 153_420
+    with pytest.raises(ValidationError, match="metadata, content"):
+        BuildValidationConfig(
+            require_full_corpus=True,
+            require_pinned_dataset_revision=True,
+            expected_record_counts={"metadata": 153_420},
+        )
+    with pytest.raises(ValidationError):
+        BuildValidationConfig(report_filename="../validation.json")
+
+
+def test_offline_execution_only_resumes_when_explicitly_enabled() -> None:
+    """Partial reuse is opt-in while stage-memory release remains mandatory."""
+    assert OfflineExecutionConfig().resume_partial_build is False
+    assert OfflineExecutionConfig(
+        resume_partial_build=True
+    ).release_stage_memory is True
+    with pytest.raises(ValidationError):
+        OfflineExecutionConfig(release_stage_memory=False)
+    with pytest.raises(ValidationError, match="pinned revision"):
+        OfflineConfig(
+            dataset=DatasetSourceConfig(dataset_name="fixture"),
+            execution=OfflineExecutionConfig(bounded_source_passes=True),
         )
 
 

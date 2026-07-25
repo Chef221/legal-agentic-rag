@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 import logging
 
+import numpy as np
+
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
 from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
 from legal_agentic_rag.contracts.vector_backend import VectorBackend
@@ -44,26 +46,29 @@ class VectorIndexBuilder:
             raise DataValidationError(
                 "Legal-chunks manifest count does not match vector build input"
             )
-        vectors: list[Sequence[float]] = []
         batch_size = self._config.embedding_batch_size
         dimension = self._provider.dimension
+        vectors = np.empty((len(chunk_list), dimension), dtype=np.float32)
         for start in range(0, len(chunk_list), batch_size):
             batch = chunk_list[start : start + batch_size]
-            batch_vectors = list(
-                self._provider.embed_documents(
-                    [chunk.search_text for chunk in batch],
-                    batch_size=batch_size,
-                )
+            batch_vectors = np.asarray(
+                list(
+                    self._provider.embed_documents(
+                        [chunk.search_text for chunk in batch],
+                        batch_size=batch_size,
+                    )
+                ),
+                dtype=np.float32,
             )
             if len(batch_vectors) != len(batch):
                 raise DataValidationError(
                     "Embedding provider returned a mismatched batch size"
                 )
-            if any(len(vector) != dimension for vector in batch_vectors):
+            if batch_vectors.ndim != 2 or batch_vectors.shape[1] != dimension:
                 raise DataValidationError(
                     "Embedding provider returned a mismatched dimension"
                 )
-            vectors.extend(batch_vectors)
+            vectors[start : start + len(batch)] = batch_vectors
         manifest = self._backend.build(
             chunk_list,
             vectors,

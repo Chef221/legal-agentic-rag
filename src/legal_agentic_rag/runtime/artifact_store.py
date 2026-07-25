@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from hashlib import sha256
 import json
 from pathlib import Path
+from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -22,6 +23,7 @@ from legal_agentic_rag.schemas.manifests import (
 _MANIFEST_FILENAME = "manifest.json"
 _RECORDS_FILENAME = "records.jsonl"
 _DATASET_MANIFEST_FILENAME = "dataset_manifest.json"
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 def persist_dataset_manifest(
@@ -44,6 +46,18 @@ def persist_dataset_manifest(
         encoding="utf-8",
     )
     return path
+
+
+def load_dataset_manifest(root: Path) -> DatasetManifest:
+    """Load a persisted dataset manifest for a validated partial-build resume."""
+    try:
+        return DatasetManifest.model_validate_json(
+            (root / _DATASET_MANIFEST_FILENAME).read_text(encoding="utf-8")
+        )
+    except (OSError, ValidationError, ValueError) as error:
+        raise ArtifactCompatibilityError(
+            "Dataset manifest is missing or invalid"
+        ) from error
 
 
 def persist_model_artifact(
@@ -132,6 +146,47 @@ def load_artifact_manifest(
                 "Artifact payload checksum is incompatible"
             )
     return manifest
+
+
+def load_model_artifact(
+    source: Path,
+    *,
+    expected_type: ArtifactType,
+    record_type: type[ModelT],
+) -> tuple[list[ModelT], ArtifactManifest]:
+    """Stream-parse a checksum-validated runtime JSONL artifact."""
+    manifest = load_artifact_manifest(
+        source,
+        expected_type=expected_type,
+        verify_payload=True,
+    )
+    payload_file = manifest.metadata.get("payload_file")
+    record_model = manifest.metadata.get("record_model")
+    if not isinstance(payload_file, str) or record_model not in {
+        record_type.__name__,
+        "empty",
+    }:
+        raise ArtifactCompatibilityError(
+            "Artifact record model metadata is incompatible"
+        )
+    records: list[ModelT] = []
+    try:
+        with (source / payload_file).open("r", encoding="utf-8") as stream:
+            for line in stream:
+                if not line.strip():
+                    raise ArtifactCompatibilityError(
+                        "Artifact JSONL contains a blank record"
+                    )
+                records.append(record_type.model_validate_json(line))
+    except (OSError, ValidationError, ValueError) as error:
+        raise ArtifactCompatibilityError(
+            "Artifact JSONL payload is invalid"
+        ) from error
+    if len(records) != manifest.record_count:
+        raise ArtifactCompatibilityError(
+            "Artifact payload count differs from manifest"
+        )
+    return records, manifest
 
 
 def _sha256_file(path: Path) -> str:

@@ -4,9 +4,17 @@ Hệ thống Agentic RAG cho bài toán trả lời câu hỏi pháp luật Vi�
 
 ## Current Status
 
-Dự án đã hoàn thành:
+Dự án đã hoàn thành implementation cho:
 
-`Milestone 16 — Evaluation`
+`Milestone 18 — Model-backed Answer Generator`
+
+Full-corpus execution chưa được tuyên bố hoàn thành cho tới khi có
+`build_validation.json` thật với `is_full_corpus = true` và `is_valid = true`.
+
+M18 bổ sung model-backed grounded generation qua endpoint OpenAI-compatible.
+`extractive` vẫn là backend mặc định để local UI chạy không cần model service.
+Model, revision, endpoint và secret đều đi qua configuration; core không khóa
+vào một model hoặc nhà cung cấp cụ thể.
 
 Hệ thống có composition root để build toàn bộ AIO artifacts, online factory để
 reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/Gradio để
@@ -23,8 +31,41 @@ python -m pip install -e ".[dev]"
 Copy-Item configs/baseline.example.json configs/baseline.local.json
 # Chỉnh configs/baseline.local.json nếu cần.
 legal-rag-build --config configs/baseline.local.json
+legal-rag-validate --config configs/baseline.local.json
 legal-rag-serve --config configs/baseline.local.json
 ```
+
+Để bật model-backed generation, sửa `online.generation` trong config local:
+
+```json
+{
+  "backend": "openai_compatible",
+  "endpoint_url": "http://127.0.0.1:8001/v1/chat/completions",
+  "api_key_env": null,
+  "model_name": "<model-name>",
+  "model_revision": "<pinned-revision>",
+  "temperature": 0.0,
+  "max_output_tokens": 1024
+}
+```
+
+Nếu endpoint cần secret, chỉ đặt tên biến môi trường vào `api_key_env`; không
+đặt API key trực tiếp trong file config.
+
+Profile build toàn bộ AIO dành cho máy GPU/RAM phù hợp:
+
+```powershell
+Copy-Item configs/full-corpus.example.json configs/full-corpus.local.json
+# Chọn artifact root mới và kiểm tra device trước khi chạy.
+legal-rag-build --config configs/full-corpus.local.json
+legal-rag-validate --config configs/full-corpus.local.json
+```
+
+Không commit corpus, model output hoặc artifact sinh ra.
+
+Full profile dùng pinned multi-pass loading, giải phóng memory giữa các stage và
+resume partial build sau normalized checkpoint. Resume chỉ hoạt động khi config
+và code version không đổi; runtime không tự xóa artifact lỗi.
 
 Chạy benchmark có nhãn:
 

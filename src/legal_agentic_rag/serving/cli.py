@@ -7,12 +7,17 @@ import logging
 from pathlib import Path
 
 from legal_agentic_rag.observability import configure_logging
+from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.evaluation import (
     EvaluationRunner,
     load_benchmark,
     persist_report,
 )
-from legal_agentic_rag.runtime import OfflineBuildRuntime, OnlineRuntimeFactory
+from legal_agentic_rag.runtime import (
+    ArtifactSetValidator,
+    OfflineBuildRuntime,
+    OnlineRuntimeFactory,
+)
 from legal_agentic_rag.serving.api import create_app
 from legal_agentic_rag.serving.config_loader import load_application_config
 
@@ -49,6 +54,27 @@ def serve_main() -> None:
         port=config.serving.port,
         log_level=config.logging.level.casefold(),
     )
+
+
+def validate_main() -> None:
+    """Revalidate an existing artifact set without rebuilding or changing it."""
+    arguments = _parser("Validate legal RAG artifacts").parse_args()
+    config = load_application_config(arguments.config)
+    configure_logging(config.logging)
+    report = ArtifactSetValidator(
+        config.artifacts,
+        config.build_validation,
+    ).validate()
+    _LOGGER.info(
+        "validation_command_completed",
+        extra={
+            "artifact_count": len(report.artifact_results),
+            "is_full_corpus": report.is_full_corpus,
+            "is_valid": report.is_valid,
+        },
+    )
+    if not report.is_valid:
+        raise ArtifactCompatibilityError("Artifact set failed validation")
 
 
 def evaluate_main() -> None:

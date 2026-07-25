@@ -10,6 +10,7 @@ from legal_agentic_rag.schemas.manifests import (
     ArtifactValidationResult,
     DatasetManifest,
 )
+from legal_agentic_rag.schemas import BuildValidationReport, OfflineBuildState
 
 
 def test_dataset_manifest_parses_timezone_and_counts(load_schema_sample: object) -> None:
@@ -62,4 +63,37 @@ def test_artifact_validation_flag_matches_errors(load_schema_sample: object) -> 
             is_valid=True,
             checked_at=datetime.now(timezone.utc),
             errors=["count mismatch"],
+        )
+
+
+def test_build_validation_report_requires_an_identified_failure() -> None:
+    """Top-level build validity cannot contradict artifact validation results."""
+    with pytest.raises(ValidationError):
+        BuildValidationReport(
+            checked_at=datetime.now(timezone.utc),
+            is_full_corpus=False,
+            is_valid=False,
+        )
+    report = BuildValidationReport(
+        checked_at=datetime.now(timezone.utc),
+        is_full_corpus=False,
+        is_valid=False,
+        errors=["artifact set is incomplete"],
+    )
+    assert report.is_valid is False
+
+
+def test_offline_build_state_requires_sha256_and_timezone() -> None:
+    """Resume identity rejects ambiguous timestamps and non-SHA config values."""
+    state = OfflineBuildState(
+        application_config_hash="a" * 64,
+        code_version="0.19.0",
+        created_at=datetime.now(timezone.utc),
+    )
+    assert state.schema_version == "1.0"
+    with pytest.raises(ValidationError):
+        OfflineBuildState(
+            application_config_hash="not-a-sha",
+            code_version="0.19.0",
+            created_at=datetime.now(timezone.utc),
         )

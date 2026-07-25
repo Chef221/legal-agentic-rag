@@ -8,7 +8,7 @@ from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.schemas.answering import AnswerResponse, Citation, Evidence
 from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalStrategy
 
-_ABSTENTION_TEXT = (
+ABSTENTION_TEXT = (
     "Hệ thống chưa tìm thấy căn cứ pháp luật đủ rõ trong dữ liệu hiện có "
     "để trả lời chắc chắn."
 )
@@ -30,7 +30,7 @@ class ExtractiveAnswerGenerator:
         if not values:
             return AnswerResponse(
                 question=query.original_question,
-                answer=_ABSTENTION_TEXT,
+                answer=ABSTENTION_TEXT,
                 insufficient_evidence=True,
                 warnings=["insufficient_evidence"],
                 retrieval_strategy=retrieval_strategy,

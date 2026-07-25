@@ -8,6 +8,7 @@ import pytest
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.runtime import (
     load_artifact_manifest,
+    load_model_artifact,
     persist_model_artifact,
 )
 from legal_agentic_rag.schemas import (
@@ -51,6 +52,13 @@ def test_model_artifact_roundtrip_verifies_manifest_and_payload_hash(
 
     assert loaded == stored
     assert loaded.metadata["record_model"] == "LegalDocument"
+    records, loaded_with_records = load_model_artifact(
+        destination,
+        expected_type=ArtifactType.NORMALIZED_DOCUMENTS,
+        record_type=LegalDocument,
+    )
+    assert loaded_with_records == stored
+    assert records[0].document_id == "doc-1"
     with (destination / "records.jsonl").open("a", encoding="utf-8") as stream:
         stream.write("{}\n")
     with pytest.raises(ArtifactCompatibilityError, match="checksum"):

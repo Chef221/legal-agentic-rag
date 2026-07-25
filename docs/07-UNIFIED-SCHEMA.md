@@ -637,6 +637,30 @@ relationships và source processing hash trỏ về normalized documents.
 }
 ```
 
+### ModelAnswerDraft
+
+`ModelAnswerDraft` là nested boundary có consumer rõ ràng: parser của
+model-backed generator. Nó không phải public API response.
+
+```json
+{
+  "answer": "string có marker [E#]",
+  "cited_evidence_ids": ["E1"],
+  "insufficient_evidence": false,
+  "warnings": []
+}
+```
+
+Rules:
+
+- extra field bị từ chối;
+- `answer` không rỗng;
+- evidence ID dùng format `E[1-9][0-9]*` và không lặp;
+- grounded draft phải có ít nhất một evidence ID;
+- insufficient draft không được có evidence ID;
+- generator kiểm tra từng ID thuộc selected `Evidence`;
+- `Citation` đầy đủ được dựng bởi hệ thống, không deserialize trực tiếp từ model.
+
 ### ContextBuildResult
 
 Milestone 12 thêm typed result cho consumer rõ ràng là fixed RAG service:
@@ -868,6 +892,34 @@ thành điểm `0`.
 
 ---
 
+## 18.5 Milestone 17 Build Validation Schema
+
+`schemas/build_validation.py` chứa `BuildValidationReport`, có consumer trực tiếp
+là offline runtime và validation CLI:
+
+- dataset manifest đã đọc được, nếu tồn tại;
+- map `ArtifactValidationResult` theo `ArtifactType.value`;
+- expected raw component counts lấy từ typed config;
+- `is_full_corpus` chỉ đúng khi revision được pin, counts khớp và không có
+  sample warning;
+- `is_valid` phản ánh cả top-level completeness/lineage và từng artifact result;
+- passed checks, sanitized errors và warnings.
+
+`OfflineBuildResult` giữ thêm validation report để build caller không phải đọc
+lại file vừa tạo.
+
+`OfflineBuildState` là recovery identity có consumer trực tiếp là offline
+runtime:
+
+- schema version;
+- application config SHA-256;
+- code version;
+- timezone-aware creation time.
+
+State không chứa raw record, legal content, model output hoặc secret.
+
+---
+
 ## 19. Schema Evolution
 
 Mọi persisted schema phải có version.
@@ -897,6 +949,7 @@ schemas/
 ├── parsing.py
 ├── chunking.py
 ├── relationship_processing.py
+├── build_validation.py
 ├── evaluation.py
 ├── tools.py
 ├── runtime.py
@@ -922,3 +975,5 @@ Các schema bổ sung có consumer rõ ràng được đặt cùng domain:
 - `OfflineBuildResult` trong `runtime.py`.
 - public request, health và safe-error schemas trong `serving.py`.
 - benchmark, metric và report schemas trong `evaluation.py`.
+- complete artifact-set report trong `build_validation.py`.
+- typed partial-build recovery state trong `build_validation.py`.

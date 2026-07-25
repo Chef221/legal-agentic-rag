@@ -699,6 +699,7 @@ Thư mục artifact logic:
 
 ```text
 artifacts/
+├── build_validation.json
 ├── manifests/
 ├── audits/
 ├── normalized_documents/
@@ -751,5 +752,60 @@ SHA-256. Relationship/BM25/vector/graph tiếp tục dùng artifact store riêng
 từng module. Tất cả directory nằm dưới configured `ArtifactConfig.root_path`;
 runtime preflight và từ chối overwrite trước khi load dataset.
 
-Baseline materialize ba raw streams trong bộ nhớ để audit và normalization dùng
-cùng snapshot. Streaming spool chỉ được thêm sau khi đo memory bottleneck.
+Default fixture/sample mode có thể materialize raw streams. Full-corpus profile
+dùng nhiều pass trên cùng pinned revision: count-only, audit, normalization và
+relationship processing. Cách này đổi thêm disk/cache reads để không giữ raw
+content list và raw relationship list cùng các processed stages trong memory.
+
+Mỗi processed stage được persist/checksum ngay sau khi tạo. Runtime giải phóng
+stage không còn consumer; persisted cleaned artifact vẫn giữ `content_html`, còn
+processing view sau đó bỏ reference HTML trước parser/chunker.
+
+---
+
+## 17. Full-Corpus Profile and Post-Build Validation
+
+Full AIO profile phải:
+
+- pin dataset revision;
+- đặt `sample_limit = null`;
+- khai báo expected counts tại dataset-specific config boundary;
+- dùng artifact root mới;
+- không silently overwrite build cũ.
+
+Sau khi persist đủ tám artifact, `ArtifactSetValidator` kiểm tra:
+
+1. dataset và artifact manifest parse được;
+2. mọi artifact cùng dataset/revision;
+3. payload checksum khớp;
+4. JSONL, SQLite và vector record count khớp manifest;
+5. normalized → cleaned → blocks → chunks lineage liên tục;
+6. BM25/vector cùng trỏ tới legal chunks;
+7. relationships và graph cùng trỏ tới normalized documents;
+8. full-corpus count policy được thỏa.
+
+`build_validation.json` là bằng chứng readiness của lần build. Report invalid
+được persist để chẩn đoán và offline command fail closed. Validation không tải
+lại dataset và không sửa artifact.
+
+### 17.1 Partial-Build Resume
+
+Full profile tạo `build_state.json` trước ingestion, gồm:
+
+- schema version;
+- exact application-config SHA-256;
+- code version;
+- timezone-aware creation time.
+
+Resume chỉ được phép khi:
+
+- config bật `resume_partial_build`;
+- dataset revision được pin;
+- chưa có `build_validation.json`;
+- dataset manifest, audit và normalized checkpoint tồn tại;
+- config hash và code version khớp tuyệt đối;
+- các stage hiện có thỏa dependency order.
+
+Runtime load/checksum checkpoint đã hoàn thành, chỉ chạy các stage còn thiếu.
+Failure trước normalized checkpoint, partial file không hợp lệ hoặc config/code
+đổi phải dùng artifact root mới; runtime không tự xóa hay overwrite dữ liệu.

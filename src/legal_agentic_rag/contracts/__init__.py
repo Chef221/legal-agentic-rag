@@ -3,6 +3,7 @@
 from legal_agentic_rag.contracts.answer_generator import AnswerGenerator
 from legal_agentic_rag.contracts.agent_workflow import AgentWorkflow
 from legal_agentic_rag.contracts.bm25_backend import BM25Backend
+from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.contracts.citation_verifier import CitationVerifier
 from legal_agentic_rag.contracts.context_grader import ContextGrader
 from legal_agentic_rag.contracts.dataset_source import DatasetComponent, DatasetSource
@@ -19,6 +20,7 @@ __all__ = [
     "AnswerGenerator",
     "AgentWorkflow",
     "BM25Backend",
+    "ChatModelProvider",
     "CitationVerifier",
     "ContextGrader",
     "DatasetComponent",

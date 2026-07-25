@@ -2,6 +2,7 @@
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from legal_agentic_rag.schemas.build_validation import BuildValidationReport
 from legal_agentic_rag.schemas.manifests import (
     ArtifactManifest,
     DatasetManifest,
@@ -18,6 +19,7 @@ class OfflineBuildResult(BaseModel):
     output_paths: dict[str, str]
     audit_issue_count: int = Field(ge=0)
     processing_issue_count: int = Field(ge=0)
+    validation_report: BuildValidationReport
 
     @model_validator(mode="after")
     def validate_artifact_keys(self) -> "OfflineBuildResult":

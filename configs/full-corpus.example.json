@@ -1,0 +1,52 @@
+{
+  "artifacts": {
+    "root_path": "artifacts/aio-full-e5-small-v1"
+  },
+  "offline": {
+    "dataset": {
+      "dataset_name": "th1nhng0/vietnamese-legal-documents",
+      "dataset_revision": "0a39ad7eae8e6c188cb225c4b1443c3b346461d8",
+      "sample_limit": null,
+      "streaming": false
+    },
+    "embedding": {
+      "device": "cuda"
+    },
+    "vector_index": {
+      "embedding_batch_size": 64
+    },
+    "execution": {
+      "resume_partial_build": true,
+      "bounded_source_passes": true,
+      "release_stage_memory": true
+    },
+    "relationship_normalization": {
+      "relationship_type_mapping": {}
+    }
+  },
+  "online": {},
+  "build_validation": {
+    "require_pinned_dataset_revision": true,
+    "require_full_corpus": true,
+    "expected_record_counts": {
+      "metadata": 153420,
+      "content": 178665,
+      "relationships": 897890
+    },
+    "report_filename": "build_validation.json"
+  },
+  "logging": {
+    "level": "INFO"
+  },
+  "serving": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "ui_enabled": true
+  },
+  "evaluation": {
+    "cutoffs": [1, 5, 10],
+    "strategy": "hybrid_rerank",
+    "candidate_k": 100,
+    "run_generation": true
+  }
+}

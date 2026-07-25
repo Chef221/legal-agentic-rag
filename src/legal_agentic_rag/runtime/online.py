@@ -19,9 +19,9 @@ from legal_agentic_rag.contracts import (
 from legal_agentic_rag.embeddings import SentenceTransformerEmbeddingProvider
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.generation import (
-    ExtractiveAnswerGenerator,
     RuleBasedCitationVerifier,
     RuleBasedContextGrader,
+    build_answer_generator,
 )
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
@@ -114,8 +114,8 @@ class OnlineRuntimeFactory:
         self._context_grader = context_grader or RuleBasedContextGrader(
             config.online.context_grading
         )
-        self._answer_generator = (
-            answer_generator or ExtractiveAnswerGenerator()
+        self._answer_generator = answer_generator or build_answer_generator(
+            config.online.generation
         )
         self._citation_verifier = (
             citation_verifier or RuleBasedCitationVerifier()

@@ -10,23 +10,33 @@ from legal_agentic_rag.configuration import (
     AgentConfig,
     ApplicationConfig,
     ArtifactConfig,
+    BuildValidationConfig,
     ChunkingConfig,
     DatasetSourceConfig,
     EmbeddingConfig,
     OfflineConfig,
+    OfflineExecutionConfig,
     OnlineConfig,
     RelationshipNormalizationConfig,
     RetrievalConfig,
 )
 from legal_agentic_rag.contracts.dataset_source import DatasetComponent
-from legal_agentic_rag.exceptions import ArtifactCompatibilityError
+from legal_agentic_rag.exceptions import (
+    ArtifactCompatibilityError,
+    BackendInitializationError,
+)
+from legal_agentic_rag.indexing.vector import NumpyVectorBackend
 from legal_agentic_rag.runtime import (
+    ArtifactSetValidator,
     OfflineBuildRuntime,
     OnlineRuntimeFactory,
+    load_model_artifact,
 )
 from legal_agentic_rag.schemas import (
     AgentStopReason,
+    ArtifactType,
     DatasetManifest,
+    LegalDocument,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
@@ -172,7 +182,12 @@ class _FixtureReranker:
         )
 
 
-def _config(root: Path) -> ApplicationConfig:
+def _config(
+    root: Path,
+    *,
+    resume_partial_build: bool = False,
+    bounded_source_passes: bool = False,
+) -> ApplicationConfig:
     return ApplicationConfig(
         artifacts=ArtifactConfig(root_path=root),
         offline=OfflineConfig(
@@ -193,10 +208,23 @@ def _config(root: Path) -> ApplicationConfig:
             relationship_normalization=RelationshipNormalizationConfig(
                 relationship_type_mapping={"Sửa đổi": "amends"}
             ),
+            execution=OfflineExecutionConfig(
+                resume_partial_build=resume_partial_build,
+                bounded_source_passes=bounded_source_passes,
+            ),
         ),
         online=OnlineConfig(
             retrieval=RetrievalConfig(top_k=1, candidate_k=2),
             agent=AgentConfig(max_retry=2),
+        ),
+        build_validation=BuildValidationConfig(
+            require_pinned_dataset_revision=True,
+            require_full_corpus=True,
+            expected_record_counts={
+                "metadata": 2,
+                "content": 2,
+                "relationships": 1,
+            },
         ),
     )
 
@@ -230,6 +258,18 @@ def test_fixture_offline_build_loads_into_answering_agent(
     )
 
     assert len(build.artifact_manifests) == 8
+    assert build.validation_report.is_valid is True
+    assert build.validation_report.is_full_corpus is True
+    assert (
+        config.artifacts.root_path
+        / config.build_validation.report_filename
+    ).is_file()
+    cleaned_records, _ = load_model_artifact(
+        config.artifacts.directory("cleaned_documents_directory"),
+        expected_type=ArtifactType.CLEANED_DOCUMENTS,
+        record_type=LegalDocument,
+    )
+    assert all(document.content_html is not None for document in cleaned_records)
     assert len(online.manifests) == 4
     assert len(online.tool_descriptors()) == 8
     assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
@@ -270,9 +310,74 @@ def test_online_runtime_rejects_tampered_chunk_payload(
     with chunk_payload.open("a", encoding="utf-8") as stream:
         stream.write("{}\n")
 
+    validation = ArtifactSetValidator(
+        config.artifacts,
+        config.build_validation,
+    ).validate()
+    assert validation.is_valid is False
+    assert (
+        validation.artifact_results["legal_chunks"].errors
+        == ["legal_chunks payload checksum mismatch"]
+    )
+
     with pytest.raises(ArtifactCompatibilityError, match="checksum"):
         OnlineRuntimeFactory(
             config,
             embedding_provider=provider,
             reranker=_FixtureReranker(),
         ).build()
+
+
+def test_offline_runtime_resumes_from_validated_stage_checkpoints(
+    tmp_path: Path,
+) -> None:
+    """A failed late index stage resumes without rebuilding persisted stages."""
+    config = _config(
+        tmp_path / "resumable-artifacts",
+        resume_partial_build=True,
+        bounded_source_passes=True,
+    )
+    provider = _FixtureEmbeddingProvider()
+
+    class _FailingVectorBackend(NumpyVectorBackend):
+        def build(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            raise BackendInitializationError("fixture vector failure")
+
+    with pytest.raises(BackendInitializationError, match="fixture vector"):
+        OfflineBuildRuntime(
+            config,
+            source=_FixtureSource(),
+            embedding_provider=provider,
+            vector_backend=_FailingVectorBackend(),
+        ).build()
+
+    assert config.artifacts.directory("legal_chunks_directory").is_dir()
+    assert config.artifacts.directory("bm25_directory").is_dir()
+    assert not config.artifacts.directory("vector_directory").exists()
+    assert not (
+        config.artifacts.root_path
+        / config.build_validation.report_filename
+    ).exists()
+
+    incompatible = _config(
+        config.artifacts.root_path,
+        resume_partial_build=True,
+        bounded_source_passes=True,
+    )
+    incompatible.offline.chunking.max_tokens = 99
+    with pytest.raises(ArtifactCompatibilityError, match="configuration"):
+        OfflineBuildRuntime(
+            incompatible,
+            source=_FixtureSource(),
+            embedding_provider=provider,
+        ).build()
+
+    resumed = OfflineBuildRuntime(
+        config,
+        source=_FixtureSource(),
+        embedding_provider=provider,
+    ).build()
+
+    assert resumed.validation_report.is_valid is True
+    assert resumed.validation_report.is_full_corpus is True
+    assert resumed.artifact_manifests["vector_index"].record_count == 2

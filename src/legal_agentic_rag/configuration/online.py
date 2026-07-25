@@ -1,4 +1,7 @@
-"""Minimal typed configuration for future online pipeline consumers."""
+"""Typed configuration for online retrieval and grounded generation."""
+
+from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -77,8 +80,13 @@ class GenerationConfig(BaseModel):
     max_evidence: int = Field(default=8, gt=0, le=100)
     inactive_effect_statuses: frozenset[str] = Field(default_factory=frozenset)
     timeout_seconds: float = Field(default=30.0, gt=0)
+    backend: Literal["extractive", "openai_compatible"] = "extractive"
+    endpoint_url: str | None = Field(default=None, min_length=1)
+    api_key_env: str | None = Field(default=None, min_length=1)
     model_name: str | None = Field(default=None, min_length=1)
     model_revision: str | None = Field(default=None, min_length=1)
+    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_output_tokens: int = Field(default=1024, gt=0, le=8192)
 
     @field_validator("inactive_effect_statuses")
     @classmethod
@@ -89,11 +97,56 @@ class GenerationConfig(BaseModel):
             raise ValueError("inactive effect statuses must not contain empty text")
         return normalized
 
+    @field_validator("endpoint_url")
+    @classmethod
+    def validate_endpoint_url(cls, value: str | None) -> str | None:
+        """Accept only an explicit HTTP(S) model endpoint."""
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("generator endpoint_url must be an HTTP(S) URL")
+        return value.rstrip("/")
+
+    @field_validator("api_key_env")
+    @classmethod
+    def validate_api_key_environment_name(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Store an environment-variable name, never a secret value."""
+        if value is None:
+            return None
+        if not value.replace("_", "").isalnum() or value[0].isdigit():
+            raise ValueError("api_key_env must be an environment-variable name")
+        return value
+
     @model_validator(mode="after")
     def validate_model_identity(self) -> "GenerationConfig":
-        """Require model name and revision together when a model is configured."""
+        """Require complete model settings only for the model-backed mode."""
         if (self.model_name is None) != (self.model_revision is None):
             raise ValueError("generator model name and revision must be set together")
+        if self.backend == "openai_compatible":
+            if self.endpoint_url is None:
+                raise ValueError(
+                    "openai_compatible generator requires endpoint_url"
+                )
+            if self.model_name is None or self.model_revision is None:
+                raise ValueError(
+                    "openai_compatible generator requires pinned model identity"
+                )
+        elif any(
+            value is not None
+            for value in (
+                self.endpoint_url,
+                self.api_key_env,
+                self.model_name,
+                self.model_revision,
+            )
+        ):
+            raise ValueError(
+                "extractive generator must not contain model backend settings"
+            )
         return self
 
 

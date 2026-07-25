@@ -887,3 +887,95 @@ Evaluation dùng JSONL cases độc lập competition format:
 
 Fixture labels chỉ dùng để test code metric, không được tuyên bố là official
 benchmark hay gold chất lượng.
+
+---
+
+## D046 — Milestone 17 Full-Corpus Profile and Artifact-Set Validation
+
+**Status:** Accepted
+
+Milestone 17 tách hai khái niệm:
+
+- build profile mô tả một lần chạy full corpus có thể tái tạo;
+- artifact-set validator kiểm tra kết quả đã persist mà không biết raw field AIO.
+
+Policy:
+
+- full-corpus profile pin dataset revision
+  `0a39ad7eae8e6c188cb225c4b1443c3b346461d8`;
+- `sample_limit` phải là `null`;
+- expected component counts nằm trong config dataset-specific, không hard-code
+  vào core validator;
+- profile hiện tại kỳ vọng 153.420 metadata, 178.665 content và 897.890
+  relationships;
+- build chỉ thành công sau khi manifest schema, dataset identity, SHA-256,
+  payload/index count và cross-artifact lineage đều hợp lệ;
+- validation report được persist một lần dưới artifact root và không overwrite;
+- `legal-rag-validate` revalidate read-only một artifact set đã tồn tại;
+- không commit full corpus, index, model output hoặc validation report sinh ra;
+- không được tuyên bố đã hoàn thành full-corpus run nếu chưa có report thật với
+  `is_full_corpus = true` và `is_valid = true`.
+
+Milestone này không đổi embedding/reranker/generator model, không fine-tune và
+không thêm dependency. Tại thời điểm D046, runtime vẫn materialize các stage lớn;
+D047 sau đó bổ sung bounded source passes, stage release và safe resume nhưng
+không thay yêu cầu phải đo full-run thực tế.
+
+---
+
+## D047 — Milestone 17.1 Staged Memory Release and Safe Resume
+
+**Status:** Accepted
+
+Full-corpus profile dùng staged offline execution mà không đổi unified data
+contract:
+
+- source được đọc nhiều pass chỉ khi dataset revision đã pin;
+- pass đầu chỉ xác nhận component counts, audit và normalization đọc lại cùng
+  immutable revision;
+- normalized, relationships, graph, cleaned, blocks, chunks, BM25 và vector
+  được persist ngay sau khi hoàn thành thay vì giữ tới cuối build;
+- raw `content_html` vẫn tồn tại trong persisted normalized và cleaned artifact
+  theo schema; sau khi cleaned artifact đã checksum, runtime chỉ bỏ reference
+  HTML trong processing view dùng cho parser/chunker;
+- vector batches được ghi vào một NumPy `float32` matrix thay vì tích lũy Python
+  list-of-lists;
+- explicit garbage collection chỉ chạy tại stage boundary;
+- `build_state.json` giữ typed schema version, application config SHA-256, code
+  version và timestamp;
+- resume là opt-in và chỉ chấp nhận partial build đã có dataset manifest, audit,
+  normalized checkpoint cùng exact config/code identity;
+- stage dependency thiếu, checksum sai hoặc config/code đổi đều fail closed;
+- complete/failed `build_validation.json` không được resume hay overwrite.
+
+Resume không che giấu lỗi và không tự xóa partial artifact. Failure trước
+normalized checkpoint phải dùng artifact root mới. Milestone này không thêm
+dependency hoặc thay model.
+
+---
+
+## D048 — Milestone 18 Backend-neutral Model Generation
+
+**Status:** Accepted
+
+M18 thêm model-backed generation nhưng không chọn model production khi chưa có
+benchmark chính thức:
+
+- `AnswerGenerator` tiếp tục là contract mà fixed service/tools/Agent sử dụng;
+- `ChatModelProvider` cô lập concrete model endpoint khỏi core;
+- reference provider dùng OpenAI-compatible Chat Completions qua standard
+  library, không thêm LLM SDK;
+- model name và revision phải pin khi bật model mode;
+- API key không nằm trong config, chỉ tên environment variable được lưu;
+- prompt chỉ chứa original question và selected evidence;
+- completion phải là `ModelAnswerDraft` có schema strict;
+- model chỉ chọn evidence ID; citation metadata luôn dựng từ evidence thật;
+- unknown ID, thiếu marker, JSON/schema sai, timeout hoặc backend failure đều
+  fail closed qua exception taxonomy và bounded Agent policy;
+- model-declared insufficient evidence luôn trở thành standard abstention;
+- `extractive` vẫn là default để local UI và test không phụ thuộc network/model.
+
+M18 không fine-tune, không hard-code model, không tuyên bố semantic citation
+verification, không gửi raw corpus ngoài selected evidence và không log prompt
+hoặc legal content. Model cuối cùng sẽ được chọn bằng benchmark trên GPU sau khi
+có dữ liệu/metric phù hợp.

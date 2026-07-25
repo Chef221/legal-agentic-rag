@@ -1329,7 +1329,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 16 — Evaluation (Completed)
+Milestone 18 — Model-backed Answer Generator
+(Implementation Completed; Model Benchmark Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1526,10 +1527,52 @@ Milestone 16 đã tạo:
 Milestone 16 không tạo official/synthetic gold benchmark, không fine-tune model
 và không tuyên bố semantic metrics khi thiếu gold/human labels.
 
-Bước tiếp theo chỉ sau khi người dùng yêu cầu và có thông tin BTC:
+Milestone 17 đã tạo:
+
+- typed full-corpus validation policy;
+- AIO full profile pin revision, bỏ sample limit và khai báo expected counts;
+- complete artifact-set checksum, count, identity và lineage validation;
+- immutable `build_validation.json` sau offline build;
+- read-only `legal-rag-validate` CLI;
+- unit/integration tests cho policy, valid build và payload tampering.
+
+Milestone 17.1 đã tạo:
+
+- pinned bounded source passes cho full profile;
+- immediate stage persistence và explicit memory release;
+- NumPy float32 vector preallocation thay Python list-of-lists;
+- typed `build_state.json` với config hash và code version;
+- opt-in resume sau normalized checkpoint;
+- fail-closed stage dependency/config/code validation;
+- integration test cho late-stage failure và successful resume.
+
+Milestone 17 chưa được đánh dấu Completed vì chưa chạy xong full AIO build trên
+môi trường đủ RAM/GPU và chưa có report thật đồng thời:
 
 ```text
-Milestone 17 — Competition Adaptation
+is_full_corpus = true
+is_valid = true
+```
+
+Milestone 18 đã tạo:
+
+- backend-neutral `ChatModelProvider` phía sau `AnswerGenerator`;
+- OpenAI-compatible provider không cần LLM SDK;
+- typed endpoint, model/revision, timeout, output-token và API-key-env config;
+- evidence-only prompt cùng strict `ModelAnswerDraft`;
+- evidence-ID allowlist, required answer marker và system-built citations;
+- fail-closed model/transport/schema handling;
+- explicit extractive default để UI không phụ thuộc model service;
+- unit tests không network cho prompt, parsing, citation và provider failures.
+
+Milestone 18 chưa chọn/fine-tune model cuối cùng, chưa semantic-verify từng claim
+và chưa benchmark chất lượng trên GPU/labeled data.
+
+Competition adaptation chỉ bắt đầu sau khi người dùng yêu cầu và có thông tin
+BTC:
+
+```text
+Future — Competition Adaptation
 ```
 
 ---

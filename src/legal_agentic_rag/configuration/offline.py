@@ -270,6 +270,16 @@ class IndexBuildConfig(BaseModel):
     device: str | None = None
 
 
+class OfflineExecutionConfig(BaseModel):
+    """Resource and recovery policy for the offline composition root."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resume_partial_build: bool = False
+    bounded_source_passes: bool = False
+    release_stage_memory: Literal[True] = True
+
+
 class OfflineConfig(BaseModel):
     """Top-level typed configuration for future offline consumers."""
 
@@ -293,3 +303,16 @@ class OfflineConfig(BaseModel):
     )
     graph_index: GraphIndexConfig = Field(default_factory=GraphIndexConfig)
     index_build: IndexBuildConfig = Field(default_factory=IndexBuildConfig)
+    execution: OfflineExecutionConfig = Field(
+        default_factory=OfflineExecutionConfig
+    )
+
+    @model_validator(mode="after")
+    def validate_execution_source_policy(self) -> "OfflineConfig":
+        """Multi-pass loading requires an immutable dataset revision."""
+        if (
+            self.execution.bounded_source_passes
+            and self.dataset.dataset_revision is None
+        ):
+            raise ValueError("bounded source passes require a pinned revision")
+        return self

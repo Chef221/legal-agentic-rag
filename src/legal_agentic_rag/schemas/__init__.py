@@ -13,6 +13,7 @@ from legal_agentic_rag.schemas.answering import (
     ContextBuildResult,
     ContextGrade,
     Evidence,
+    ModelAnswerDraft,
 )
 from legal_agentic_rag.schemas.auditing import (
     AuditFieldProfile,
@@ -21,6 +22,10 @@ from legal_agentic_rag.schemas.auditing import (
     ComponentAuditSummary,
     DatasetAuditReport,
     JoinAuditSummary,
+)
+from legal_agentic_rag.schemas.build_validation import (
+    BuildValidationReport,
+    OfflineBuildState,
 )
 from legal_agentic_rag.schemas.cleaning import HtmlCleaningResult
 from legal_agentic_rag.schemas.evaluation import (
@@ -105,6 +110,8 @@ __all__ = [
     "AuditFieldProfile",
     "AuditIssue",
     "AuditSeverity",
+    "BuildValidationReport",
+    "OfflineBuildState",
     "Citation",
     "CitationVerificationResult",
     "CitationVerificationInput",
@@ -138,6 +145,7 @@ __all__ = [
     "LegalStructureParsingResult",
     "LegalQuestionRequest",
     "LatencySummary",
+    "ModelAnswerDraft",
     "OfflineBuildResult",
     "JoinAuditSummary",
     "RetrievalFilters",
