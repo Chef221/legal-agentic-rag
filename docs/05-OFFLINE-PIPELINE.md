@@ -790,12 +790,16 @@ lại dataset và không sửa artifact.
 
 ### 17.1 Partial-Build Resume
 
-Full profile tạo `build_state.json` trước ingestion, gồm:
+Full profile tạo `build_state.json` schema `1.1` trước ingestion, gồm:
 
 - schema version;
-- exact application-config SHA-256;
+- exact canonical application-config SHA-256;
 - code version;
 - timezone-aware creation time.
+
+Canonical hash sắp xếp key của mapping và phần tử của set/frozenset, nhưng giữ
+nguyên thứ tự list/tuple. Vì vậy cùng một typed config phải có cùng hash giữa
+các process Python độc lập.
 
 Resume chỉ được phép khi:
 
@@ -809,3 +813,5 @@ Resume chỉ được phép khi:
 Runtime load/checksum checkpoint đã hoàn thành, chỉ chạy các stage còn thiếu.
 Failure trước normalized checkpoint, partial file không hợp lệ hoặc config/code
 đổi phải dùng artifact root mới; runtime không tự xóa hay overwrite dữ liệu.
+State schema `1.0` không thể migrate an toàn vì chỉ lưu digest cũ, không lưu
+config gốc; runtime từ chối state này và yêu cầu artifact root mới.

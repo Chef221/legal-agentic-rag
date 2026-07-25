@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from hashlib import sha256
-import json
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -14,6 +12,7 @@ from typing import Callable
 import numpy as np
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -302,7 +301,7 @@ class NumpyVectorBackend:
         embedding_batch_size: int,
     ) -> ArtifactManifest:
         hash_payload = {
-            "config": self._config.model_dump(mode="json"),
+            "config": self._config,
             "source_artifact_version": source_manifest.artifact_version,
             "source_processing_config_hash": source_manifest.processing_config_hash,
             "model_name": model_name,
@@ -312,14 +311,7 @@ class NumpyVectorBackend:
             "dimension": dimension,
             "chunk_ids": [chunk.chunk_id for chunk in chunks],
         }
-        config_hash = sha256(
-            json.dumps(
-                hash_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        config_hash = canonical_sha256(hash_payload)
         return ArtifactManifest(
             schema_version=source_manifest.schema_version,
             artifact_type=ArtifactType.VECTOR_INDEX,

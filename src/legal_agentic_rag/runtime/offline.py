@@ -5,8 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 import gc
-from hashlib import sha256
-import json
 import logging
 from pathlib import Path
 
@@ -14,6 +12,7 @@ from pydantic import ValidationError
 
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.application import ApplicationConfig
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.contracts import (
     BM25Backend,
     DatasetSource,
@@ -590,11 +589,15 @@ class OfflineBuildRuntime:
             raise ArtifactCompatibilityError(
                 "Partial build state is missing or invalid"
             ) from error
-        if (
-            state.schema_version != "1.0"
-            or state.code_version != __version__
-            or state.application_config_hash != self._config_hash()
-        ):
+        if state.schema_version != "1.1":
+            raise ArtifactCompatibilityError(
+                "Partial build state uses an incompatible hash format"
+            )
+        if state.code_version != __version__:
+            raise ArtifactCompatibilityError(
+                "Partial build code version is incompatible"
+            )
+        if state.application_config_hash != self._config_hash():
             raise ArtifactCompatibilityError(
                 "Partial build configuration is incompatible"
             )
@@ -637,14 +640,7 @@ class OfflineBuildRuntime:
             )
 
     def _config_hash(self) -> str:
-        payload = self._config.model_dump(mode="json")
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(self._config)
 
     def _validate_resume_dataset(self, manifest: DatasetManifest) -> None:
         if (

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from hashlib import sha256
-import json
 import logging
 from pathlib import Path
 import sqlite3
@@ -14,6 +12,7 @@ from time import perf_counter
 from typing import Callable
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import BM25IndexConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -271,22 +270,14 @@ class SQLiteFTS5BM25Backend:
         chunks: list[LegalChunk],
         source_manifest: ArtifactManifest,
     ) -> ArtifactManifest:
-        config_payload = self._config.model_dump(mode="json")
         config_hash_payload = {
-            "config": config_payload,
+            "config": self._config,
             "source_artifact_type": source_manifest.artifact_type.value,
             "source_artifact_version": source_manifest.artifact_version,
             "source_processing_config_hash": source_manifest.processing_config_hash,
             "chunk_ids": sorted(chunk.chunk_id for chunk in chunks),
         }
-        processing_config_hash = sha256(
-            json.dumps(
-                config_hash_payload,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode("utf-8")
-        ).hexdigest()
+        processing_config_hash = canonical_sha256(config_hash_payload)
         return ArtifactManifest(
             schema_version=source_manifest.schema_version,
             artifact_type=ArtifactType.BM25_INDEX,

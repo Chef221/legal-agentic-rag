@@ -6,11 +6,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
-import json
 import logging
 import re
 
 from legal_agentic_rag.configuration.offline import DatasetAuditConfig
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.contracts.dataset_source import DatasetComponent
 from legal_agentic_rag.offline.datasets.aio.adapter import AioRecordAdapter
 from legal_agentic_rag.offline.datasets.aio import raw_schema
@@ -750,15 +750,4 @@ class DatasetAuditService:
         return str(value)
 
     def _config_hash(self) -> str:
-        payload = self._config.model_dump(mode="json")
-        payload["known_effect_statuses"] = sorted(self._config.known_effect_statuses)
-        payload["known_relationship_labels"] = sorted(
-            self._config.known_relationship_labels
-        )
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(self._config)

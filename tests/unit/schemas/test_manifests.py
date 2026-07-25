@@ -87,13 +87,13 @@ def test_offline_build_state_requires_sha256_and_timezone() -> None:
     """Resume identity rejects ambiguous timestamps and non-SHA config values."""
     state = OfflineBuildState(
         application_config_hash="a" * 64,
-        code_version="0.19.0",
+        code_version="0.19.1",
         created_at=datetime.now(timezone.utc),
     )
-    assert state.schema_version == "1.0"
+    assert state.schema_version == "1.1"
     with pytest.raises(ValidationError):
         OfflineBuildState(
             application_config_hash="not-a-sha",
-            code_version="0.19.0",
+            code_version="0.19.1",
             created_at=datetime.now(timezone.utc),
         )

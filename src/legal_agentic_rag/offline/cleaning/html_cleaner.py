@@ -2,14 +2,13 @@
 
 from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
-from hashlib import sha256
 from html.parser import HTMLParser
-import json
 import logging
 import re
 import unicodedata
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import HtmlCleaningConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -334,15 +333,9 @@ class LegalHtmlCleaner:
     def _config_hash(self, source_manifest: ArtifactManifest) -> str:
         payload = {
             "source_processing_config_hash": source_manifest.processing_config_hash,
-            "html_cleaning": self._config.model_dump(mode="json"),
+            "html_cleaning": self._config,
         }
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(payload)
 
     @staticmethod
     def _issue(

@@ -64,7 +64,7 @@ class OfflineBuildState(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     application_config_hash: str = Field(min_length=64, max_length=64)
     code_version: str = Field(min_length=1)
     created_at: datetime

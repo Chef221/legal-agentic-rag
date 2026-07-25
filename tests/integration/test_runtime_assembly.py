@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 
 import pytest
@@ -358,6 +359,25 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
         config.artifacts.root_path
         / config.build_validation.report_filename
     ).exists()
+    state_path = config.artifacts.root_path / "build_state.json"
+    state_payload = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state_payload["schema_version"] == "1.1"
+
+    legacy_payload = {**state_payload, "schema_version": "1.0"}
+    state_path.write_text(
+        json.dumps(legacy_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(ArtifactCompatibilityError, match="hash format"):
+        OfflineBuildRuntime(
+            config,
+            source=_FixtureSource(),
+            embedding_provider=provider,
+        ).build()
+    state_path.write_text(
+        json.dumps(state_payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     incompatible = _config(
         config.artifacts.root_path,

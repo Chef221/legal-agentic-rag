@@ -2,11 +2,10 @@
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
-from hashlib import sha256
-import json
 import logging
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import (
     RelationshipNormalizationConfig,
 )
@@ -242,10 +241,4 @@ class AioRelationshipNormalizer:
         )
 
     def _config_hash(self) -> str:
-        payload = json.dumps(
-            self._config.model_dump(mode="json"),
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return sha256(payload.encode("utf-8")).hexdigest()
+        return canonical_sha256(self._config)

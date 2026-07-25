@@ -67,6 +67,10 @@ Full profile dùng pinned multi-pass loading, giải phóng memory giữa các s
 resume partial build sau normalized checkpoint. Resume chỉ hoạt động khi config
 và code version không đổi; runtime không tự xóa artifact lỗi.
 
+Từ phiên bản `0.19.1`, config hash được canonical hóa để ổn định giữa các
+process Python. Partial state schema `1.0` từ bản cũ phải giữ nguyên để chẩn
+đoán và chạy lại trong một artifact root mới; không sửa hoặc xóa state cũ.
+
 Chạy benchmark có nhãn:
 
 ```powershell

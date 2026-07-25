@@ -979,3 +979,27 @@ M18 không fine-tune, không hard-code model, không tuyên bố semantic citati
 verification, không gửi raw corpus ngoài selected evidence và không log prompt
 hoặc legal content. Model cuối cùng sẽ được chọn bằng benchmark trên GPU sau khi
 có dữ liệu/metric phù hợp.
+
+---
+
+## D049 — Canonical Configuration Hashing for Reproducible Resume
+
+**Status:** Accepted
+
+Mọi application/processing config hash dùng chung một canonical SHA-256
+implementation:
+
+- Pydantic model được chuyển sang Python values trước khi canonical hóa;
+- mapping key và set/frozenset được sắp xếp ổn định;
+- thứ tự list/tuple được giữ nguyên vì có thể mang ý nghĩa cấu hình;
+- `Path`, `Enum`, date/time và primitive values có biểu diễn ổn định;
+- NaN, infinity, non-string mapping key và type không hỗ trợ bị từ chối.
+
+Quy tắc này áp dụng cho dataset source, audit, normalization, cleaning, parsing,
+chunking, BM25, vector, graph và full-build recovery identity.
+`OfflineBuildState` được nâng lên schema `1.1`.
+
+State schema `1.0` chỉ lưu nondeterministic digest, không lưu config gốc, nên
+không thể migrate hoặc chứng minh tương đương an toàn. Runtime phải fail closed,
+giữ artifact cũ để chẩn đoán và yêu cầu artifact root mới. Cross-process tests
+với nhiều `PYTHONHASHSEED` bảo vệ invariant này. Quyết định không thêm dependency.

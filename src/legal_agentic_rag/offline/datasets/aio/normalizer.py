@@ -3,14 +3,13 @@
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, date, datetime
-from hashlib import sha256
-import json
 import logging
 from urllib.parse import urlsplit
 
 from pydantic import JsonValue
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import DocumentNormalizationConfig
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.offline.datasets.aio.adapter import (
@@ -459,15 +458,9 @@ class AioDocumentNormalizer:
             "dataset_processing_config_hash": (
                 dataset_manifest.processing_config_hash
             ),
-            "normalization": self._config.model_dump(mode="json"),
+            "normalization": self._config,
         }
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(payload)
 
     def _issue(
         self,

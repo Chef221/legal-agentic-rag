@@ -2,11 +2,10 @@
 
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
-from hashlib import sha256
 from itertools import islice
-import json
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import DatasetSourceConfig
 from legal_agentic_rag.contracts.dataset_source import DatasetComponent
 from legal_agentic_rag.exceptions import (
@@ -174,10 +173,4 @@ class AioDatasetSource:
         return min(limit, configured)
 
     def _config_hash(self) -> str:
-        serialized = json.dumps(
-            self._config.model_dump(mode="json"),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(self._config)

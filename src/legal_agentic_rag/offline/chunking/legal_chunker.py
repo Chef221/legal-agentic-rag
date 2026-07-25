@@ -4,10 +4,10 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-import json
 import logging
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import ChunkingConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -566,15 +566,9 @@ class LegalChunker:
     def _config_hash(self, source_manifest: ArtifactManifest) -> str:
         payload = {
             "source_processing_config_hash": source_manifest.processing_config_hash,
-            "chunking": self._config.model_dump(mode="json"),
+            "chunking": self._config,
         }
-        serialized = json.dumps(
-            payload,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return sha256(serialized.encode("utf-8")).hexdigest()
+        return canonical_sha256(payload)
 
     @staticmethod
     def _issue(

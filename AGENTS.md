@@ -1546,6 +1546,15 @@ Milestone 17.1 đã tạo:
 - fail-closed stage dependency/config/code validation;
 - integration test cho late-stage failure và successful resume.
 
+Milestone 17.2 đã sửa:
+
+- canonical config hashing ổn định giữa các process Python;
+- một shared hashing implementation cho build identity và processing manifests;
+- `OfflineBuildState` schema `1.1`;
+- fail-closed legacy state `1.0` vì không thể migrate digest cũ an toàn;
+- subprocess regression test với nhiều `PYTHONHASHSEED`;
+- patch version `0.19.1`, không thêm dependency.
+
 Milestone 17 chưa được đánh dấu Completed vì chưa chạy xong full AIO build trên
 môi trường đủ RAM/GPU và chưa có report thật đồng thời:
 

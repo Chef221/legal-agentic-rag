@@ -16,6 +16,7 @@ from typing import Callable
 from pydantic import TypeAdapter, ValidationError
 
 from legal_agentic_rag import __version__
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import GraphIndexConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -440,12 +441,7 @@ class AdjacencyGraphBackend:
         return set(normalized)
 
     def _config_hash(self) -> str:
-        payload = json.dumps(
-            self._config.model_dump(mode="json"),
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        return sha256(payload.encode("utf-8")).hexdigest()
+        return canonical_sha256(self._config)
 
     @staticmethod
     def _sha256_file(path: Path) -> str:

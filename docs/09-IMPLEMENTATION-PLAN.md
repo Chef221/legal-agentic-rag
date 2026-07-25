@@ -770,6 +770,17 @@ runtime
 - integration test cố ý làm vector stage thất bại rồi resume thành công;
 - resume với config thay đổi bị từ chối.
 
+### Milestone 17.2 Deterministic Resume Hash Hotfix
+
+- dùng một canonical SHA-256 implementation cho application config và mọi
+  processing config;
+- sắp xếp mapping key và set/frozenset, giữ thứ tự list/tuple;
+- nâng `OfflineBuildState` lên schema `1.1`;
+- từ chối fail-closed state `1.0` vì không thể migrate digest cũ an toàn;
+- kiểm thử hash của full application config qua nhiều process với
+  `PYTHONHASHSEED` khác nhau;
+- phát hành bản vá `0.19.1`, không thêm dependency.
+
 ### Done When
 
 - full AIO build chạy xong trong một artifact root mới;

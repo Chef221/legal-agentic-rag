@@ -911,12 +911,15 @@ lại file vừa tạo.
 `OfflineBuildState` là recovery identity có consumer trực tiếp là offline
 runtime:
 
-- schema version;
-- application config SHA-256;
+- schema version `1.1`;
+- canonical application config SHA-256;
 - code version;
 - timezone-aware creation time.
 
 State không chứa raw record, legal content, model output hoặc secret.
+Canonical hashing sắp xếp mapping key và set/frozenset nhưng giữ thứ tự
+list/tuple. State schema `1.0` bị từ chối vì digest cũ không đủ dữ liệu để
+migrate hoặc chứng minh config tương đương một cách an toàn.
 
 ---
 
