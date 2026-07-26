@@ -1566,6 +1566,16 @@ Milestone 17.3 đã sửa:
 - one-pass/equivalence/failure-safety regression tests;
 - version `0.20.0`, không thêm dependency.
 
+Milestone 17.4 đã sửa:
+
+- vector stage dùng deterministic `.vector.partial` workspace;
+- typed checkpoint ghi committed vector/chunk offset theo batch;
+- resume không embedding lại các chunk đã commit;
+- checkpoint identity validation fail closed;
+- final vector artifact chỉ publish sau count và checksum;
+- build state `0.20.0` được nâng có kiểm soát lên `0.20.1`;
+- version `0.20.1`, không thêm dependency.
+
 Milestone 17 chưa được đánh dấu Completed vì chưa chạy xong full AIO build trên
 môi trường đủ RAM/GPU và chưa có report thật đồng thời:
 

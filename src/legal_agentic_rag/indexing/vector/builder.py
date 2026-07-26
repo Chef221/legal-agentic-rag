@@ -12,6 +12,7 @@ from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
 from legal_agentic_rag.contracts.vector_backend import (
     VectorBackend,
     VectorBuildBatch,
+    VectorBuildBatchFactory,
 )
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -109,13 +110,14 @@ class VectorIndexBuilder:
             )
         batch_size = self._config.embedding_batch_size
         dimension = self._provider.dimension
-        batches = self._embedded_batches(
+        batch_factory = self._batch_factory(
             chunks,
             batch_size=batch_size,
             dimension=dimension,
+            expected_count=source_manifest.record_count,
         )
         manifest = self._backend.build_persisted(
-            batches,
+            batch_factory,
             source_manifest,
             destination,
             model_name=self._provider.model_name,
@@ -135,6 +137,46 @@ class VectorIndexBuilder:
             },
         )
         return manifest
+
+    def _batch_factory(
+        self,
+        chunks: Iterable[LegalChunk],
+        *,
+        batch_size: int,
+        dimension: int,
+        expected_count: int,
+    ) -> VectorBuildBatchFactory:
+        """Return a single-use factory that skips committed chunks before embedding."""
+        called = False
+
+        def create(start_offset: int) -> Iterator[VectorBuildBatch]:
+            nonlocal called
+            if called:
+                raise DataValidationError(
+                    "Vector batch factory cannot be consumed more than once"
+                )
+            called = True
+            if start_offset < 0 or start_offset > expected_count:
+                raise DataValidationError(
+                    "Vector resume offset is outside the source artifact"
+                )
+            iterator = iter(chunks)
+            skipped = 0
+            while skipped < start_offset:
+                try:
+                    next(iterator)
+                except StopIteration as error:
+                    raise DataValidationError(
+                        "Vector source ended before the resume offset"
+                    ) from error
+                skipped += 1
+            yield from self._embedded_batches(
+                iterator,
+                batch_size=batch_size,
+                dimension=dimension,
+            )
+
+        return create
 
     def _embedded_batches(
         self,

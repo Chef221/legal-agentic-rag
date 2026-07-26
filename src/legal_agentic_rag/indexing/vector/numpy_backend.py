@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 import logging
 from pathlib import Path
@@ -14,7 +14,7 @@ import numpy as np
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
-from legal_agentic_rag.contracts.vector_backend import VectorBuildBatch
+from legal_agentic_rag.contracts.vector_backend import VectorBuildBatchFactory
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     BackendInitializationError,
@@ -225,7 +225,7 @@ class NumpyVectorBackend:
 
     def build_persisted(
         self,
-        batches: Iterable[VectorBuildBatch],
+        batch_factory: VectorBuildBatchFactory,
         source_manifest: ArtifactManifest,
         destination: Path,
         *,
@@ -260,10 +260,13 @@ class NumpyVectorBackend:
             embedding_batch_size=embedding_batch_size,
         )
         stored = persist_vector_batches(
-            batches=batches,
+            batch_factory=batch_factory,
             destination=destination,
             manifest=manifest,
             dimension=dimension,
+            checkpoint_interval_batches=(
+                self._config.checkpoint_interval_batches
+            ),
         )
         _LOGGER.info(
             "vector_index_persisted_from_batches",

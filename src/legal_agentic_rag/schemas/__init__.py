@@ -26,6 +26,7 @@ from legal_agentic_rag.schemas.auditing import (
 from legal_agentic_rag.schemas.build_validation import (
     BuildValidationReport,
     OfflineBuildState,
+    VectorBuildCheckpoint,
 )
 from legal_agentic_rag.schemas.cleaning import HtmlCleaningResult
 from legal_agentic_rag.schemas.evaluation import (
@@ -112,6 +113,7 @@ __all__ = [
     "AuditSeverity",
     "BuildValidationReport",
     "OfflineBuildState",
+    "VectorBuildCheckpoint",
     "Citation",
     "CitationVerificationResult",
     "CitationVerificationInput",

@@ -5,6 +5,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from legal_agentic_rag.schemas.manifests import (
+    ArtifactManifest,
+    ArtifactType,
     ArtifactValidationResult,
     DatasetManifest,
 )
@@ -84,3 +86,32 @@ class OfflineBuildState(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("created_at must include timezone information")
         return value
+
+
+class VectorBuildCheckpoint(BaseModel):
+    """Durable committed offset for one resumable vector artifact build."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: str = "1.0"
+    artifact_manifest: ArtifactManifest
+    next_offset: int = Field(ge=0)
+    chunks_byte_count: int = Field(ge=0)
+    updated_at: datetime
+
+    @field_validator("updated_at")
+    @classmethod
+    def validate_updated_at(cls, value: datetime) -> datetime:
+        """Require an unambiguous checkpoint timestamp."""
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("updated_at must include timezone information")
+        return value
+
+    @model_validator(mode="after")
+    def validate_checkpoint_consistency(self) -> "VectorBuildCheckpoint":
+        """Keep the committed offset inside the declared vector artifact."""
+        if self.artifact_manifest.artifact_type != ArtifactType.VECTOR_INDEX:
+            raise ValueError("vector checkpoint requires a vector-index manifest")
+        if self.next_offset > self.artifact_manifest.record_count:
+            raise ValueError("vector checkpoint offset exceeds artifact count")
+        return self

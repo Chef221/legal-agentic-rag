@@ -928,6 +928,19 @@ objects có consumer trực tiếp; chúng không phải persisted unified schem
 Manifest vector mới có metadata `chunk_order = "source_artifact_order"` để mô
 tả alignment giữa chunk JSONL và vector rows.
 
+`VectorBuildCheckpoint` là persisted recovery schema có consumer trực tiếp là
+NumPy vector artifact store:
+
+- `schema_version = "1.0"`;
+- `artifact_manifest: ArtifactManifest` — identity và final count dự kiến;
+- `next_offset: int` — số row/chunk đã commit;
+- `chunks_byte_count: int` — byte boundary an toàn của `chunks.jsonl`;
+- `updated_at: datetime` — timezone-aware checkpoint time.
+
+Schema này không chứa embedding text ngoài các unified `LegalChunk` đã được ghi
+trong payload, không phải online contract và không được publish như final vector
+artifact. `next_offset` không được vượt `artifact_manifest.record_count`.
+
 ---
 
 ## 19. Schema Evolution
@@ -987,3 +1000,4 @@ Các schema bổ sung có consumer rõ ràng được đặt cùng domain:
 - benchmark, metric và report schemas trong `evaluation.py`.
 - complete artifact-set report trong `build_validation.py`.
 - typed partial-build recovery state trong `build_validation.py`.
+- typed resumable vector-build checkpoint trong `build_validation.py`.

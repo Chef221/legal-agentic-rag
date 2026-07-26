@@ -77,6 +77,7 @@ from legal_agentic_rag.runtime.build_validation import (
 
 _LOGGER = logging.getLogger(__name__)
 _BUILD_STATE_FILENAME = "build_state.json"
+_COMPATIBLE_RESUME_UPGRADES = {("0.20.0", "0.20.1")}
 
 
 class OfflineBuildRuntime:
@@ -616,14 +617,41 @@ class OfflineBuildRuntime:
             raise ArtifactCompatibilityError(
                 "Partial build state uses an incompatible hash format"
             )
-        if state.code_version != __version__:
-            raise ArtifactCompatibilityError(
-                "Partial build code version is incompatible"
-            )
         if state.application_config_hash != self._config_hash():
             raise ArtifactCompatibilityError(
                 "Partial build configuration is incompatible"
             )
+        if state.code_version != __version__:
+            if (state.code_version, __version__) not in _COMPATIBLE_RESUME_UPGRADES:
+                raise ArtifactCompatibilityError(
+                    "Partial build code version is incompatible"
+                )
+            self._upgrade_build_state(state)
+
+    def _upgrade_build_state(self, state: OfflineBuildState) -> None:
+        """Atomically record an explicitly supported recovery-only code upgrade."""
+        path = self._config.artifacts.root_path / _BUILD_STATE_FILENAME
+        temporary = path.with_name(f".{path.name}.tmp")
+        upgraded = state.model_copy(update={"code_version": __version__})
+        try:
+            temporary.write_text(
+                upgraded.model_dump_json() + "\n",
+                encoding="utf-8",
+                newline="\n",
+            )
+            temporary.replace(path)
+        except OSError as error:
+            temporary.unlink(missing_ok=True)
+            raise ArtifactCompatibilityError(
+                "Partial build state could not be upgraded"
+            ) from error
+        _LOGGER.info(
+            "offline_build_state_upgraded",
+            extra={
+                "previous_code_version": state.code_version,
+                "code_version": __version__,
+            },
+        )
 
     def _validate_partial_stage_dependencies(self) -> None:
         paths = {

@@ -1,6 +1,6 @@
 """Protocol for persistent vector storage and similarity search."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
@@ -16,6 +16,9 @@ class VectorBuildBatch:
 
     chunks: Sequence[LegalChunk]
     vectors: Sequence[Sequence[float]]
+
+
+VectorBuildBatchFactory = Callable[[int], Iterable[VectorBuildBatch]]
 
 
 @runtime_checkable
@@ -80,7 +83,7 @@ class VectorBackend(Protocol):
 
     def build_persisted(
         self,
-        batches: Iterable[VectorBuildBatch],
+        batch_factory: VectorBuildBatchFactory,
         source_manifest: ArtifactManifest,
         destination: Path,
         *,
@@ -91,7 +94,7 @@ class VectorBackend(Protocol):
         dimension: int,
         embedding_batch_size: int,
     ) -> ArtifactManifest:
-        """Atomically persist an index from bounded aligned batches."""
+        """Resume or persist an index from bounded batches after a committed offset."""
         ...
 
     def load(self, source: Path, manifest: ArtifactManifest) -> None:

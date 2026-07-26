@@ -89,7 +89,7 @@ def test_vector_contract_exposes_provenance_and_embedding_identity() -> None:
     ]
     assert list(signature(VectorBackend.build_persisted).parameters) == [
         "self",
-        "batches",
+        "batch_factory",
         "source_manifest",
         "destination",
         "model_name",

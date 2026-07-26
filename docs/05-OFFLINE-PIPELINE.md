@@ -841,3 +841,30 @@ record schema không đổi.
 Build `0.19.x` không được resume bằng code `0.20.0` vì build state khóa exact
 code/config identity. Phải giữ artifact cũ để chẩn đoán và dùng artifact root
 mới; không sửa tay `build_state.json`.
+
+### 17.3 Resumable Vector Batches
+
+Từ version `0.20.1`, vector build dùng workspace bền vững
+`.vector.partial` trong artifact root thay vì thư mục staging ngẫu nhiên:
+
+- `vectors.npy` được preallocate một lần và mở lại bằng memory map;
+- `chunks.jsonl` chỉ giữ các record đã commit;
+- `checkpoint.json` schema `1.0` ghi vector manifest identity, `next_offset`,
+  byte offset của chunk payload và thời điểm cập nhật;
+- payload được flush trước khi checkpoint mới được publish atomically;
+- khi resume, builder đọc lại legal-chunks artifact đã checksum, bỏ qua
+  `next_offset` record và chỉ embedding phần còn lại;
+- checkpoint chỉ được chấp nhận khi source artifact, model, provider,
+  dimension, dtype, batch size và processing hash tương thích;
+- `offline.vector_index.checkpoint_interval_batches` điều khiển cadence, mặc
+  định 100 batch; đây là execution tuning và không thay đổi final artifact hash;
+- destination `vector/` chỉ xuất hiện sau khi đủ record, checksum hoàn tất và
+  toàn bộ workspace được rename.
+
+Nếu process bị SIGKILL giữa hai checkpoint, lần sau chỉ mất phần chưa commit.
+Các thư mục staging ngẫu nhiên `.vector-*` từ version `0.20.0` không có
+checkpoint đáng tin cậy và không được tự động tái sử dụng.
+
+Build state `0.20.0` schema `1.1` được phép nâng một chiều lên `0.20.1` chỉ cho
+thay đổi recovery này, sau khi canonical application-config hash vẫn khớp.
+Mọi code-version transition khác tiếp tục bị từ chối fail closed.

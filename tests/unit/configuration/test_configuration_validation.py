@@ -272,6 +272,18 @@ def test_offline_execution_only_resumes_when_explicitly_enabled() -> None:
         )
 
 
+def test_vector_checkpoint_interval_is_positive_execution_tuning() -> None:
+    """Checkpoint cadence is configurable without changing artifact identity."""
+    from legal_agentic_rag.configuration.hashing import canonical_sha256
+
+    frequent = VectorIndexConfig(checkpoint_interval_batches=1)
+    sparse = VectorIndexConfig(checkpoint_interval_batches=100)
+
+    assert canonical_sha256(frequent) == canonical_sha256(sparse)
+    with pytest.raises(ValidationError):
+        VectorIndexConfig(checkpoint_interval_batches=0)
+
+
 def test_audit_config_validates_content_thresholds() -> None:
     """Raw content classification thresholds must be internally consistent."""
     with pytest.raises(ValidationError):

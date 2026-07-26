@@ -795,6 +795,20 @@ runtime
 - regression tests cho one-pass behavior, output equivalence và failure safety;
 - version `0.20.0`, không thêm dependency.
 
+### Milestone 17.4 Resumable Vector Checkpoint Hotfix
+
+- full run trên Colab Free xác nhận runtime termination làm mất toàn bộ vector
+  progress dù memory đã bounded;
+- deterministic `.vector.partial` workspace và typed checkpoint schema `1.0`;
+- atomic committed chunk/vector offset theo configurable batch cadence;
+- resume skip đã-commit chunks trước embedding;
+- fail-closed checkpoint identity validation;
+- atomic final directory publication;
+- explicit compatible build-state upgrade `0.20.0 → 0.20.1`;
+- regression tests cho interruption, resume, no re-embedding và incompatible
+  checkpoint;
+- version `0.20.1`, không thêm dependency.
+
 ### Done When
 
 - full AIO build chạy xong trong một artifact root mới;
@@ -810,7 +824,7 @@ Normalizer vẫn cần disk-derived ID indexes và cleaner hiện materialize st
 output trước khi persist, nhưng hai stage này đã hoàn thành trên Colab 12 GiB
 trong full-corpus measurement. Parser/chunker/BM25/vector build đã chuyển sang
 bounded execution sau OOM measurement. Milestone vẫn chưa được đánh dấu
-Completed trước khi version `0.20.0` tạo được full validation report thật và
+Completed trước khi version `0.20.1` tạo được full validation report thật và
 online smoke test load được artifact set.
 
 ---

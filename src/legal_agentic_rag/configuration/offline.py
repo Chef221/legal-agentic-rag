@@ -221,6 +221,7 @@ class VectorIndexConfig(BaseModel):
     distance_metric: Literal["cosine"] = "cosine"
     dtype: Literal["float32"] = "float32"
     embedding_batch_size: int = Field(default=16, gt=0)
+    checkpoint_interval_batches: int = Field(default=100, gt=0, exclude=True)
 
 
 class RelationshipNormalizationConfig(BaseModel):

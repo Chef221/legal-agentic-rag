@@ -7,10 +7,15 @@ from pydantic import ValidationError
 
 from legal_agentic_rag.schemas.manifests import (
     ArtifactManifest,
+    ArtifactType,
     ArtifactValidationResult,
     DatasetManifest,
 )
-from legal_agentic_rag.schemas import BuildValidationReport, OfflineBuildState
+from legal_agentic_rag.schemas import (
+    BuildValidationReport,
+    OfflineBuildState,
+    VectorBuildCheckpoint,
+)
 
 
 def test_dataset_manifest_parses_timezone_and_counts(load_schema_sample: object) -> None:
@@ -96,4 +101,33 @@ def test_offline_build_state_requires_sha256_and_timezone() -> None:
             application_config_hash="not-a-sha",
             code_version="0.20.0",
             created_at=datetime.now(timezone.utc),
+        )
+
+
+def test_vector_checkpoint_bounds_committed_offset(
+    load_schema_sample: object,
+) -> None:
+    """A vector checkpoint cannot commit rows beyond its artifact manifest."""
+    manifest = ArtifactManifest.model_validate(
+        load_schema_sample("valid_artifact_manifest.json")  # type: ignore[operator]
+    ).model_copy(
+        update={
+            "artifact_type": ArtifactType.VECTOR_INDEX,
+            "record_count": 2,
+        }
+    )
+    checkpoint = VectorBuildCheckpoint(
+        artifact_manifest=manifest,
+        next_offset=1,
+        chunks_byte_count=100,
+        updated_at=datetime.now(timezone.utc),
+    )
+
+    assert checkpoint.schema_version == "1.0"
+    with pytest.raises(ValidationError, match="offset"):
+        VectorBuildCheckpoint(
+            artifact_manifest=manifest,
+            next_offset=3,
+            chunks_byte_count=100,
+            updated_at=datetime.now(timezone.utc),
         )

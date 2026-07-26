@@ -13,7 +13,8 @@
       "device": "cuda"
     },
     "vector_index": {
-      "embedding_batch_size": 64
+      "embedding_batch_size": 64,
+      "checkpoint_interval_batches": 100
     },
     "execution": {
       "resume_partial_build": true,

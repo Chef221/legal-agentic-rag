@@ -65,7 +65,7 @@ Không commit corpus, model output hoặc artifact sinh ra.
 
 Full profile dùng pinned multi-pass loading, giải phóng memory giữa các stage và
 resume partial build sau normalized checkpoint. Resume chỉ hoạt động khi config
-và code version không đổi; runtime không tự xóa artifact lỗi.
+và code version tương thích; runtime không tự xóa artifact lỗi.
 
 Từ phiên bản `0.19.1`, config hash được canonical hóa để ổn định giữa các
 process Python. Partial state schema `1.0` từ bản cũ phải giữ nguyên để chẩn
@@ -75,6 +75,11 @@ Từ phiên bản `0.20.0`, parser/chunker xử lý từng document; block/chunk
 được ghi incremental, BM25 dùng disk-backed batched inserts và vector embedding
 ghi theo batch vào NumPy memmap. Bản này sửa OOM đã đo ở legacy parser trên
 runtime 12 GiB. Build `0.19.x` phải dùng artifact root khác khi chạy `0.20.0`.
+
+Từ phiên bản `0.20.1`, vector build ghi checkpoint bền vững vào
+`.vector.partial` theo batch và chỉ embedding phần chưa commit khi Colab
+disconnect. Build state `0.20.0` được nâng có kiểm soát lên `0.20.1`; các
+transition code/config khác vẫn bị từ chối.
 
 Chạy benchmark có nhãn:
 

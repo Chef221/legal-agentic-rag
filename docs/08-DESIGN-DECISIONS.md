@@ -1038,3 +1038,33 @@ Do exact code/config identity là resume invariant, partial build `0.19.x` khôn
 được sửa state để chạy tiếp bằng `0.20.0`. Full rerun phải dùng artifact root
 mới. Full-corpus completion vẫn cần report thật `is_full_corpus = true` và
 `is_valid = true`.
+
+---
+
+## D051 — GPU Interruption Requires Durable Vector Batch Checkpoints
+
+**Status:** Accepted
+
+Full-corpus execution trên Colab Free đo được vector stage bị runtime
+termination sau khi model đã khởi tạo nhưng trước khi 1.278.201 chunks được
+embedding xong. Version `0.20.0` chỉ bounded memory; random staging directory
+không có committed offset nên mỗi GPU session phải embedding lại từ đầu.
+
+Version `0.20.1` áp dụng policy:
+
+- một deterministic `.vector.partial` workspace cho mỗi destination;
+- NumPy memmap và chunk JSONL được flush trước khi atomic checkpoint công bố
+  `next_offset` và chunk byte boundary;
+- resume bỏ qua unified chunk stream tới committed offset mà không gọi embedding
+  provider cho phần đã hoàn thành;
+- source manifest/model/provider/dimension/dtype/batch identity không khớp thì
+  fail closed và không sửa checkpoint;
+- cadence checkpoint là execution-only config, không thay đổi final artifact;
+- final `vector/` chỉ được publish bằng directory rename sau count/checksum;
+- random `.vector-*` legacy staging không được suy diễn thành checkpoint;
+- chỉ transition build state `0.20.0 → 0.20.1` được chấp nhận vì thay đổi này
+  giữ nguyên canonical config hash và artifact lineage; transition khác vẫn bị
+  từ chối.
+
+Không thêm dependency, không đổi embedding model, vector format online,
+retrieval score hoặc corpus.
