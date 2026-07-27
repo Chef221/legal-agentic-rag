@@ -131,6 +131,7 @@ class GenerationConfig(BaseModel):
     max_input_tokens: int = Field(default=8192, gt=0, le=131072)
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     max_output_tokens: int = Field(default=1024, gt=0, le=8192)
+    max_structured_output_retries: int = Field(default=1, ge=0, le=1)
 
     @field_validator("inactive_effect_statuses")
     @classmethod

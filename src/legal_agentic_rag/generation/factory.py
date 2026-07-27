@@ -22,8 +22,12 @@ def build_answer_generator(config: GenerationConfig) -> AnswerGenerator:
         return ExtractiveAnswerGenerator()
     if config.backend == "transformers":
         return ModelBackedAnswerGenerator(
-            TransformersChatProvider(config)
+            TransformersChatProvider(config),
+            max_structured_output_retries=(
+                config.max_structured_output_retries
+            ),
         )
     return ModelBackedAnswerGenerator(
-        OpenAICompatibleChatProvider(config)
+        OpenAICompatibleChatProvider(config),
+        max_structured_output_retries=config.max_structured_output_retries,
     )

@@ -1245,3 +1245,30 @@ cho GPU 16 GiB nhờ multilingual/structured-output capability và kích thướ
 
 Không fine-tune, không thay retrieval artifact, không re-embed corpus và không
 gửi selected evidence ra external service trong local mode.
+
+---
+
+## D058 — Bounded Structured-output Repair Without Citation Relaxation
+
+**Status:** Accepted
+
+Full-corpus Qwen2.5-3B smoke trên `0.20.7` ghi nhận model initialization và
+completion đều thành công nhưng draft bị từ chối với `model_error`. Do raw
+completion không được log, runtime chỉ công bố categorized validation failure.
+Version `0.20.8` áp dụng:
+
+- system prompt yêu cầu concise answer, JSON-only output và exact equality giữa
+  `cited_evidence_ids` với marker `[E#]`;
+- user prompt công bố explicit evidence-ID allowlist và output rules;
+- parser có thể lấy một JSON object hợp lệ khỏi model preamble/code fence nhưng
+  không tự thêm, xóa hoặc đổi field;
+- strict `ModelAnswerDraft`, unknown-ID rejection, exact marker matching và
+  system-built citation vẫn giữ nguyên;
+- `max_structured_output_retries` cho phép tối đa một correction attempt;
+- correction prompt dùng lại trusted question/evidence và failure contract,
+  không đưa raw invalid completion trở lại prompt;
+- log chỉ ghi schema/unknown-ID/marker category cùng attempt number, không ghi
+  question, evidence hoặc completion.
+
+Không thêm constrained-decoding dependency, không silently repair citation và
+không thay Agent retrieval retry limit.

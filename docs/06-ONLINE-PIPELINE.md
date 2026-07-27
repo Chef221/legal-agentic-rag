@@ -436,6 +436,13 @@ cầu pin model/revision cùng device và dtype rõ ràng. Provider:
 - không log prompt, question hoặc evidence content;
 - phân loại model-load và inference failure theo exception taxonomy.
 
+Version `0.20.8` cho phép parser bóc đúng một JSON object khỏi preamble/code
+fence thường gặp nhưng không tự sửa field hoặc citation. Draft vẫn phải qua
+strict schema, evidence-ID allowlist và exact `[E#]` marker matching. Khi draft
+không hợp lệ, generator có tối đa một correction attempt theo typed
+`max_structured_output_retries`; retry không gửi lại raw completion và log chỉ
+ghi failure category.
+
 Qwen2.5-3B-Instruct revision
 `a1d308dfcc03e09da285d49d912439a655a571e8` là candidate tham chiếu cho smoke
 test GPU 16 GiB, không phải model production đã được chốt. M18 chưa fine-tune,

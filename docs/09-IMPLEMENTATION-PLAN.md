@@ -957,6 +957,13 @@ claim. OpenAI-compatible endpoint phải hỗ trợ JSON response mode. Chất l
 thực tế chỉ được kết luận sau benchmark có nhãn trên GPU; lựa chọn model không
 bị giới hạn bởi CPU của máy phát triển.
 
+Full-corpus smoke đầu tiên của `0.20.7` xác nhận model load và inference thành
+công nhưng completion bị strict draft validation từ chối. Version `0.20.8`
+thêm safe JSON-object extraction, prompt contract rõ hơn, categorized
+non-content logging và tối đa một structured-output correction attempt. Các
+kiểm tra unknown evidence ID, marker mismatch, citation construction và
+abstention không được nới lỏng.
+
 ---
 
 ## 21. Future — Competition Adaptation

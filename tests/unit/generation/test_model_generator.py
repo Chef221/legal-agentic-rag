@@ -31,6 +31,21 @@ class _FixtureProvider:
         return self.completion
 
 
+class _SequenceProvider(_FixtureProvider):
+    def __init__(self, completions: list[str]) -> None:
+        super().__init__(completions[-1])
+        self._completions = list(completions)
+
+    def complete(
+        self,
+        *,
+        system_instruction: str,
+        user_prompt: str,
+    ) -> str:
+        self.calls.append((system_instruction, user_prompt))
+        return self._completions.pop(0)
+
+
 def _query() -> RetrievalQuery:
     return RetrievalQuery(
         query_id="model-answer-query",
@@ -170,6 +185,56 @@ def test_model_generator_accepts_json_fence_and_enforces_model_abstention() -> N
     assert response.citations == []
     assert "model_reported_insufficient_evidence" in response.warnings
     assert "thiếu phạm vi áp dụng" in response.warnings
+
+
+def test_model_generator_extracts_valid_json_after_model_preamble() -> None:
+    """A harmless model preamble does not discard an otherwise strict draft."""
+    provider = _FixtureProvider(
+        f"Đây là JSON theo yêu cầu:\n```json\n{_completion()}\n```"
+    )
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1].")
+    assert len(provider.calls) == 1
+
+
+def test_model_generator_retries_one_invalid_structured_completion() -> None:
+    """One bounded correction attempt repairs format without weakening citations."""
+    provider = _SequenceProvider(["không phải JSON", _completion()])
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1].")
+    assert len(provider.calls) == 2
+    assert "OUTPUT TRƯỚC KHÔNG HỢP LỆ" in provider.calls[1][1]
+
+
+def test_model_generator_can_disable_structured_output_retry() -> None:
+    """Configuration can preserve single-attempt behavior for strict consumers."""
+    provider = _SequenceProvider(["không phải JSON", _completion()])
+
+    with pytest.raises(ModelError, match="schema"):
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+    assert len(provider.calls) == 1
 
 
 def test_model_generator_rejects_duplicate_evidence_before_inference() -> None:

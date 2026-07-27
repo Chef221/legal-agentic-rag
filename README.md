@@ -70,6 +70,7 @@ Nếu endpoint cần secret, chỉ đặt tên biến môi trường vào `api_k
   "max_input_tokens": 8192,
   "temperature": 0.0,
   "max_output_tokens": 512,
+  "max_structured_output_retries": 1,
   "timeout_seconds": 180.0
 }
 ```
@@ -164,6 +165,12 @@ Từ version `0.20.7`, generator local dùng Transformers qua cùng
 `ChatModelProvider` với backend endpoint. Dependency `transformers` được khai báo
 trực tiếp vì source code gọi API này; không thêm LLM SDK, LangChain hoặc
 LangGraph.
+
+Từ version `0.20.8`, model output có thể chứa một preamble/code fence vô hại
+trước JSON. Parser chỉ lấy JSON object rồi vẫn áp dụng strict schema,
+evidence-ID allowlist và marker verification. Nếu draft đầu tiên sai format,
+generator được phép yêu cầu model sửa đúng một lần; raw completion và legal
+content không được ghi vào log.
 
 Chạy benchmark có nhãn:
 
