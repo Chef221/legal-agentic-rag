@@ -168,6 +168,31 @@ def test_generation_and_context_grading_defaults_are_bounded() -> None:
         model_revision="fixture-revision",
     )
     assert model_generation.endpoint_url.endswith("/v1/chat/completions")
+    local_generation = GenerationConfig(
+        backend="transformers",
+        model_name="fixture-model",
+        model_revision="fixture-revision",
+        device="cuda",
+        torch_dtype="float16",
+    )
+    assert local_generation.max_input_tokens == 8192
+    with pytest.raises(ValidationError, match="pinned model identity"):
+        GenerationConfig(backend="transformers")
+    with pytest.raises(ValidationError, match="requires float32"):
+        GenerationConfig(
+            backend="transformers",
+            model_name="fixture-model",
+            model_revision="fixture-revision",
+            device="cpu",
+            torch_dtype="float16",
+        )
+    with pytest.raises(ValidationError, match="endpoint settings"):
+        GenerationConfig(
+            backend="transformers",
+            endpoint_url="http://127.0.0.1:8001/v1/chat/completions",
+            model_name="fixture-model",
+            model_revision="fixture-revision",
+        )
     with pytest.raises(ValidationError, match="must not contain"):
         GenerationConfig(
             endpoint_url="http://127.0.0.1:8001/v1/chat/completions"

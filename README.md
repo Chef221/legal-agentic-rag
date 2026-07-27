@@ -11,10 +11,11 @@ Dự án đã hoàn thành implementation cho:
 Full-corpus execution chưa được tuyên bố hoàn thành cho tới khi có
 `build_validation.json` thật với `is_full_corpus = true` và `is_valid = true`.
 
-M18 bổ sung model-backed grounded generation qua endpoint OpenAI-compatible.
-`extractive` vẫn là backend mặc định để local UI chạy không cần model service.
-Model, revision, endpoint và secret đều đi qua configuration; core không khóa
-vào một model hoặc nhà cung cấp cụ thể.
+M18 bổ sung model-backed grounded generation qua endpoint OpenAI-compatible
+hoặc Hugging Face Transformers chạy local. `extractive` vẫn là backend mặc
+định để local UI chạy không cần model. Model, revision, device, endpoint và
+secret đều đi qua configuration; core không khóa vào một model hoặc nhà cung
+cấp cụ thể.
 
 Hệ thống có composition root để build toàn bộ AIO artifacts, online factory để
 reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/UI để
@@ -51,6 +52,31 @@ legal-rag-serve --config configs/baseline.local.json
 
 Nếu endpoint cần secret, chỉ đặt tên biến môi trường vào `api_key_env`; không
 đặt API key trực tiếp trong file config.
+
+Để chạy model local trên GPU, dùng backend `transformers`:
+
+```json
+{
+  "backend": "transformers",
+  "endpoint_url": null,
+  "api_key_env": null,
+  "model_name": "Qwen/Qwen2.5-3B-Instruct",
+  "model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8",
+  "device": "cuda",
+  "torch_dtype": "float16",
+  "local_files_only": false,
+  "max_context_tokens": 3072,
+  "max_evidence": 3,
+  "max_input_tokens": 8192,
+  "temperature": 0.0,
+  "max_output_tokens": 512,
+  "timeout_seconds": 180.0
+}
+```
+
+Đây là candidate tham chiếu vừa bộ nhớ GPU 16 GiB, không phải model production
+đã được chốt. Provider lazy-load weights ở câu hỏi đầu tiên, không log prompt
+hoặc nội dung evidence và không cắt ngầm legal text khi prompt vượt giới hạn.
 
 Profile build toàn bộ AIO dành cho máy GPU/RAM phù hợp:
 
@@ -133,6 +159,11 @@ Full-corpus Colab validation trên 1.278.201 vector x 384 ghi nhận query ấm:
 22,2 ms exact vector search, 35,6 ms dense retrieval, 398 ms reranking và khoảng
 2,16 giây end-to-end. Query đầu tiên mất khoảng 31,47 giây do lazy-load embedding
 và cross-encoder model.
+
+Từ version `0.20.7`, generator local dùng Transformers qua cùng
+`ChatModelProvider` với backend endpoint. Dependency `transformers` được khai báo
+trực tiếp vì source code gọi API này; không thêm LLM SDK, LangChain hoặc
+LangGraph.
 
 Chạy benchmark có nhãn:
 

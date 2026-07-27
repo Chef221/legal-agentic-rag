@@ -1211,3 +1211,37 @@ Full-corpus validation thực tế trên Colab GPU với 1.278.201 x 384 vectors
 - warm cross-encoder rerank trên 30 candidates: 398,14 ms;
 - warm Agent workflow: 2.041,90 ms; UI quan sát 2,16 giây;
 - response không timeout và `insufficient_evidence = false`.
+
+---
+
+## D057 — Local Transformers Generator Behind Existing Contract
+
+**Status:** Accepted
+
+Full-corpus GPU smoke xác nhận warm retrieval/reranking đã giảm còn khoảng hai
+giây nhưng extractive generator vẫn chỉ ghép nguyên văn evidence. Version
+`0.20.7` mở rộng M18:
+
+- thêm concrete local Transformers adapter phía sau `ChatModelProvider`;
+- backend được chọn bằng `online.generation.backend`, core service/Agent không
+  import model cụ thể;
+- model name và immutable revision luôn phải pin;
+- device, dtype, local-files policy, input/output token bounds và temperature
+  đều là typed configuration;
+- local model lazy-load, shared inference được serialize và deterministic khi
+  temperature bằng 0;
+- prompt vượt giới hạn bị từ chối thay vì truncate nội dung pháp luật;
+- model completion vẫn phải qua strict `ModelAnswerDraft`, evidence-ID allowlist,
+  system-built citations và CitationVerifier hiện có;
+- `extractive` vẫn là safe default; OpenAI-compatible provider không đổi;
+- `transformers` được khai báo direct dependency vì source code dùng trực tiếp,
+  không thêm LLM SDK, Agent framework hoặc quantization package.
+
+`Qwen/Qwen2.5-3B-Instruct` revision
+`a1d308dfcc03e09da285d49d912439a655a571e8` được chọn làm candidate smoke test
+cho GPU 16 GiB nhờ multilingual/structured-output capability và kích thước 3B.
+Đây không phải quyết định model production: các model mạnh hơn vẫn phải được
+đánh giá bằng benchmark có nhãn khi dữ liệu cuộc thi được công bố.
+
+Không fine-tune, không thay retrieval artifact, không re-embed corpus và không
+gửi selected evidence ra external service trong local mode.

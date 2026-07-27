@@ -16,6 +16,9 @@ from legal_agentic_rag.generation.openai_compatible import (
     OpenAICompatibleChatProvider,
 )
 from legal_agentic_rag.generation.service import FixedRAGService
+from legal_agentic_rag.generation.transformers_provider import (
+    TransformersChatProvider,
+)
 
 __all__ = [
     "ContextBuilder",
@@ -25,5 +28,6 @@ __all__ = [
     "OpenAICompatibleChatProvider",
     "RuleBasedCitationVerifier",
     "RuleBasedContextGrader",
+    "TransformersChatProvider",
     "build_answer_generator",
 ]

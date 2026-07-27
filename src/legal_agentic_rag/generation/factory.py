@@ -11,12 +11,19 @@ from legal_agentic_rag.generation.model_generator import (
 from legal_agentic_rag.generation.openai_compatible import (
     OpenAICompatibleChatProvider,
 )
+from legal_agentic_rag.generation.transformers_provider import (
+    TransformersChatProvider,
+)
 
 
 def build_answer_generator(config: GenerationConfig) -> AnswerGenerator:
     """Build only the explicitly configured grounded generator."""
     if config.backend == "extractive":
         return ExtractiveAnswerGenerator()
+    if config.backend == "transformers":
+        return ModelBackedAnswerGenerator(
+            TransformersChatProvider(config)
+        )
     return ModelBackedAnswerGenerator(
         OpenAICompatibleChatProvider(config)
     )

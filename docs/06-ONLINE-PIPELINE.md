@@ -424,9 +424,22 @@ evidence ID, JSON sai schema hoặc marker bị thiếu đều fail closed thàn
 error; Agent hiện tại xử lý lỗi theo retry/stopping policy có giới hạn.
 
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
-config và phải có endpoint cùng model name/revision đã pin. M18 chưa chọn model
-production, chưa fine-tune, chưa semantic-verify từng claim và không gọi model
-thật trong test mặc định.
+config và phải có endpoint cùng model name/revision đã pin.
+`transformers` chạy một causal language model local có chat template, cũng yêu
+cầu pin model/revision cùng device và dtype rõ ràng. Provider:
+
+- lazy-load tokenizer/model ở lần dùng đầu tiên;
+- serialize inference trên một shared model instance;
+- dùng deterministic decoding khi `temperature = 0`;
+- chỉ decode token mới sinh, không lẫn prompt vào completion;
+- từ chối prompt vượt `max_input_tokens`, không silently truncate legal text;
+- không log prompt, question hoặc evidence content;
+- phân loại model-load và inference failure theo exception taxonomy.
+
+Qwen2.5-3B-Instruct revision
+`a1d308dfcc03e09da285d49d912439a655a571e8` là candidate tham chiếu cho smoke
+test GPU 16 GiB, không phải model production đã được chốt. M18 chưa fine-tune,
+chưa semantic-verify từng claim và không gọi model thật trong test mặc định.
 
 ---
 

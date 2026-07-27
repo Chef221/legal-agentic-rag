@@ -926,7 +926,9 @@ evaluation data
 
 - `ChatModelProvider` Protocol;
 - dependency-free OpenAI-compatible provider;
+- local Hugging Face Transformers provider với lazy pinned-model loading;
 - typed backend/endpoint/model/revision/timeout/output-token configuration;
+- typed local device, dtype, cache policy và input-token bound;
 - API key lookup bằng tên environment variable;
 - evidence-only Vietnamese prompt với untrusted-content boundary;
 - strict `ModelAnswerDraft` JSON parsing;
@@ -934,7 +936,8 @@ evaluation data
 - deterministic system-built `Citation`;
 - explicit model abstention và existing citation verifier;
 - extractive default/fallback mode;
-- unit tests không network cho prompt, parser, config, transport và failures.
+- unit tests không network/model download cho prompt, parser, config, local
+  inference boundary, transport và failures.
 
 ### Done When
 
@@ -947,10 +950,12 @@ evaluation data
 
 ### Current Limitation
 
-M18 chưa chọn hoặc benchmark model cuối cùng, chưa fine-tune và chưa
-semantic-verify support của từng claim. OpenAI-compatible endpoint phải hỗ trợ
-JSON response mode. Chất lượng thực tế chỉ được kết luận sau benchmark có nhãn
-trên GPU; lựa chọn model không bị giới hạn bởi CPU của máy phát triển.
+Local Transformers provider đã sẵn sàng ở version `0.20.7`, nhưng full-corpus
+smoke với Qwen2.5-3B-Instruct và benchmark chất lượng có nhãn chưa chạy. M18 chưa
+chọn model cuối cùng, chưa fine-tune và chưa semantic-verify support của từng
+claim. OpenAI-compatible endpoint phải hỗ trợ JSON response mode. Chất lượng
+thực tế chỉ được kết luận sau benchmark có nhãn trên GPU; lựa chọn model không
+bị giới hạn bởi CPU của máy phát triển.
 
 ---
 

@@ -116,11 +116,19 @@ class GenerationConfig(BaseModel):
     max_evidence: int = Field(default=8, gt=0, le=100)
     inactive_effect_statuses: frozenset[str] = Field(default_factory=frozenset)
     timeout_seconds: float = Field(default=30.0, gt=0)
-    backend: Literal["extractive", "openai_compatible"] = "extractive"
+    backend: Literal[
+        "extractive",
+        "openai_compatible",
+        "transformers",
+    ] = "extractive"
     endpoint_url: str | None = Field(default=None, min_length=1)
     api_key_env: str | None = Field(default=None, min_length=1)
     model_name: str | None = Field(default=None, min_length=1)
     model_revision: str | None = Field(default=None, min_length=1)
+    device: str = Field(default="cpu", min_length=1)
+    torch_dtype: Literal["float16", "bfloat16", "float32"] = "float32"
+    local_files_only: bool = False
+    max_input_tokens: int = Field(default=8192, gt=0, le=131072)
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     max_output_tokens: int = Field(default=1024, gt=0, le=8192)
 
@@ -170,6 +178,22 @@ class GenerationConfig(BaseModel):
             if self.model_name is None or self.model_revision is None:
                 raise ValueError(
                     "openai_compatible generator requires pinned model identity"
+                )
+        elif self.backend == "transformers":
+            if self.model_name is None or self.model_revision is None:
+                raise ValueError(
+                    "transformers generator requires pinned model identity"
+                )
+            if self.endpoint_url is not None or self.api_key_env is not None:
+                raise ValueError(
+                    "transformers generator must not contain endpoint settings"
+                )
+            if (
+                self.device.casefold().startswith("cpu")
+                and self.torch_dtype != "float32"
+            ):
+                raise ValueError(
+                    "CPU transformers generation requires float32"
                 )
         elif any(
             value is not None
