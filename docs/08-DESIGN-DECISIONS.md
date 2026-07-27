@@ -1202,3 +1202,12 @@ matrix 1.278.201 x 384 và vừa bộ nhớ GPU 16 GiB. Version `0.20.6` áp d�
 
 Quyết định này là runtime acceleration của reference backend, không phải quyết
 định vector database production.
+
+Full-corpus validation thực tế trên Colab GPU với 1.278.201 x 384 vectors:
+
+- cold query: 31,47 giây end-to-end, gồm lazy-load embedding và cross-encoder;
+- warm exact vector search: 22,21 ms;
+- warm dense retrieval: 35,58 ms;
+- warm cross-encoder rerank trên 30 candidates: 398,14 ms;
+- warm Agent workflow: 2.041,90 ms; UI quan sát 2,16 giây;
+- response không timeout và `insufficient_evidence = false`.

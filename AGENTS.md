@@ -1664,6 +1664,14 @@ Milestone 17.9 đã tạo:
 - reuse vector/sidecar hiện có, không re-embed hoặc rebuild;
 - version `0.20.6`.
 
+Full-corpus CUDA validation đã pass trên 1.278.201 x 384 vectors:
+
+- warm vector search 22,2 ms;
+- warm dense retrieval 35,6 ms;
+- warm reranker 398 ms;
+- warm Agent workflow khoảng 2,04 giây;
+- cold query khoảng 31,47 giây do lazy model initialization.
+
 ---
 
 ## 39. Final Instruction to Coding Agents

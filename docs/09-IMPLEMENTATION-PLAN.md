@@ -904,6 +904,10 @@ trước khi chuyển sang graph disk-backed loader.
 - reuse `vectors.npy`, sidecar và manifests hiện có; không re-embed/rebuild;
 - unit test so sánh NumPy/Torch CPU, CUDA failure và optional live CUDA smoke.
 
+Full-corpus CUDA validation đã pass: warm vector search 22,2 ms, dense retrieval
+35,6 ms, reranker 398 ms và Agent workflow khoảng 2,04 giây. Cold query khoảng
+31,47 giây do lazy model initialization, không phải vector scoring.
+
 ---
 
 ## 20. Milestone 18 — Model-backed Answer Generator

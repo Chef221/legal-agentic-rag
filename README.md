@@ -129,6 +129,11 @@ hiện có lên GPU đúng một lần và giữ exact cosine search; không re-
 vector artifact. `cpu` vẫn là mặc định và CUDA được yêu cầu sẽ fail closed nếu
 không khả dụng.
 
+Full-corpus Colab validation trên 1.278.201 vector x 384 ghi nhận query ấm:
+22,2 ms exact vector search, 35,6 ms dense retrieval, 398 ms reranking và khoảng
+2,16 giây end-to-end. Query đầu tiên mất khoảng 31,47 giây do lazy-load embedding
+và cross-encoder model.
+
 Chạy benchmark có nhãn:
 
 ```powershell
