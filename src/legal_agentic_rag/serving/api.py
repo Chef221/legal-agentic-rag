@@ -34,7 +34,7 @@ from legal_agentic_rag.schemas import (
     RetrievalResponse,
 )
 from legal_agentic_rag.serving.query_service import ServingService
-from legal_agentic_rag.serving.ui import mount_gradio_ui
+from legal_agentic_rag.serving.ui import mount_diagnostic_ui
 
 RuntimeLoader = Callable[[], OnlineRuntime]
 _LOGGER = logging.getLogger(__name__)
@@ -133,11 +133,11 @@ def create_app(
         return _service(request).answer(payload)
 
     if config.serving.ui_enabled:
-        app = mount_gradio_ui(
+        app = mount_diagnostic_ui(
             app,
-            service_provider=lambda: _service_from_app(app),
             path=config.serving.ui_path,
             title=config.serving.title,
+            answer_endpoint=f"{prefix}/answer",
         )
     return app
 

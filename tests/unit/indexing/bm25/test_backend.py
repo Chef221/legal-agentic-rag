@@ -61,7 +61,7 @@ def test_backend_builds_manifest_and_satisfies_protocol(
     assert isinstance(backend, BM25Backend)
     assert manifest.artifact_type == ArtifactType.BM25_INDEX
     assert manifest.backend == "sqlite_fts5"
-    assert manifest.code_version == "0.20.4"
+    assert manifest.code_version == "0.20.5"
     assert manifest.record_count == 3
     assert manifest.dataset_revision == "fixture-revision"
     assert manifest.metadata["analyzer_name"] == "unicode_word_casefold_v1"
@@ -247,7 +247,7 @@ def test_loaded_backend_supports_serialized_cross_thread_search(
     legal_chunks: list[LegalChunk],
     chunk_manifest: ArtifactManifest,
 ) -> None:
-    """Gradio workers can safely query an index loaded during app startup."""
+    """Serving workers can safely query an index loaded during app startup."""
     built = _backend()
     built.build(legal_chunks, chunk_manifest)
     persisted_manifest = built.persist(tmp_path / "bm25")

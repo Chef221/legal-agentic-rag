@@ -17,7 +17,7 @@ Model, revision, endpoint và secret đều đi qua configuration; core không k
 vào một model hoặc nhà cung cấp cụ thể.
 
 Hệ thống có composition root để build toàn bộ AIO artifacts, online factory để
-reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/Gradio để
+reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/UI để
 chạy thử baseline. Startup kiểm tra checksum, dataset lineage và embedding
 identity trước khi nhận query.
 
@@ -118,6 +118,10 @@ Lệnh này chỉ scan `vector/chunks.jsonl` hiện có để tạo
 `vector_serving/metadata.sqlite3`. Nó không đọc raw dataset, không embedding lại
 và không sửa `vectors.npy`. Khi `online.vector_runtime.require_serving_metadata`
 là `true`, server từ chối fallback về JSONL scan chậm.
+
+Từ version `0.20.5`, `/ui` là diagnostic HTML dùng same-origin HTTP tới
+`/api/v1/answer`. UI không còn dùng Gradio queue/SSE nên hoạt động qua Colab
+port proxy mà không tạo runtime thứ hai.
 
 Chạy benchmark có nhãn:
 

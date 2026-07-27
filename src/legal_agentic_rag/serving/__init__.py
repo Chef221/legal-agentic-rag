@@ -1,4 +1,4 @@
-"""FastAPI and Gradio serving boundary over the immutable online runtime."""
+"""FastAPI API and diagnostic UI over the immutable online runtime."""
 
 from legal_agentic_rag.serving.api import create_app
 from legal_agentic_rag.serving.config_loader import load_application_config

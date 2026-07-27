@@ -43,7 +43,7 @@ def build_main() -> None:
 
 
 def serve_main() -> None:
-    """Start the configured FastAPI and optional Gradio application."""
+    """Start the configured FastAPI API and optional diagnostic UI."""
     arguments = _parser("Serve legal RAG API and UI").parse_args()
     config = load_application_config(arguments.config)
     app = create_app(config)

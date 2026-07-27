@@ -218,10 +218,10 @@ def test_api_fails_fast_when_runtime_cannot_load(tmp_path: Path) -> None:
             pass
 
 
-def test_gradio_is_mounted_without_creating_a_second_runtime(
+def test_diagnostic_ui_uses_public_answer_api_and_one_runtime(
     tmp_path: Path,
 ) -> None:
-    """The optional local UI shares the exact FastAPI serving lifecycle."""
+    """The optional same-origin UI uses the public API and one runtime."""
     runtime = _Runtime()
     load_count = 0
 
@@ -242,4 +242,6 @@ def test_gradio_is_mounted_without_creating_a_second_runtime(
     assert load_count == 1
     assert ui.status_code == 200
     assert "Vietnamese Legal Agentic RAG" in ui.text
+    assert 'const answerEndpoint = "/api/v1/answer"' in ui.text
+    assert "window.gradio_config" not in ui.text
     assert health.status_code == 200

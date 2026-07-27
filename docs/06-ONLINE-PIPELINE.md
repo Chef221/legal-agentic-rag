@@ -726,7 +726,7 @@ cho manifest validation, BM25, vector, graph và tổng runtime.
 Milestone 15 thêm một boundary mỏng trên `OnlineRuntime`:
 
 ```text
-HTTP/Gradio request
+HTTP/API UI request
 → LegalQuestionRequest validation
 → Vietnamese NFC + whitespace normalization
 → RetrievalQuery with query ID and bounded limits
@@ -743,7 +743,8 @@ Public endpoints:
 - `POST /api/v1/retrieve`;
 - `POST /api/v1/answer`.
 
-Gradio tại `/ui` là optional diagnostic consumer và dùng chung runtime. Serving
+Diagnostic UI tại `/ui` là optional same-origin consumer của public answer API
+và dùng chung runtime. Serving
 không download dataset, build index, truy cập raw field hoặc giữ concrete
 database client.
 
@@ -806,3 +807,11 @@ Version `0.20.4` bổ sung optional persisted `vector_serving` sidecar:
 - runtime mở SQLite read-only/immutable và chỉ Pydantic-parse final hits;
 - thiếu sidecar có thể fallback về legacy scan hoặc fail closed theo config;
 - sidecar không chứa embeddings và không thay đổi vector score/tie-break.
+
+Version `0.20.5` thay Gradio diagnostic consumer bằng một trang HTML same-origin:
+
+- submit trực tiếp JSON tới `/api/v1/answer`;
+- không dùng queue, SSE hoặc WebSocket;
+- không suy ra public URL từ internal host `127.0.0.1`;
+- hoạt động qua Colab port proxy và vẫn dùng đúng một online runtime;
+- chỉ render response bằng text-safe DOM APIs.

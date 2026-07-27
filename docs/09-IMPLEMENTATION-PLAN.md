@@ -881,6 +881,19 @@ trước khi chuyển sang graph disk-backed loader.
 
 ---
 
+### Milestone 17.8 Proxy-safe Diagnostic UI
+
+- measured Colab failure: health `200`, không OOM nhưng Gradio submit không tới
+  server;
+- version `0.20.5` thay Gradio queue/SSE bằng same-origin HTTP UI;
+- UI gọi public `/api/v1/answer`, không truy cập runtime/backend trực tiếp;
+- local và Colab port proxy dùng cùng một trang, không cần public URL config;
+- response được hiển thị bằng text-safe DOM APIs;
+- bỏ runtime dependency Gradio, không thêm dependency mới;
+- integration test xác nhận UI dùng public endpoint và chỉ load một runtime.
+
+---
+
 ## 20. Milestone 18 — Model-backed Answer Generator
 
 **Status:** Implementation complete; model benchmark pending GPU and labeled

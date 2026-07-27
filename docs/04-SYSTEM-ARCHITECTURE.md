@@ -177,7 +177,7 @@ cùng về Agent framework production.
 Chịu trách nhiệm:
 
 - FastAPI health, retrieval và answer endpoints;
-- optional Gradio diagnostic UI;
+- optional same-origin diagnostic UI;
 - request validation;
 - response serialization;
 - một startup/shutdown lifecycle cho immutable online runtime.
@@ -315,7 +315,7 @@ API không được truy cập trực tiếp raw dataset hoặc database impleme
 API gọi application service hoặc workflow interface.
 
 `ServingService` là boundary duy nhất chuyển public request thành
-`RetrievalQuery`. FastAPI và Gradio dùng chung một `OnlineRuntime` được load
+`RetrievalQuery`. FastAPI API và diagnostic UI dùng chung một `OnlineRuntime` được load
 trong lifespan; health chỉ công bố artifact type/version/count/backend/model,
 không công bố local path.
 

@@ -1156,3 +1156,25 @@ Full-corpus `0.20.3` measurement giảm startup xuống 159 giây nhưng
 
 Không re-embed, không rebuild vector/BM25, không đọc raw dataset và không thêm
 dependency. Sidecar không được commit vào Git.
+
+---
+
+## D055 — Same-origin HTTP Diagnostic UI
+
+**Status:** Accepted
+
+Full-corpus smoke trên Colab đo được FastAPI health vẫn `200`, không có OOM và
+không có request xử lý câu hỏi tới server khi Gradio báo mất kết nối. Nguyên nhân
+là Gradio 6 dùng SSE với public root suy ra từ internal host sau Colab proxy.
+Version `0.20.5` áp dụng:
+
+- `/ui` là một trang HTML nhỏ do FastAPI phục vụ;
+- UI gọi public `/api/v1/answer` bằng same-origin `fetch`;
+- không dùng queue, SSE, WebSocket hoặc public proxy URL trong config;
+- UI không gọi trực tiếp runtime, retriever, model hoặc artifact backend;
+- answer, citation và warning được gán bằng `textContent`;
+- FastAPI lifespan vẫn chỉ load đúng một immutable online runtime;
+- bỏ dependency Gradio vì không còn consumer.
+
+Đây vẫn là diagnostic baseline UI, không phải production frontend và không thêm
+authentication, CORS, reverse proxy hay deployment framework.

@@ -1647,6 +1647,14 @@ Milestone 17.7 đã tạo:
 - không re-embed, không rebuild vector/BM25 và không thêm dependency;
 - version `0.20.4`.
 
+Milestone 17.8 đã sửa:
+
+- thay Gradio queue/SSE diagnostic UI bằng same-origin HTTP UI;
+- UI gọi public `/api/v1/answer`, không gọi runtime/backend trực tiếp;
+- hoạt động qua Colab port proxy mà không cần public URL config;
+- bỏ runtime dependency Gradio, không thêm dependency;
+- version `0.20.5`.
+
 ---
 
 ## 39. Final Instruction to Coding Agents

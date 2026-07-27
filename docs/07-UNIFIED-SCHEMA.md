@@ -877,8 +877,8 @@ Schema bắt buộc mọi artifact cùng dataset/revision và key khớp declare
 
 ## 18.3 Milestone 15 Serving Schemas
 
-`schemas/serving.py` chứa các contract có consumer trực tiếp là FastAPI và
-Gradio:
+`schemas/serving.py` chứa các contract có consumer trực tiếp là FastAPI API và
+diagnostic UI:
 
 - `LegalQuestionRequest`: câu hỏi, unified filters, optional top/candidate limit
   và public retrieval strategy;
