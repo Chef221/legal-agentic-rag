@@ -1637,6 +1637,16 @@ Milestone 17.6 đã sửa:
   reuse mà không rebuild;
 - version `0.20.3`, không thêm dependency.
 
+Milestone 17.7 đã tạo:
+
+- persisted SQLite `vector_serving_metadata` sidecar từ validated vector chunks;
+- one-time `legal-rag-prepare-serving` command;
+- atomic/no-overwrite build, source checksum/manifest compatibility;
+- read-only row offset, chunk ID và unified filter lookup;
+- optional fallback hoặc required fail-closed runtime policy;
+- không re-embed, không rebuild vector/BM25 và không thêm dependency;
+- version `0.20.4`.
+
 ---
 
 ## 39. Final Instruction to Coding Agents

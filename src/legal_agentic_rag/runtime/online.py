@@ -199,6 +199,9 @@ class OnlineRuntimeFactory:
             self._config.offline.vector_index,
             runtime_config=self._config.online.vector_runtime,
             verify_integrity_on_load=deep_validation,
+            serving_metadata_source=self._config.artifacts.directory(
+                "vector_serving_directory"
+            ),
         )
         vector.load(self._directory("vector_directory"), vector_manifest)
         _LOGGER.info(

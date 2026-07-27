@@ -27,11 +27,15 @@ from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     BackendInitializationError,
 )
-from legal_agentic_rag.indexing.vector import NumpyVectorBackend
+from legal_agentic_rag.indexing.vector import (
+    NumpyVectorBackend,
+    prepare_vector_serving_metadata,
+)
 from legal_agentic_rag.runtime import (
     ArtifactSetValidator,
     OfflineBuildRuntime,
     OnlineRuntimeFactory,
+    load_artifact_manifest,
     load_model_artifact,
 )
 from legal_agentic_rag.schemas import (
@@ -342,9 +346,20 @@ def test_validated_report_startup_reuses_prior_deep_validation(
         source=_FixtureSource(),
         embedding_provider=provider,
     ).build()
+    vector_directory = config.artifacts.directory("vector_directory")
+    vector_manifest = load_artifact_manifest(
+        vector_directory,
+        expected_type=ArtifactType.VECTOR_INDEX,
+    )
+    prepare_vector_serving_metadata(
+        vector_directory=vector_directory,
+        destination=config.artifacts.directory("vector_serving_directory"),
+        vector_manifest=vector_manifest,
+    )
     config.online.startup_validation = StartupValidationConfig(
         mode="validated_report"
     )
+    config.online.vector_runtime.require_serving_metadata = True
 
     def unexpected_scan(*args: object, **kwargs: object) -> object:
         raise AssertionError("deep integrity scan must not run")
@@ -363,6 +378,10 @@ def test_validated_report_startup_reuses_prior_deep_validation(
     )
     monkeypatch.setattr(
         "legal_agentic_rag.indexing.vector.artifact_store._validate_vector_rows",
+        unexpected_scan,
+    )
+    monkeypatch.setattr(
+        "legal_agentic_rag.indexing.vector.artifact_store.JsonlChunkStore.load",
         unexpected_scan,
     )
     monkeypatch.setattr(
@@ -486,7 +505,7 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     ).build()
 
     upgraded_state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert upgraded_state["code_version"] == "0.20.3"
+    assert upgraded_state["code_version"] == "0.20.4"
     assert resumed.validation_report.is_valid is True
     assert resumed.validation_report.is_full_corpus is True
     assert resumed.artifact_manifests["vector_index"].record_count == 2

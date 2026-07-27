@@ -33,6 +33,10 @@
     },
     "startup_validation": {
       "mode": "validated_report"
+    },
+    "vector_runtime": {
+      "prefer_serving_metadata": true,
+      "require_serving_metadata": true
     }
   },
   "build_validation": {

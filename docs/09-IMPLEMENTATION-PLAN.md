@@ -866,6 +866,21 @@ trước khi chốt performance target.
 
 ---
 
+### Milestone 17.7 Persisted Vector Serving Metadata
+
+- measured vector metadata startup bottleneck: 141,8 giây trên 1.278.201 chunks;
+- version `0.20.4` thêm immutable SQLite vector metadata sidecar;
+- one-time CLI preparation từ vector artifact hiện có;
+- exact source/checksum/count compatibility và no-overwrite policy;
+- read-only offset/chunk-ID/filter lookup khi server startup/search;
+- optional fallback và production fail-closed config;
+- không re-embed, không rebuild index và không thêm dependency.
+
+Full-corpus sidecar preparation và startup reload phải được đo thật trên Colab
+trước khi chuyển sang graph disk-backed loader.
+
+---
+
 ## 20. Milestone 18 — Model-backed Answer Generator
 
 **Status:** Implementation complete; model benchmark pending GPU and labeled

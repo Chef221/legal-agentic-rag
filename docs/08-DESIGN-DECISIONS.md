@@ -1131,3 +1131,28 @@ nhiều checksum/integrity scan trên artifact set đã deep-validate. Version
 
 Không rebuild dataset, legal chunks, BM25 hoặc vector artifact; không thêm
 dependency hay backend mới.
+
+---
+
+## D054 — Persisted Vector Serving Metadata Sidecar
+
+**Status:** Accepted
+
+Full-corpus `0.20.3` measurement giảm startup xuống 159 giây nhưng
+`vector/chunks.jsonl` metadata scan vẫn mất 141,8 giây. Version `0.20.4` áp dụng:
+
+- `legal-rag-prepare-serving` tạo sidecar đúng một lần từ validated vector chunk
+  JSONL;
+- sidecar SQLite lưu row index, byte offset, chunk ID và exact unified filter
+  columns; không lưu embedding hoặc legal text;
+- manifest khóa exact vector source identity và `chunks_sha256`;
+- build sidecar streaming/batched, atomic, checksum-validated và không overwrite;
+- runtime mở sidecar read-only/immutable, query final offsets/filter indexes và
+  chỉ Pydantic-parse final hit records;
+- `prefer_serving_metadata` cho phép fallback tương thích; production/full-corpus
+  có thể bật `require_serving_metadata` để fail closed thay vì scan chậm;
+- vector matrix, cosine scoring, chunk-ID tie-break và public retrieval schemas
+  không thay đổi.
+
+Không re-embed, không rebuild vector/BM25, không đọc raw dataset và không thêm
+dependency. Sidecar không được commit vào Git.

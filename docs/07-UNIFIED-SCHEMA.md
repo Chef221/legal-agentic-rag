@@ -423,6 +423,22 @@ identity. Backend công khai provider name/version, `model_name`, `model_revisio
 và `dimension` để `DenseRetriever` kiểm tra compatibility trước khi embed query. Dense
 search vẫn trả unified `RetrievalResponse`/`RetrievalHit`/`RetrievalTrace`.
 
+### Vector Serving Metadata
+
+Version `0.20.4` dùng một internal persisted artifact
+`artifact_type = "vector_serving_metadata"`. Đây không phải public retrieval
+schema và không chứa embedding. Manifest ghi:
+
+- backend `sqlite_chunk_metadata`;
+- source vector type/version/processing hash;
+- source `chunks_sha256`;
+- database filename/checksum và backend schema version;
+- record count bằng vector artifact.
+
+SQLite payload chỉ chứa vector row index, JSONL byte offset, chunk ID và các
+unified filter fields. Runtime vẫn dựng final `LegalChunk` từ validated source
+JSONL nên public schema không thay đổi.
+
 ---
 
 ## 10. RetrievalQuery

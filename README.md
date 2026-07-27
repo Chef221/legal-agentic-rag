@@ -108,6 +108,17 @@ dụng validation report thay vì hash/integrity-scan lại hàng GB mỗi lần
 Model embedding chỉ lazy-load khi dense retrieval được gọi; BM25 startup không
 phải chờ tải model weights.
 
+Từ version `0.20.4`, chuẩn bị vector serving metadata đúng một lần:
+
+```powershell
+legal-rag-prepare-serving --config configs/full-corpus.local.json
+```
+
+Lệnh này chỉ scan `vector/chunks.jsonl` hiện có để tạo
+`vector_serving/metadata.sqlite3`. Nó không đọc raw dataset, không embedding lại
+và không sửa `vectors.npy`. Khi `online.vector_runtime.require_serving_metadata`
+là `true`, server từ chối fallback về JSONL scan chậm.
+
 Chạy benchmark có nhãn:
 
 ```powershell

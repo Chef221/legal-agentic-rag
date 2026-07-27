@@ -21,6 +21,7 @@ class ArtifactConfig(BaseModel):
     relationships_directory: str = "relationships"
     bm25_directory: str = "bm25"
     vector_directory: str = "vector"
+    vector_serving_directory: str = "vector_serving"
     graph_directory: str = "graph"
 
     @field_validator(
@@ -32,6 +33,7 @@ class ArtifactConfig(BaseModel):
         "relationships_directory",
         "bm25_directory",
         "vector_directory",
+        "vector_serving_directory",
         "graph_directory",
     )
     @classmethod
@@ -60,6 +62,7 @@ class ArtifactConfig(BaseModel):
             self.relationships_directory,
             self.bm25_directory,
             self.vector_directory,
+            self.vector_serving_directory,
             self.graph_directory,
         ]
         if len(names) != len(set(names)):

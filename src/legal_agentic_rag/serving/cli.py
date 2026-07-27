@@ -13,11 +13,14 @@ from legal_agentic_rag.evaluation import (
     load_benchmark,
     persist_report,
 )
+from legal_agentic_rag.indexing.vector import prepare_vector_serving_metadata
 from legal_agentic_rag.runtime import (
     ArtifactSetValidator,
     OfflineBuildRuntime,
     OnlineRuntimeFactory,
 )
+from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
+from legal_agentic_rag.schemas import ArtifactType
 from legal_agentic_rag.serving.api import create_app
 from legal_agentic_rag.serving.config_loader import load_application_config
 
@@ -75,6 +78,37 @@ def validate_main() -> None:
     )
     if not report.is_valid:
         raise ArtifactCompatibilityError("Artifact set failed validation")
+
+
+def prepare_serving_main() -> None:
+    """Prepare immutable online metadata from existing validated artifacts."""
+    arguments = _parser("Prepare legal RAG serving metadata").parse_args()
+    config = load_application_config(arguments.config)
+    configure_logging(config.logging)
+    vector_directory = config.artifacts.directory("vector_directory")
+    manifest = load_artifact_manifest(
+        vector_directory,
+        expected_type=ArtifactType.VECTOR_INDEX,
+    )
+    result = prepare_vector_serving_metadata(
+        vector_directory=vector_directory,
+        destination=config.artifacts.directory("vector_serving_directory"),
+        vector_manifest=manifest,
+        batch_size=(
+            config.online.vector_runtime.serving_metadata_build_batch_size
+        ),
+        progress_interval_records=(
+            config.online.vector_runtime.load_progress_interval_records
+        ),
+    )
+    _LOGGER.info(
+        "prepare_serving_command_completed",
+        extra={
+            "artifact_count": 1,
+            "chunk_count": result.record_count,
+            "backend": result.backend,
+        },
+    )
 
 
 def evaluate_main() -> None:

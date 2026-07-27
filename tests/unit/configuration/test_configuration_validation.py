@@ -110,6 +110,9 @@ def test_vector_runtime_config_bounds_online_load_and_search_batches() -> None:
     assert config.search_batch_size == 32_768
     assert config.load_progress_interval_records == 100_000
     assert config.checksum_progress_interval_bytes == 256 * 1024 * 1024
+    assert config.prefer_serving_metadata is True
+    assert config.require_serving_metadata is False
+    assert config.serving_metadata_build_batch_size == 10_000
     with pytest.raises(ValidationError):
         VectorRuntimeConfig(validation_batch_size=0)
     with pytest.raises(ValidationError):
@@ -238,6 +241,12 @@ def test_artifact_layout_requires_unique_safe_relative_directories(
     """Runtime artifact paths cannot escape or collide under their root."""
     with pytest.raises(ValidationError):
         ArtifactConfig(root_path=tmp_path, bm25_directory="../bm25")
+    with pytest.raises(ValidationError):
+        ArtifactConfig(
+            root_path=tmp_path,
+            vector_directory="vector",
+            vector_serving_directory="vector",
+        )
     with pytest.raises(ValidationError):
         ArtifactConfig(
             root_path=tmp_path,

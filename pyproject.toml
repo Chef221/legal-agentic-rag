@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legal-agentic-rag"
-version = "0.20.3"
+version = "0.20.4"
 description = "Vietnamese legal RAG with immutable artifacts, API, and local UI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -27,6 +27,7 @@ dev = [
 [project.scripts]
 legal-rag-build = "legal_agentic_rag.serving.cli:build_main"
 legal-rag-evaluate = "legal_agentic_rag.serving.cli:evaluate_main"
+legal-rag-prepare-serving = "legal_agentic_rag.serving.cli:prepare_serving_main"
 legal-rag-serve = "legal_agentic_rag.serving.cli:serve_main"
 legal-rag-validate = "legal_agentic_rag.serving.cli:validate_main"
 

@@ -29,6 +29,9 @@ from legal_agentic_rag.indexing.vector.artifact_store import (
     persist_vector_artifact,
 )
 from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
+from legal_agentic_rag.indexing.vector.serving_metadata import (
+    SQLiteVectorChunkStore,
+)
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
@@ -54,11 +57,13 @@ class NumpyVectorBackend:
         *,
         runtime_config: VectorRuntimeConfig | None = None,
         verify_integrity_on_load: bool = True,
+        serving_metadata_source: Path | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or VectorIndexConfig()
         self._runtime_config = runtime_config or VectorRuntimeConfig()
         self._verify_integrity_on_load = verify_integrity_on_load
+        self._serving_metadata_source = serving_metadata_source
         self._clock = clock or (lambda: datetime.now(UTC))
         self._vectors: np.ndarray | None = None
         self._chunks: Sequence[LegalChunk] = []
@@ -322,6 +327,14 @@ class NumpyVectorBackend:
                 self._runtime_config.checksum_progress_interval_bytes
             ),
             verify_integrity=self._verify_integrity_on_load,
+            serving_metadata_source=(
+                self._serving_metadata_source
+                if self._runtime_config.prefer_serving_metadata
+                else None
+            ),
+            require_serving_metadata=(
+                self._runtime_config.require_serving_metadata
+            ),
         )
         self._vectors = vectors
         self._chunks = chunks
@@ -341,7 +354,10 @@ class NumpyVectorBackend:
         query: RetrievalQuery,
     ) -> np.ndarray | None:
         filters = query.filters
-        if isinstance(self._chunks, JsonlChunkStore):
+        if isinstance(
+            self._chunks,
+            (JsonlChunkStore, SQLiteVectorChunkStore),
+        ):
             return self._chunks.filtered_indexes(filters)
         if not any(
             (
@@ -445,12 +461,18 @@ class NumpyVectorBackend:
         return int(candidate_indexes[offset])
 
     def _chunk_id(self, index: int) -> str:
-        if isinstance(self._chunks, JsonlChunkStore):
+        if isinstance(
+            self._chunks,
+            (JsonlChunkStore, SQLiteVectorChunkStore),
+        ):
             return self._chunks.chunk_id(index)
         return self._chunks[index].chunk_id
 
     def _chunks_at(self, indexes: Sequence[int]) -> list[LegalChunk]:
-        if isinstance(self._chunks, JsonlChunkStore):
+        if isinstance(
+            self._chunks,
+            (JsonlChunkStore, SQLiteVectorChunkStore),
+        ):
             return self._chunks.get_many(indexes)
         return [self._chunks[index] for index in indexes]
 

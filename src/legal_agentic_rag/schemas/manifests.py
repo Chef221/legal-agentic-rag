@@ -36,6 +36,7 @@ class ArtifactType(StrEnum):
     BM25_INDEX = "bm25_index"
     EMBEDDING_OUTPUT = "embedding_output"
     VECTOR_INDEX = "vector_index"
+    VECTOR_SERVING_METADATA = "vector_serving_metadata"
     RELATIONSHIP_MAPPING = "relationship_mapping"
     GRAPH_INDEX = "graph_index"
 

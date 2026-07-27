@@ -793,4 +793,16 @@ Các giới hạn execution nằm tại `online.vector_runtime`:
 - `validation_batch_size`;
 - `search_batch_size`;
 - `load_progress_interval_records`;
-- `checksum_progress_interval_bytes`.
+- `checksum_progress_interval_bytes`;
+- `prefer_serving_metadata`;
+- `require_serving_metadata`.
+
+Version `0.20.4` bổ sung optional persisted `vector_serving` sidecar:
+
+- `legal-rag-prepare-serving` scan validated `vector/chunks.jsonl` đúng một lần;
+- SQLite lưu `row_index`, JSONL byte offset, chunk ID và các unified filter
+  columns;
+- source vector manifest identity và `chunks_sha256` khóa compatibility;
+- runtime mở SQLite read-only/immutable và chỉ Pydantic-parse final hits;
+- thiếu sidecar có thể fallback về legacy scan hoặc fail closed theo config;
+- sidecar không chứa embeddings và không thay đổi vector score/tie-break.

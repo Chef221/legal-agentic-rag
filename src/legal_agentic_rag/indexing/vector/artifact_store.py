@@ -22,6 +22,9 @@ from legal_agentic_rag.exceptions import (
     DataValidationError,
 )
 from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
+from legal_agentic_rag.indexing.vector.serving_metadata import (
+    SQLiteVectorChunkStore,
+)
 from legal_agentic_rag.schemas.build_validation import VectorBuildCheckpoint
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
@@ -425,7 +428,13 @@ def load_vector_artifact(
     load_progress_interval_records: int,
     checksum_progress_interval_bytes: int,
     verify_integrity: bool = True,
-) -> tuple[np.ndarray, JsonlChunkStore, ArtifactManifest]:
+    serving_metadata_source: Path | None = None,
+    require_serving_metadata: bool = False,
+) -> tuple[
+    np.ndarray,
+    JsonlChunkStore | SQLiteVectorChunkStore,
+    ArtifactManifest,
+]:
     """Validate checksums and load an immutable, memory-mapped vector artifact."""
     source = source.resolve()
     if not source.is_dir():
@@ -479,14 +488,28 @@ def load_vector_artifact(
     chunk_order = stored_manifest.metadata.get("chunk_order")
     if chunk_order not in (None, "source_artifact_order"):
         raise ArtifactCompatibilityError("Vector artifact chunk order is incompatible")
-    chunks = JsonlChunkStore.load(
-        chunks_path,
-        expected_count=stored_manifest.record_count,
-        expected_checksum=stored_manifest.metadata.get("chunks_sha256"),
-        require_sorted_chunk_ids=chunk_order is None,
-        progress_interval_records=load_progress_interval_records,
-        verify_integrity=verify_integrity,
-    )
+    if serving_metadata_source is not None and serving_metadata_source.is_dir():
+        chunks: JsonlChunkStore | SQLiteVectorChunkStore = (
+            SQLiteVectorChunkStore.load(
+                serving_metadata_source,
+                chunks_path=chunks_path,
+                vector_manifest=stored_manifest,
+                verify_integrity=verify_integrity,
+            )
+        )
+    elif require_serving_metadata:
+        raise ArtifactCompatibilityError(
+            "Required vector serving metadata is unavailable"
+        )
+    else:
+        chunks = JsonlChunkStore.load(
+            chunks_path,
+            expected_count=stored_manifest.record_count,
+            expected_checksum=stored_manifest.metadata.get("chunks_sha256"),
+            require_sorted_chunk_ids=chunk_order is None,
+            progress_interval_records=load_progress_interval_records,
+            verify_integrity=verify_integrity,
+        )
     if verify_integrity:
         _validate_vector_rows(
             vectors,
