@@ -51,6 +51,23 @@ class RetrievalConfig(BaseModel):
         return self
 
 
+class BM25RuntimeConfig(BaseModel):
+    """Bounded full-corpus lexical query planning without changing artifacts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_query_terms: int = Field(default=8, gt=0, le=64)
+    max_document_frequency_ratio: float = Field(default=0.25, gt=0, le=1)
+
+
+class StartupValidationConfig(BaseModel):
+    """Choose deep scans or reuse one immutable full-validation report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["full", "validated_report"] = "full"
+
+
 class VectorRuntimeConfig(BaseModel):
     """Memory bounds and progress cadence for online vector loading/search."""
 
@@ -218,6 +235,10 @@ class OnlineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    bm25_runtime: BM25RuntimeConfig = Field(default_factory=BM25RuntimeConfig)
+    startup_validation: StartupValidationConfig = Field(
+        default_factory=StartupValidationConfig
+    )
     vector_runtime: VectorRuntimeConfig = Field(
         default_factory=VectorRuntimeConfig
     )

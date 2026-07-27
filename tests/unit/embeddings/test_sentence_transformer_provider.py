@@ -113,13 +113,13 @@ def test_provider_rejects_loader_and_dimension_mismatch() -> None:
         _config(), model_loader=fail_loader
     )
     with pytest.raises(BackendInitializationError):
-        _ = failed.dimension
+        failed.embed_query("câu hỏi")
 
     mismatched = SentenceTransformerEmbeddingProvider(
         _config(), model_loader=lambda config: _FixtureModel(dimension=2)
     )
     with pytest.raises(BackendInitializationError, match="dimension"):
-        _ = mismatched.dimension
+        mismatched.embed_query("câu hỏi")
 
 
 def test_empty_document_batch_does_not_load_model() -> None:
@@ -134,4 +134,22 @@ def test_empty_document_batch_does_not_load_model() -> None:
     provider = SentenceTransformerEmbeddingProvider(_config(), model_loader=loader)
 
     assert provider.embed_documents([], batch_size=4) == []
+    assert loaded is False
+
+
+def test_declared_dimension_does_not_load_model_weights() -> None:
+    """Startup compatibility can inspect the pinned dimension cheaply."""
+    loaded = False
+
+    def loader(config: EmbeddingConfig) -> _FixtureModel:
+        nonlocal loaded
+        loaded = True
+        return _FixtureModel()
+
+    provider = SentenceTransformerEmbeddingProvider(
+        _config(),
+        model_loader=loader,
+    )
+
+    assert provider.dimension == 3
     assert loaded is False

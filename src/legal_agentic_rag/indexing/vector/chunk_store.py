@@ -49,6 +49,7 @@ class JsonlChunkStore(Sequence[LegalChunk]):
         expected_checksum: object,
         require_sorted_chunk_ids: bool,
         progress_interval_records: int,
+        verify_integrity: bool = True,
     ) -> "JsonlChunkStore":
         """Validate JSONL once while retaining only lookup/filter indexes."""
         offsets = array("Q")
@@ -57,7 +58,7 @@ class JsonlChunkStore(Sequence[LegalChunk]):
         filter_indexes: dict[str, dict[str, array]] = {
             chunk_field: {} for _, chunk_field in _FILTER_FIELDS
         }
-        digest = sha256()
+        digest = sha256() if verify_integrity else None
         first_payload_error: Exception | None = None
         previous_chunk_id: str | None = None
         _LOGGER.info(
@@ -71,7 +72,8 @@ class JsonlChunkStore(Sequence[LegalChunk]):
                     line = stream.readline()
                     if not line:
                         break
-                    digest.update(line)
+                    if digest is not None:
+                        digest.update(line)
                     if first_payload_error is not None:
                         continue
                     try:
@@ -117,8 +119,10 @@ class JsonlChunkStore(Sequence[LegalChunk]):
                 "Vector chunk metadata cannot be read"
             ) from error
 
-        if not isinstance(expected_checksum, str) or (
-            digest.hexdigest() != expected_checksum
+        if verify_integrity and (
+            not isinstance(expected_checksum, str)
+            or digest is None
+            or digest.hexdigest() != expected_checksum
         ):
             raise ArtifactCompatibilityError(
                 "Vector chunk metadata checksum mismatch"

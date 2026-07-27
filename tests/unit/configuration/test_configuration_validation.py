@@ -7,6 +7,7 @@ from legal_agentic_rag.configuration import (
     AgentConfig,
     ArtifactConfig,
     BM25IndexConfig,
+    BM25RuntimeConfig,
     BuildValidationConfig,
     ChunkingConfig,
     ContextGradingConfig,
@@ -24,6 +25,7 @@ from legal_agentic_rag.configuration import (
     RetrievalConfig,
     RelationshipNormalizationConfig,
     RerankerConfig,
+    StartupValidationConfig,
     VectorIndexConfig,
     VectorRuntimeConfig,
 )
@@ -38,6 +40,28 @@ def test_bm25_index_config_rejects_unknown_analyzer_or_match_mode() -> None:
         BM25IndexConfig(match_mode="phrase")
     with pytest.raises(ValidationError):
         BM25IndexConfig(write_batch_size=0)
+
+
+def test_bm25_runtime_config_bounds_full_corpus_query_planning() -> None:
+    """Lexical term count and corpus-frequency threshold are explicit."""
+    config = BM25RuntimeConfig()
+
+    assert config.max_query_terms == 8
+    assert config.max_document_frequency_ratio == 0.25
+    with pytest.raises(ValidationError):
+        BM25RuntimeConfig(max_query_terms=0)
+    with pytest.raises(ValidationError):
+        BM25RuntimeConfig(max_document_frequency_ratio=0)
+
+
+def test_startup_validation_requires_an_explicit_supported_mode() -> None:
+    """Deep validation remains default and report reuse is opt-in."""
+    assert StartupValidationConfig().mode == "full"
+    assert StartupValidationConfig(mode="validated_report").mode == (
+        "validated_report"
+    )
+    with pytest.raises(ValidationError):
+        StartupValidationConfig(mode="skip")
 
 
 def test_embedding_and_vector_defaults_are_pinned_and_bounded() -> None:

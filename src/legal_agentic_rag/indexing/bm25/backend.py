@@ -15,6 +15,7 @@ from typing import Callable
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import BM25IndexConfig
+from legal_agentic_rag.configuration.online import BM25RuntimeConfig
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     BackendInitializationError,
@@ -26,6 +27,7 @@ from legal_agentic_rag.indexing.bm25.artifact_store import (
     load_sqlite_artifact,
     persist_sqlite_artifact,
 )
+from legal_agentic_rag.indexing.bm25.query_planner import BM25QueryPlanner
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
@@ -39,6 +41,7 @@ from legal_agentic_rag.schemas.retrieval import (
 Clock = Callable[[], datetime]
 _LOGGER = logging.getLogger(__name__)
 _TABLE_NAME = "bm25_documents"
+_VOCAB_TABLE_NAME = "bm25_query_vocabulary"
 
 
 class SQLiteFTS5BM25Backend:
@@ -51,10 +54,14 @@ class SQLiteFTS5BM25Backend:
         config: BM25IndexConfig | None = None,
         *,
         analyzer: UnicodeBM25Analyzer | None = None,
+        runtime_config: BM25RuntimeConfig | None = None,
+        verify_integrity_on_load: bool = True,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or BM25IndexConfig()
         self._analyzer = analyzer or UnicodeBM25Analyzer()
+        self._query_planner = BM25QueryPlanner(runtime_config)
+        self._verify_integrity_on_load = verify_integrity_on_load
         if self._analyzer.name != self._config.analyzer_name:
             raise BackendInitializationError(
                 "Configured BM25 analyzer does not match backend analyzer"
@@ -168,12 +175,21 @@ class SQLiteFTS5BM25Backend:
                 )
             effective_query = query.rewritten_question or query.normalized_question
             terms = self._analyzer.analyze(effective_query)
+            unique_term_count = len(dict.fromkeys(terms))
             warnings: list[str] = []
             hits: list[RetrievalHit] = []
             if not terms:
                 warnings.append("query_has_no_indexable_terms")
             else:
-                expression = self._match_expression(terms)
+                frequencies = self._document_frequencies(connection, terms)
+                plan = self._query_planner.plan(
+                    terms,
+                    document_frequencies=frequencies,
+                    document_count=manifest.record_count,
+                )
+                if plan.was_limited:
+                    warnings.append("bm25_query_terms_limited")
+                expression = self._match_expression(list(plan.terms))
                 sql, parameters = self._search_statement(query, expression)
                 try:
                     rows = connection.execute(sql, parameters).fetchall()
@@ -195,6 +211,11 @@ class SQLiteFTS5BM25Backend:
                 "query_id": query.query_id,
                 "strategy": RetrievalStrategy.BM25.value,
                 "candidate_count": len(hits),
+                "query_term_count": len(terms),
+                "query_unique_term_count": unique_term_count,
+                "query_selected_term_count": (
+                    len(plan.terms) if terms else 0
+                ),
                 "latency_ms": latency_ms,
             },
         )
@@ -236,6 +257,7 @@ class SQLiteFTS5BM25Backend:
                 expected_artifact_version=self._config.artifact_version,
                 expected_analyzer=self._config.analyzer_name,
                 expected_match_mode=self._config.match_mode,
+                verify_integrity=self._verify_integrity_on_load,
             )
             self.close()
             self._connection = connection
@@ -302,6 +324,16 @@ class SQLiteFTS5BM25Backend:
             )
             """
         )
+        SQLiteFTS5BM25Backend._create_query_vocabulary(connection)
+
+    @staticmethod
+    def _create_query_vocabulary(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            f"""
+            CREATE VIRTUAL TABLE temp.{_VOCAB_TABLE_NAME}
+            USING fts5vocab(main, {_TABLE_NAME}, 'row')
+            """
+        )
 
     def _chunk_row(self, chunk: LegalChunk) -> tuple[str | None, ...]:
         terms = self._analyzer.analyze(chunk.search_text)
@@ -358,6 +390,28 @@ class SQLiteFTS5BM25Backend:
         return operator.join(f'"{term}"' for term in unique_terms)
 
     @staticmethod
+    def _document_frequencies(
+        connection: sqlite3.Connection,
+        terms: list[str],
+    ) -> dict[str, int]:
+        unique_terms = list(dict.fromkeys(terms))
+        placeholders = ", ".join("?" for _ in unique_terms)
+        try:
+            rows = connection.execute(
+                f"""
+                SELECT term, doc
+                FROM temp.{_VOCAB_TABLE_NAME}
+                WHERE term IN ({placeholders})
+                """,
+                unique_terms,
+            ).fetchall()
+        except sqlite3.Error as error:
+            raise RetrievalError(
+                "SQLite FTS5 vocabulary lookup failed"
+            ) from error
+        return {str(row["term"]): int(row["doc"]) for row in rows}
+
+    @staticmethod
     def _search_statement(
         query: RetrievalQuery,
         expression: str,
@@ -377,10 +431,10 @@ class SQLiteFTS5BM25Backend:
                 parameters.extend(values)
         parameters.append(query.top_k)
         statement = f"""
-            SELECT chunk_id, chunk_json, bm25({_TABLE_NAME}) AS bm25_rank
+            SELECT chunk_id, chunk_json, rank AS bm25_rank
             FROM {_TABLE_NAME}
             WHERE {' AND '.join(conditions)}
-            ORDER BY bm25_rank ASC, chunk_id ASC
+            ORDER BY rank ASC
             LIMIT ?
         """
         return statement, parameters

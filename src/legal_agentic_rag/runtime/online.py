@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from time import perf_counter
 from typing import Protocol
 
 from legal_agentic_rag.agent import DeterministicAgentWorkflow
@@ -38,6 +39,7 @@ from legal_agentic_rag.schemas import (
 )
 from legal_agentic_rag.tools import ToolRegistry, build_fixed_tool_registry
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
+from legal_agentic_rag.runtime.startup_validation import validate_startup_report
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,10 +125,22 @@ class OnlineRuntimeFactory:
 
     def build(self) -> OnlineRuntime:
         """Load, validate, and compose all online capabilities without mutation."""
+        startup_started = perf_counter()
+        deep_validation = (
+            self._config.online.startup_validation.mode == "full"
+        )
+        _LOGGER.info(
+            "online_artifact_manifest_validation_started",
+            extra={
+                "startup_validation_mode": (
+                    self._config.online.startup_validation.mode
+                )
+            },
+        )
         chunk_manifest = load_artifact_manifest(
             self._directory("legal_chunks_directory"),
             expected_type=ArtifactType.LEGAL_CHUNKS,
-            verify_payload=True,
+            verify_payload=deep_validation,
         )
         bm25_manifest = load_artifact_manifest(
             self._directory("bm25_directory"),
@@ -146,17 +160,62 @@ class OnlineRuntimeFactory:
             vector_manifest,
             graph_manifest,
         )
+        if not deep_validation:
+            validate_startup_report(
+                self._config.artifacts.root_path
+                / self._config.build_validation.report_filename,
+                (
+                    chunk_manifest,
+                    bm25_manifest,
+                    vector_manifest,
+                    graph_manifest,
+                ),
+            )
+        _LOGGER.info(
+            "online_artifact_manifest_validation_completed",
+            extra={
+                "startup_validation_mode": (
+                    self._config.online.startup_validation.mode
+                )
+            },
+        )
         self._validate_embedding_provider(vector_manifest)
 
-        bm25 = SQLiteFTS5BM25Backend(self._config.offline.bm25)
+        bm25_started = perf_counter()
+        _LOGGER.info("online_bm25_load_started")
+        bm25 = SQLiteFTS5BM25Backend(
+            self._config.offline.bm25,
+            runtime_config=self._config.online.bm25_runtime,
+            verify_integrity_on_load=deep_validation,
+        )
         bm25.load(self._directory("bm25_directory"), bm25_manifest)
+        _LOGGER.info(
+            "online_bm25_load_completed",
+            extra={"latency_ms": (perf_counter() - bm25_started) * 1000},
+        )
+        vector_started = perf_counter()
+        _LOGGER.info("online_vector_load_started")
         vector = NumpyVectorBackend(
             self._config.offline.vector_index,
             runtime_config=self._config.online.vector_runtime,
+            verify_integrity_on_load=deep_validation,
         )
         vector.load(self._directory("vector_directory"), vector_manifest)
-        graph = AdjacencyGraphBackend(self._config.offline.graph_index)
+        _LOGGER.info(
+            "online_vector_load_completed",
+            extra={"latency_ms": (perf_counter() - vector_started) * 1000},
+        )
+        graph_started = perf_counter()
+        _LOGGER.info("online_graph_load_started")
+        graph = AdjacencyGraphBackend(
+            self._config.offline.graph_index,
+            verify_integrity_on_load=deep_validation,
+        )
         graph.load(self._directory("graph_directory"), graph_manifest)
+        _LOGGER.info(
+            "online_graph_load_completed",
+            extra={"latency_ms": (perf_counter() - graph_started) * 1000},
+        )
 
         dense = DenseRetriever(self._embedding_provider, vector)
         retriever = FixedRetriever(
@@ -202,6 +261,7 @@ class OnlineRuntimeFactory:
                 "tool_count": len(registry.descriptors()),
                 "embedding_model": vector_manifest.model_name,
                 "reranker_model": self._reranker.model_name,
+                "latency_ms": (perf_counter() - startup_started) * 1000,
             },
         )
         return OnlineRuntime(

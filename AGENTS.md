@@ -1623,6 +1623,20 @@ Full-corpus validation đã được người dùng xác nhận `is_full_corpus 
 `is_valid = true`. Online/UI smoke trên artifact thật vẫn phải chạy lại sau
 memory-safe loader trước khi đánh dấu toàn bộ Milestone 17 Completed.
 
+Milestone 17.6 đã sửa:
+
+- BM25 full-corpus query dùng FTS5 `rank` và bounded corpus-aware term planning;
+- giữ số và legal semantic modifier, không aggressive stopword removal;
+- typed `online.bm25_runtime` bounds;
+- optional `validated_report` startup chỉ reuse deep validation khi exact
+  manifests và required checks khớp;
+- embedding dimension compatibility không load model weights;
+- startup stage latency logging;
+- reuse artifact `0.20.2`, không rebuild dataset/index/vector;
+- partial build `0.20.2` không resume bằng `0.20.3`; complete artifacts được
+  reuse mà không rebuild;
+- version `0.20.3`, không thêm dependency.
+
 ---
 
 ## 39. Final Instruction to Coding Agents

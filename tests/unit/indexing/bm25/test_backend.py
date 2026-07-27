@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from legal_agentic_rag.configuration import BM25IndexConfig
+from legal_agentic_rag.configuration import BM25IndexConfig, BM25RuntimeConfig
 from legal_agentic_rag.contracts import BM25Backend
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -61,7 +61,7 @@ def test_backend_builds_manifest_and_satisfies_protocol(
     assert isinstance(backend, BM25Backend)
     assert manifest.artifact_type == ArtifactType.BM25_INDEX
     assert manifest.backend == "sqlite_fts5"
-    assert manifest.code_version == "0.20.2"
+    assert manifest.code_version == "0.20.3"
     assert manifest.record_count == 3
     assert manifest.dataset_revision == "fixture-revision"
     assert manifest.metadata["analyzer_name"] == "unicode_word_casefold_v1"
@@ -155,6 +155,42 @@ def test_search_enforces_top_k_and_exact_filters(
 
     assert len(limited.hits) == 1
     assert [hit.chunk_id for hit in filtered.hits] == ["chunk-tax"]
+
+
+def test_search_statement_uses_fts5_rank_limit_optimization() -> None:
+    """FTS5 handles the bounded rank scan without a global secondary sort."""
+    sql, parameters = SQLiteFTS5BM25Backend._search_statement(
+        _query("nghỉ hằng năm", top_k=5),
+        '"nghỉ" OR "hằng" OR "năm"',
+    )
+
+    normalized_sql = " ".join(sql.split())
+    assert "rank AS bm25_rank" in normalized_sql
+    assert "ORDER BY rank ASC LIMIT ?" in normalized_sql
+    assert "bm25(bm25_documents)" not in normalized_sql
+    assert "chunk_id ASC" not in normalized_sql
+    assert parameters == ['"nghỉ" OR "hằng" OR "năm"', 5]
+
+
+def test_search_limits_high_frequency_query_terms_without_losing_target(
+    legal_chunks: list[LegalChunk],
+    chunk_manifest: ArtifactManifest,
+) -> None:
+    """A bounded corpus-aware plan still returns the discriminative legal hit."""
+    backend = SQLiteFTS5BM25Backend(
+        runtime_config=BM25RuntimeConfig(
+            max_query_terms=2,
+            max_document_frequency_ratio=0.5,
+        )
+    )
+    backend.build(legal_chunks, chunk_manifest)
+
+    response = backend.search(
+        _query("thời hạn nộp thuế người xử phạt giấy phép")
+    )
+
+    assert response.hits[0].chunk_id == "chunk-tax"
+    assert "bm25_query_terms_limited" in response.warnings
 
 
 def test_punctuation_only_query_returns_empty_response_with_warning(

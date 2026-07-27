@@ -66,14 +66,8 @@ class SentenceTransformerEmbeddingProvider:
 
     @property
     def dimension(self) -> int:
-        """Return the verified sentence embedding dimension."""
-        model = self._require_model()
-        dimension = model.get_embedding_dimension()
-        if dimension != self._config.expected_dimension:
-            raise BackendInitializationError(
-                "Embedding model dimension does not match configuration"
-            )
-        return dimension
+        """Return the pinned output dimension without loading model weights."""
+        return self._config.expected_dimension
 
     def embed_documents(
         self,
@@ -127,7 +121,16 @@ class SentenceTransformerEmbeddingProvider:
             try:
                 model = self._model_loader(self._config)
                 model.max_seq_length = self._config.max_sequence_length
+                if (
+                    model.get_embedding_dimension()
+                    != self._config.expected_dimension
+                ):
+                    raise BackendInitializationError(
+                        "Embedding model dimension does not match configuration"
+                    )
             except Exception as error:
+                if isinstance(error, BackendInitializationError):
+                    raise
                 raise BackendInitializationError(
                     "Embedding model could not be initialized"
                 ) from error

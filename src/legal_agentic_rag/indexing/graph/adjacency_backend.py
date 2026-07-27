@@ -43,9 +43,11 @@ class AdjacencyGraphBackend:
         self,
         config: GraphIndexConfig | None = None,
         *,
+        verify_integrity_on_load: bool = True,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or GraphIndexConfig()
+        self._verify_integrity_on_load = verify_integrity_on_load
         self._clock = clock or (lambda: datetime.now(UTC))
         self._document_ids: tuple[str, ...] = ()
         self._relationships: tuple[LegalRelationship, ...] = ()
@@ -214,12 +216,15 @@ class AdjacencyGraphBackend:
                 "Supplied graph manifest does not match persisted manifest"
             )
         self._validate_manifest(stored_manifest)
-        expected_checksum = stored_manifest.metadata.get("graph_sha256")
-        if (
-            not isinstance(expected_checksum, str)
-            or self._sha256_file(graph_path) != expected_checksum
-        ):
-            raise ArtifactCompatibilityError("Graph artifact checksum does not match")
+        if self._verify_integrity_on_load:
+            expected_checksum = stored_manifest.metadata.get("graph_sha256")
+            if (
+                not isinstance(expected_checksum, str)
+                or self._sha256_file(graph_path) != expected_checksum
+            ):
+                raise ArtifactCompatibilityError(
+                    "Graph artifact checksum does not match"
+                )
         try:
             payload = json.loads(graph_path.read_text(encoding="utf-8"))
             document_ids = tuple(payload["document_ids"])

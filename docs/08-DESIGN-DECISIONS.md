@@ -1100,3 +1100,34 @@ Version `0.20.2` áp dụng policy:
 
 Không thêm dependency, backend/model/dataset, cache phân tán hoặc business
 logic. Full-corpus online smoke vẫn phải chạy lại sau khi cài version này.
+
+---
+
+## D053 — Full-corpus BM25 Planning and Validated Fast Startup
+
+**Status:** Accepted
+
+Full-corpus measurement ghi nhận BM25-only query mất 279 giây và startup lặp lại
+nhiều checksum/integrity scan trên artifact set đã deep-validate. Version
+`0.20.3` áp dụng:
+
+- SQLite FTS5 top-k dùng hidden `rank` và không global secondary-sort theo
+  `chunk_id`;
+- corpus-aware query planner dùng temporary `fts5vocab`, ưu tiên term có
+  document frequency thấp, giữ số và legal semantic modifier, với typed bounds
+  tại `online.bm25_runtime`;
+- query planner không static/aggressive stopword removal và không thay đổi
+  analyzer hay BM25 artifact format;
+- startup `full` vẫn là mặc định và giữ deep integrity behavior;
+- startup `validated_report` chỉ bỏ corpus-sized scan sau khi exact online
+  manifests khớp một `BuildValidationReport` hợp lệ có đủ checksum, count,
+  SQLite integrity và vector-shape checks;
+- Sentence Transformer provider công bố configured dimension mà không load
+  weights; actual model dimension vẫn được kiểm tra khi model lazy-load;
+- startup log latency riêng cho manifest, BM25, vector, graph và tổng runtime;
+- partial offline build `0.20.2` không tự resume bằng `0.20.3` vì canonical
+  application config có thêm online runtime fields; complete artifacts vẫn được
+  load lại mà không rebuild.
+
+Không rebuild dataset, legal chunks, BM25 hoặc vector artifact; không thêm
+dependency hay backend mới.

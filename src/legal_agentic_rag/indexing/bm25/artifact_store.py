@@ -93,6 +93,7 @@ def load_sqlite_artifact(
     expected_artifact_version: str,
     expected_analyzer: str,
     expected_match_mode: str,
+    verify_integrity: bool = True,
 ) -> tuple[sqlite3.Connection, ArtifactManifest]:
     """Validate and open a persisted BM25 artifact in read-only mode."""
     source = source.resolve()
@@ -120,13 +121,19 @@ def load_sqlite_artifact(
         expected_analyzer=expected_analyzer,
         expected_match_mode=expected_match_mode,
     )
-    expected_checksum = stored_manifest.metadata.get("index_sha256")
-    try:
-        actual_checksum = _sha256_file(index_path)
-    except OSError as error:
-        raise ArtifactCompatibilityError("BM25 index cannot be read") from error
-    if not isinstance(expected_checksum, str) or actual_checksum != expected_checksum:
-        raise ArtifactCompatibilityError("BM25 index checksum does not match manifest")
+    if verify_integrity:
+        expected_checksum = stored_manifest.metadata.get("index_sha256")
+        try:
+            actual_checksum = _sha256_file(index_path)
+        except OSError as error:
+            raise ArtifactCompatibilityError("BM25 index cannot be read") from error
+        if (
+            not isinstance(expected_checksum, str)
+            or actual_checksum != expected_checksum
+        ):
+            raise ArtifactCompatibilityError(
+                "BM25 index checksum does not match manifest"
+            )
 
     try:
         connection = sqlite3.connect(
@@ -135,17 +142,26 @@ def load_sqlite_artifact(
             check_same_thread=False,
         )
         connection.row_factory = sqlite3.Row
+        connection.execute(
+            """
+            CREATE VIRTUAL TABLE temp.bm25_query_vocabulary
+            USING fts5vocab(main, bm25_documents, 'row')
+            """
+        )
         connection.execute("PRAGMA query_only = ON")
-        integrity = connection.execute("PRAGMA quick_check").fetchone()
-        if integrity is None or integrity[0] != "ok":
-            raise ArtifactCompatibilityError("BM25 SQLite integrity check failed")
-        row = connection.execute(
-            "SELECT COUNT(*) FROM bm25_documents"
-        ).fetchone()
-        if row is None or row[0] != stored_manifest.record_count:
-            raise ArtifactCompatibilityError(
-                "BM25 index record count does not match manifest"
-            )
+        if verify_integrity:
+            integrity = connection.execute("PRAGMA quick_check").fetchone()
+            if integrity is None or integrity[0] != "ok":
+                raise ArtifactCompatibilityError(
+                    "BM25 SQLite integrity check failed"
+                )
+            row = connection.execute(
+                "SELECT COUNT(*) FROM bm25_documents"
+            ).fetchone()
+            if row is None or row[0] != stored_manifest.record_count:
+                raise ArtifactCompatibilityError(
+                    "BM25 index record count does not match manifest"
+                )
     except ArtifactCompatibilityError:
         connection.close()
         raise

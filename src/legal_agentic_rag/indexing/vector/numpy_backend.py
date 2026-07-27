@@ -53,10 +53,12 @@ class NumpyVectorBackend:
         config: VectorIndexConfig | None = None,
         *,
         runtime_config: VectorRuntimeConfig | None = None,
+        verify_integrity_on_load: bool = True,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or VectorIndexConfig()
         self._runtime_config = runtime_config or VectorRuntimeConfig()
+        self._verify_integrity_on_load = verify_integrity_on_load
         self._clock = clock or (lambda: datetime.now(UTC))
         self._vectors: np.ndarray | None = None
         self._chunks: Sequence[LegalChunk] = []
@@ -319,6 +321,7 @@ class NumpyVectorBackend:
             checksum_progress_interval_bytes=(
                 self._runtime_config.checksum_progress_interval_bytes
             ),
+            verify_integrity=self._verify_integrity_on_load,
         )
         self._vectors = vectors
         self._chunks = chunks

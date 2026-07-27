@@ -88,6 +88,26 @@ top-k hits. Artifact vector `0.20.1` hiện có được dùng lại, không c�
 Tiến độ startup xuất hiện trong log; các giới hạn nằm ở
 `online.vector_runtime`.
 
+Từ phiên bản `0.20.3`, full-corpus BM25 dùng bounded corpus-aware query planning
+và FTS5 `rank`. Artifact đã có không cần rebuild. Sau khi
+`legal-rag-validate` trả `is_valid = true`, cấu hình sau cho phép server tái sử
+dụng validation report thay vì hash/integrity-scan lại hàng GB mỗi lần:
+
+```json
+{
+  "online": {
+    "startup_validation": {"mode": "validated_report"},
+    "bm25_runtime": {
+      "max_query_terms": 8,
+      "max_document_frequency_ratio": 0.25
+    }
+  }
+}
+```
+
+Model embedding chỉ lazy-load khi dense retrieval được gọi; BM25 startup không
+phải chờ tải model weights.
+
 Chạy benchmark có nhãn:
 
 ```powershell

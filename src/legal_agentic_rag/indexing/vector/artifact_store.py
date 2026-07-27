@@ -424,6 +424,7 @@ def load_vector_artifact(
     validation_batch_size: int,
     load_progress_interval_records: int,
     checksum_progress_interval_bytes: int,
+    verify_integrity: bool = True,
 ) -> tuple[np.ndarray, JsonlChunkStore, ArtifactManifest]:
     """Validate checksums and load an immutable, memory-mapped vector artifact."""
     source = source.resolve()
@@ -451,12 +452,13 @@ def load_vector_artifact(
         expected_distance_metric=expected_distance_metric,
         expected_dtype=expected_dtype,
     )
-    _validate_checksum(
-        vectors_path,
-        stored_manifest.metadata.get("vectors_sha256"),
-        "vector matrix",
-        progress_interval_bytes=checksum_progress_interval_bytes,
-    )
+    if verify_integrity:
+        _validate_checksum(
+            vectors_path,
+            stored_manifest.metadata.get("vectors_sha256"),
+            "vector matrix",
+            progress_interval_bytes=checksum_progress_interval_bytes,
+        )
     try:
         vectors = np.load(vectors_path, allow_pickle=False, mmap_mode="r")
     except (OSError, ValueError, ValidationError) as error:
@@ -483,12 +485,14 @@ def load_vector_artifact(
         expected_checksum=stored_manifest.metadata.get("chunks_sha256"),
         require_sorted_chunk_ids=chunk_order is None,
         progress_interval_records=load_progress_interval_records,
+        verify_integrity=verify_integrity,
     )
-    _validate_vector_rows(
-        vectors,
-        batch_size=validation_batch_size,
-        progress_interval_records=load_progress_interval_records,
-    )
+    if verify_integrity:
+        _validate_vector_rows(
+            vectors,
+            batch_size=validation_batch_size,
+            progress_interval_records=load_progress_interval_records,
+        )
     return vectors, chunks, stored_manifest
 
 

@@ -24,16 +24,19 @@ from legal_agentic_rag.configuration.offline import (
 )
 from legal_agentic_rag.configuration.online import (
     AgentConfig,
+    BM25RuntimeConfig,
     ContextGradingConfig,
     GenerationConfig,
     OnlineConfig,
     RerankerConfig,
     RetrievalConfig,
+    StartupValidationConfig,
     VectorRuntimeConfig,
 )
 
 __all__ = [
     "AgentConfig",
+    "BM25RuntimeConfig",
     "ApplicationConfig",
     "ArtifactConfig",
     "BM25IndexConfig",
@@ -56,6 +59,7 @@ __all__ = [
     "OnlineConfig",
     "RerankerConfig",
     "ServingConfig",
+    "StartupValidationConfig",
     "RelationshipNormalizationConfig",
     "RetrievalConfig",
     "VectorIndexConfig",

@@ -850,6 +850,22 @@ Full-corpus online smoke và UI smoke phải chạy lại trên artifact thật 
 
 ---
 
+### Milestone 17.6 Full-corpus Query and Startup Performance Hotfix
+
+- version `0.20.3` dùng FTS5 `rank` cùng bounded corpus-aware BM25 query planner;
+- typed BM25 runtime limit giữ số và semantic modifier pháp lý;
+- validated-report startup bỏ các checksum/integrity scan đã hoàn thành trước đó
+  nhưng vẫn fail closed khi report hoặc current manifest lệch;
+- embedding model không load chỉ để đọc configured dimension;
+- startup stage latency được log riêng;
+- artifact format hiện có được reuse, không preprocessing hoặc embedding lại;
+- không thêm dependency.
+
+Full-corpus latency và startup time phải được đo lại trên Colab artifact thật
+trước khi chốt performance target.
+
+---
+
 ## 20. Milestone 18 — Model-backed Answer Generator
 
 **Status:** Implementation complete; model benchmark pending GPU and labeled

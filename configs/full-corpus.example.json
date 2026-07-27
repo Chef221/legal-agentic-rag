@@ -26,7 +26,15 @@
       "relationship_type_mapping": {}
     }
   },
-  "online": {},
+  "online": {
+    "bm25_runtime": {
+      "max_query_terms": 8,
+      "max_document_frequency_ratio": 0.25
+    },
+    "startup_validation": {
+      "mode": "validated_report"
+    }
+  },
   "build_validation": {
     "require_pinned_dataset_revision": true,
     "require_full_corpus": true,

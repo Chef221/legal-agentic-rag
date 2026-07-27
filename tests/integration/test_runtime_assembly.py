@@ -20,6 +20,7 @@ from legal_agentic_rag.configuration import (
     OnlineConfig,
     RelationshipNormalizationConfig,
     RetrievalConfig,
+    StartupValidationConfig,
 )
 from legal_agentic_rag.contracts.dataset_source import DatasetComponent
 from legal_agentic_rag.exceptions import (
@@ -329,10 +330,90 @@ def test_online_runtime_rejects_tampered_chunk_payload(
         ).build()
 
 
-@pytest.mark.parametrize("previous_code_version", ["0.20.0", "0.20.1"])
+def test_validated_report_startup_reuses_prior_deep_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matching immutable report skips repeated corpus-sized integrity scans."""
+    config = _config(tmp_path / "artifacts")
+    provider = _FixtureEmbeddingProvider()
+    OfflineBuildRuntime(
+        config,
+        source=_FixtureSource(),
+        embedding_provider=provider,
+    ).build()
+    config.online.startup_validation = StartupValidationConfig(
+        mode="validated_report"
+    )
+
+    def unexpected_scan(*args: object, **kwargs: object) -> object:
+        raise AssertionError("deep integrity scan must not run")
+
+    monkeypatch.setattr(
+        "legal_agentic_rag.runtime.artifact_store._sha256_file",
+        unexpected_scan,
+    )
+    monkeypatch.setattr(
+        "legal_agentic_rag.indexing.bm25.artifact_store._sha256_file",
+        unexpected_scan,
+    )
+    monkeypatch.setattr(
+        "legal_agentic_rag.indexing.vector.artifact_store._validate_checksum",
+        unexpected_scan,
+    )
+    monkeypatch.setattr(
+        "legal_agentic_rag.indexing.vector.artifact_store._validate_vector_rows",
+        unexpected_scan,
+    )
+    monkeypatch.setattr(
+        "legal_agentic_rag.indexing.graph.adjacency_backend."
+        "AdjacencyGraphBackend._sha256_file",
+        unexpected_scan,
+    )
+
+    online = OnlineRuntimeFactory(
+        config,
+        embedding_provider=provider,
+        reranker=_FixtureReranker(),
+    ).build()
+
+    assert len(online.manifests) == 4
+
+
+def test_validated_report_startup_rejects_manifest_drift(
+    tmp_path: Path,
+) -> None:
+    """Fast startup fails closed when a current manifest differs from its report."""
+    config = _config(tmp_path / "artifacts")
+    provider = _FixtureEmbeddingProvider()
+    OfflineBuildRuntime(
+        config,
+        source=_FixtureSource(),
+        embedding_provider=provider,
+    ).build()
+    config.online.startup_validation = StartupValidationConfig(
+        mode="validated_report"
+    )
+    manifest_path = (
+        config.artifacts.directory("bm25_directory") / "manifest.json"
+    )
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    payload["warnings"] = ["manifest drift"]
+    manifest_path.write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ArtifactCompatibilityError, match="report"):
+        OnlineRuntimeFactory(
+            config,
+            embedding_provider=provider,
+            reranker=_FixtureReranker(),
+        ).build()
+
+
 def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     tmp_path: Path,
-    previous_code_version: str,
 ) -> None:
     """A failed late index stage resumes without rebuilding persisted stages."""
     config = _config(
@@ -398,14 +479,6 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
             embedding_provider=provider,
         ).build()
 
-    compatible_previous_version = {
-        **state_payload,
-        "code_version": previous_code_version,
-    }
-    state_path.write_text(
-        json.dumps(compatible_previous_version, ensure_ascii=False),
-        encoding="utf-8",
-    )
     resumed = OfflineBuildRuntime(
         config,
         source=_FixtureSource(),
@@ -413,7 +486,7 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     ).build()
 
     upgraded_state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert upgraded_state["code_version"] == "0.20.2"
+    assert upgraded_state["code_version"] == "0.20.3"
     assert resumed.validation_report.is_valid is True
     assert resumed.validation_report.is_full_corpus is True
     assert resumed.artifact_manifests["vector_index"].record_count == 2

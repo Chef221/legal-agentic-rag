@@ -100,6 +100,13 @@ văn bản, lĩnh vực và trạng thái hiệu lực. Hit trả `RetrievalHit`
 score, legal chunk metadata, artifact version và latency; backend không log
 toàn bộ nội dung query.
 
+Từ version `0.20.3`, SQLite backend dùng hidden FTS5 `rank` cho bounded top-k
+thay vì global secondary sort theo `bm25(...)` và `chunk_id`. Query planner tra
+document frequency bằng temporary `fts5vocab`, luôn giữ số và legal semantic
+modifier, rồi chọn tối đa `online.bm25_runtime.max_query_terms` term có độ phân
+biệt cao. Đây không phải static stopword removal; Unicode, số và phủ định vẫn
+được analyzer bảo toàn. Planner phát warning khi phải giới hạn query terms.
+
 ### 5.2 Dense Retrieval
 
 Luồng:
@@ -687,8 +694,8 @@ Cần đo:
 
 `OnlineRuntimeFactory` thực hiện startup theo thứ tự:
 
-1. load và checksum-validate legal-chunks manifest/payload;
-2. load BM25, vector và graph manifests;
+1. load legal-chunks, BM25, vector và graph manifests;
+2. chạy deep validation hoặc đối chiếu validated build report;
 3. kiểm tra cùng dataset/revision và source processing lineage;
 4. kiểm tra embedding provider/model/revision/version/dimension;
 5. load concrete reference backends;
@@ -698,6 +705,19 @@ Cần đo:
 
 Factory fail trước serving nếu artifact hoặc model identity không tương thích.
 Factory không download dataset, preprocess, build hoặc persist artifact.
+
+`online.startup_validation.mode` có hai policy:
+
+- `full` mặc định: checksum, SQLite integrity, record count và vector-value
+  validation được chạy lại;
+- `validated_report`: chỉ dùng khi artifact set immutable đã có
+  `build_validation.json` hợp lệ. Runtime bắt buộc đối chiếu exact current
+  manifests và required deep checks trong report trước khi bỏ các corpus-sized
+  integrity scans.
+
+Embedding provider công bố pinned dimension mà không load model weights.
+Concrete model chỉ lazy-load ở dense query đầu tiên. Startup log thời gian riêng
+cho manifest validation, BM25, vector, graph và tổng runtime.
 
 ---
 
