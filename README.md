@@ -81,6 +81,13 @@ Từ phiên bản `0.20.1`, vector build ghi checkpoint bền vững vào
 disconnect. Build state `0.20.0` được nâng có kiểm soát lên `0.20.1`; các
 transition code/config khác vẫn bị từ chối.
 
+Từ phiên bản `0.20.2`, online vector loader không còn giữ 1.278.201
+`LegalChunk` objects trong RAM. Loader giữ compact byte offsets/filter postings,
+validate vector và score exact cosine theo batch, rồi chỉ đọc full metadata cho
+top-k hits. Artifact vector `0.20.1` hiện có được dùng lại, không cần rebuild.
+Tiến độ startup xuất hiện trong log; các giới hạn nằm ở
+`online.vector_runtime`.
+
 Chạy benchmark có nhãn:
 
 ```powershell

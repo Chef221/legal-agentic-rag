@@ -10,11 +10,13 @@ from legal_agentic_rag.exceptions import (
     BackendInitializationError,
 )
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
+from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
 from legal_agentic_rag.schemas import (
     ArtifactManifest,
     ArtifactType,
     LegalChunk,
     RetrievalQuery,
+    RetrievalFilters,
     RetrievalStrategy,
 )
 
@@ -72,6 +74,35 @@ def test_persist_reload_returns_identical_dense_results(
     assert [(hit.chunk_id, hit.score, hit.metadata) for hit in before.hits] == [
         (hit.chunk_id, hit.score, hit.metadata) for hit in after.hits
     ]
+    assert isinstance(loaded._chunks, JsonlChunkStore)
+
+
+def test_reload_uses_disk_backed_metadata_for_unified_filters(
+    tmp_path: Path,
+    vector_chunks: list[LegalChunk],
+    vectors: list[list[float]],
+    vector_source_manifest: ArtifactManifest,
+) -> None:
+    """A loaded index filters through compact postings and parses only final hits."""
+    built = NumpyVectorBackend()
+    _build(built, vector_chunks, vectors, vector_source_manifest)
+    destination = tmp_path / "vector-filtered"
+    manifest = built.persist(destination)
+    loaded = NumpyVectorBackend()
+    loaded.load(destination, manifest)
+
+    query = _query().model_copy(
+        update={
+            "filters": RetrievalFilters(
+                legal_fields=["Thuáº¿"],
+                effect_statuses=["Háº¿t hiá»‡u lá»±c"],
+            )
+        }
+    )
+    query.filters = RetrievalFilters(document_ids=["doc-tax"])
+    response = loaded.search(query, [0.0, 1.0])
+
+    assert [hit.chunk_id for hit in response.hits] == ["chunk-tax"]
 
 
 def test_persist_refuses_overwrite_and_load_rejects_incompatibility(

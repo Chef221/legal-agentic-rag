@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from heapq import nsmallest
 import logging
 from pathlib import Path
 from time import perf_counter
@@ -14,6 +15,7 @@ import numpy as np
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.offline import VectorIndexConfig
+from legal_agentic_rag.configuration.online import VectorRuntimeConfig
 from legal_agentic_rag.contracts.vector_backend import VectorBuildBatchFactory
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -26,6 +28,7 @@ from legal_agentic_rag.indexing.vector.artifact_store import (
     persist_vector_batches,
     persist_vector_artifact,
 )
+from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
@@ -49,12 +52,14 @@ class NumpyVectorBackend:
         self,
         config: VectorIndexConfig | None = None,
         *,
+        runtime_config: VectorRuntimeConfig | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or VectorIndexConfig()
+        self._runtime_config = runtime_config or VectorRuntimeConfig()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._vectors: np.ndarray | None = None
-        self._chunks: list[LegalChunk] = []
+        self._chunks: Sequence[LegalChunk] = []
         self._manifest: ArtifactManifest | None = None
 
     @property
@@ -174,21 +179,39 @@ class NumpyVectorBackend:
             raise RetrievalError("Dense query vector must not be zero")
         vector = vector / norm
         candidate_indexes = self._filtered_indexes(query)
+        candidate_count = (
+            len(self._chunks)
+            if candidate_indexes is None
+            else int(candidate_indexes.size)
+        )
         hits: list[RetrievalHit] = []
         warnings: list[str] = []
-        if candidate_indexes.size:
-            scores = np.asarray(vectors[candidate_indexes] @ vector, dtype=np.float32)
-            chunk_ids = np.asarray(
-                [self._chunks[index].chunk_id for index in candidate_indexes]
+        if candidate_count:
+            scores = self._score_candidates(
+                vectors,
+                vector,
+                candidate_indexes,
             )
-            ranked_offsets = np.lexsort((chunk_ids, -scores))[: query.top_k]
+            ranked_offsets = self._ranked_offsets(
+                scores,
+                candidate_indexes,
+                query.top_k,
+            )
+            ranked_indexes = [
+                self._row_index(candidate_indexes, offset)
+                for offset in ranked_offsets
+            ]
+            ranked_chunks = self._chunks_at(ranked_indexes)
             hits = [
                 self._retrieval_hit(
-                    self._chunks[int(candidate_indexes[offset])],
+                    chunk,
                     rank,
                     float(scores[offset]),
                 )
-                for rank, offset in enumerate(ranked_offsets, start=1)
+                for rank, (offset, chunk) in enumerate(
+                    zip(ranked_offsets, ranked_chunks, strict=True),
+                    start=1,
+                )
             ]
         else:
             warnings.append("no_dense_matches")
@@ -198,7 +221,8 @@ class NumpyVectorBackend:
             extra={
                 "query_id": query.query_id,
                 "strategy": RetrievalStrategy.DENSE.value,
-                "candidate_count": len(hits),
+                "candidate_count": candidate_count,
+                "hit_count": len(hits),
                 "latency_ms": latency_ms,
             },
         )
@@ -288,6 +312,13 @@ class NumpyVectorBackend:
             expected_artifact_version=self._config.artifact_version,
             expected_distance_metric=self._config.distance_metric,
             expected_dtype=self._config.dtype,
+            validation_batch_size=self._runtime_config.validation_batch_size,
+            load_progress_interval_records=(
+                self._runtime_config.load_progress_interval_records
+            ),
+            checksum_progress_interval_bytes=(
+                self._runtime_config.checksum_progress_interval_bytes
+            ),
         )
         self._vectors = vectors
         self._chunks = chunks
@@ -302,8 +333,22 @@ class NumpyVectorBackend:
             },
         )
 
-    def _filtered_indexes(self, query: RetrievalQuery) -> np.ndarray:
+    def _filtered_indexes(
+        self,
+        query: RetrievalQuery,
+    ) -> np.ndarray | None:
         filters = query.filters
+        if isinstance(self._chunks, JsonlChunkStore):
+            return self._chunks.filtered_indexes(filters)
+        if not any(
+            (
+                filters.document_ids,
+                filters.document_types,
+                filters.legal_fields,
+                filters.effect_statuses,
+            )
+        ):
+            return None
         indexes = [
             index
             for index, chunk in enumerate(self._chunks)
@@ -319,6 +364,92 @@ class NumpyVectorBackend:
             )
         ]
         return np.asarray(indexes, dtype=np.int64)
+
+    def _score_candidates(
+        self,
+        vectors: np.ndarray,
+        query_vector: np.ndarray,
+        candidate_indexes: np.ndarray | None,
+    ) -> np.ndarray:
+        """Score exact cosine candidates without a corpus-sized matrix copy."""
+        candidate_count = (
+            len(self._chunks)
+            if candidate_indexes is None
+            else int(candidate_indexes.size)
+        )
+        scores = np.empty(candidate_count, dtype=np.float32)
+        batch_size = self._runtime_config.search_batch_size
+        for start in range(0, candidate_count, batch_size):
+            end = min(start + batch_size, candidate_count)
+            if candidate_indexes is None:
+                matrix = vectors[start:end]
+            else:
+                matrix = vectors[candidate_indexes[start:end]]
+            scores[start:end] = np.asarray(
+                matrix @ query_vector,
+                dtype=np.float32,
+            )
+        return scores
+
+    def _ranked_offsets(
+        self,
+        scores: np.ndarray,
+        candidate_indexes: np.ndarray | None,
+        top_k: int,
+    ) -> list[int]:
+        """Select exact top-k and resolve score ties by stable chunk ID."""
+        limit = min(top_k, int(scores.size))
+        if limit == scores.size:
+            selected = list(range(int(scores.size)))
+        else:
+            threshold_index = int(scores.size) - limit
+            threshold = float(
+                np.partition(scores, threshold_index)[threshold_index]
+            )
+            selected = [
+                int(offset)
+                for offset in np.flatnonzero(scores > threshold)
+            ]
+            remaining = limit - len(selected)
+            tied_offsets = (
+                int(offset)
+                for offset in np.flatnonzero(scores == threshold)
+            )
+            selected.extend(
+                nsmallest(
+                    remaining,
+                    tied_offsets,
+                    key=lambda offset: self._chunk_id(
+                        self._row_index(candidate_indexes, offset)
+                    ),
+                )
+            )
+        selected.sort(
+            key=lambda offset: (
+                -float(scores[offset]),
+                self._chunk_id(self._row_index(candidate_indexes, offset)),
+            )
+        )
+        return selected
+
+    @staticmethod
+    def _row_index(
+        candidate_indexes: np.ndarray | None,
+        offset: int,
+    ) -> int:
+        if candidate_indexes is None:
+            return int(offset)
+        return int(candidate_indexes[offset])
+
+    def _chunk_id(self, index: int) -> str:
+        if isinstance(self._chunks, JsonlChunkStore):
+            return self._chunks.chunk_id(index)
+        return self._chunks[index].chunk_id
+
+    def _chunks_at(self, indexes: Sequence[int]) -> list[LegalChunk]:
+        if isinstance(self._chunks, JsonlChunkStore):
+            return self._chunks.get_many(indexes)
+        return [self._chunks[index] for index in indexes]
 
     @staticmethod
     def _retrieval_hit(

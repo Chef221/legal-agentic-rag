@@ -747,3 +747,30 @@ Labeled EvaluationCase JSONL
 Evaluation không thay đổi online artifacts. Retrieval metric có thể dùng nhãn
 chunk hoặc document; generation metric thiếu label được giữ là unavailable,
 không tự gán bằng 0.
+
+---
+
+## 21. Memory-bounded Full-corpus Vector Load
+
+Online NumPy backend không được materialize toàn bộ `chunks.jsonl` thành
+`LegalChunk` objects. Startup thực hiện:
+
+1. checksum vector payload có progress;
+2. memory-map `vectors.npy`;
+3. scan và validate từng JSONL record, chỉ giữ byte offset, chunk ID và compact
+   postings cho `document_id`, `document_type`, `legal_field`, `effect_status`;
+4. kiểm tra finite và unit norm theo batch;
+5. log tiến độ mà không log legal content.
+
+Dense query tính exact cosine theo batch. Query không filter không tạo advanced
+index copy của toàn ma trận; query có filter chỉ copy từng bounded batch.
+Backend chỉ đọc và Pydantic-validate full metadata cho top-k hit cuối cùng.
+Artifact format, score, filter semantics và deterministic chunk-ID tie-break
+không thay đổi.
+
+Các giới hạn execution nằm tại `online.vector_runtime`:
+
+- `validation_batch_size`;
+- `search_batch_size`;
+- `load_progress_interval_records`;
+- `checksum_progress_interval_bytes`.

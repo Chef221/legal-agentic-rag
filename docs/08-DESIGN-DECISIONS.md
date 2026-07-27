@@ -1068,3 +1068,35 @@ Version `0.20.1` áp dụng policy:
 
 Không thêm dependency, không đổi embedding model, vector format online,
 retrieval score hoặc corpus.
+
+---
+
+## D052 — Memory-bounded Online Vector Loading
+
+**Status:** Accepted
+
+Full-corpus serving trên Colab 12 GiB đã đo được process bị OOM-kill (`-9`) sau
+khi BM25 load xong. Nguyên nhân là online NumPy backend materialize 1.278.201
+`LegalChunk` Pydantic objects, đồng thời validation/search có thể tạo bản sao
+ma trận ở kích thước corpus.
+
+Version `0.20.2` áp dụng policy:
+
+- giữ nguyên artifact `vectors.npy` + `chunks.jsonl` + `manifest.json`; không
+  rebuild hoặc migrate vector artifact đã validation thành công;
+- scan `chunks.jsonl` một record mỗi lần, validate schema/checksum/count/order,
+  rồi chỉ giữ byte offsets, chunk IDs và compact postings cho unified filters;
+- chỉ parse full `LegalChunk` cho các hit cuối cùng được trả về;
+- kiểm tra finite/unit-norm của vector theo configurable batch;
+- exact cosine scoring theo configurable batch, không advanced-index toàn ma
+  trận;
+- exact top-k và tie-break theo `chunk_id` giữ nguyên;
+- startup log checksum, metadata-scan và vector-validation progress nhưng không
+  log legal content;
+- execution bounds nằm trong `online.vector_runtime`, không tham gia artifact
+  processing hash;
+- build state `0.20.0` hoặc `0.20.1` được phép nâng lên `0.20.2` vì thay đổi này
+  không đổi offline output, config hash, model identity hoặc artifact lineage.
+
+Không thêm dependency, backend/model/dataset, cache phân tán hoặc business
+logic. Full-corpus online smoke vẫn phải chạy lại sau khi cài version này.

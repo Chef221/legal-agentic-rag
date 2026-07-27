@@ -29,6 +29,7 @@ from legal_agentic_rag.configuration.online import (
     OnlineConfig,
     RerankerConfig,
     RetrievalConfig,
+    VectorRuntimeConfig,
 )
 
 __all__ = [
@@ -58,4 +59,5 @@ __all__ = [
     "RelationshipNormalizationConfig",
     "RetrievalConfig",
     "VectorIndexConfig",
+    "VectorRuntimeConfig",
 ]

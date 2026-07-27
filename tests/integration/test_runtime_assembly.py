@@ -329,8 +329,10 @@ def test_online_runtime_rejects_tampered_chunk_payload(
         ).build()
 
 
+@pytest.mark.parametrize("previous_code_version", ["0.20.0", "0.20.1"])
 def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     tmp_path: Path,
+    previous_code_version: str,
 ) -> None:
     """A failed late index stage resumes without rebuilding persisted stages."""
     config = _config(
@@ -398,7 +400,7 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
 
     compatible_previous_version = {
         **state_payload,
-        "code_version": "0.20.0",
+        "code_version": previous_code_version,
     }
     state_path.write_text(
         json.dumps(compatible_previous_version, ensure_ascii=False),
@@ -411,7 +413,7 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     ).build()
 
     upgraded_state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert upgraded_state["code_version"] == "0.20.1"
+    assert upgraded_state["code_version"] == "0.20.2"
     assert resumed.validation_report.is_valid is True
     assert resumed.validation_report.is_full_corpus is True
     assert resumed.artifact_manifests["vector_index"].record_count == 2

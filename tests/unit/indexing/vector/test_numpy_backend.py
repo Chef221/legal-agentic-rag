@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from legal_agentic_rag.configuration import VectorRuntimeConfig
 from legal_agentic_rag.contracts import VectorBackend
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
@@ -170,6 +171,25 @@ def test_build_and_tie_order_are_deterministic(
         "chunk-license",
         "chunk-speed",
         "chunk-tax",
+    ]
+
+
+def test_search_batches_exact_scoring_without_changing_ranking(
+    vector_chunks: list[LegalChunk],
+    vectors: list[list[float]],
+    vector_source_manifest: ArtifactManifest,
+) -> None:
+    """One-row scoring batches preserve exact score and chunk-ID tie ordering."""
+    backend = NumpyVectorBackend(
+        runtime_config=VectorRuntimeConfig(search_batch_size=1)
+    )
+    _build(backend, vector_chunks, vectors, vector_source_manifest)
+
+    response = backend.search(_query(top_k=2), [1.0, 0.0])
+
+    assert [hit.chunk_id for hit in response.hits] == [
+        "chunk-speed",
+        "chunk-license",
     ]
 
 

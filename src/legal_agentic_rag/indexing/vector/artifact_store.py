@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
@@ -20,6 +21,7 @@ from legal_agentic_rag.exceptions import (
     BackendInitializationError,
     DataValidationError,
 )
+from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
 from legal_agentic_rag.schemas.build_validation import VectorBuildCheckpoint
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
@@ -346,7 +348,7 @@ def _write_json_atomic(path: Path, payload: object) -> None:
 def persist_vector_artifact(
     *,
     vectors: np.ndarray,
-    chunks: list[LegalChunk],
+    chunks: Sequence[LegalChunk],
     destination: Path,
     manifest: ArtifactManifest,
 ) -> ArtifactManifest:
@@ -419,7 +421,10 @@ def load_vector_artifact(
     expected_artifact_version: str,
     expected_distance_metric: str,
     expected_dtype: str,
-) -> tuple[np.ndarray, list[LegalChunk], ArtifactManifest]:
+    validation_batch_size: int,
+    load_progress_interval_records: int,
+    checksum_progress_interval_bytes: int,
+) -> tuple[np.ndarray, JsonlChunkStore, ArtifactManifest]:
     """Validate checksums and load an immutable, memory-mapped vector artifact."""
     source = source.resolve()
     if not source.is_dir():
@@ -450,15 +455,10 @@ def load_vector_artifact(
         vectors_path,
         stored_manifest.metadata.get("vectors_sha256"),
         "vector matrix",
-    )
-    _validate_checksum(
-        chunks_path,
-        stored_manifest.metadata.get("chunks_sha256"),
-        "chunk metadata",
+        progress_interval_bytes=checksum_progress_interval_bytes,
     )
     try:
         vectors = np.load(vectors_path, allow_pickle=False, mmap_mode="r")
-        chunks = _load_chunks(chunks_path)
     except (OSError, ValueError, ValidationError) as error:
         raise ArtifactCompatibilityError("Vector artifact payload is invalid") from error
     dimension = stored_manifest.metadata.get("dimension")
@@ -470,25 +470,25 @@ def load_vector_artifact(
         or embedding_batch_size <= 0
         or vectors.dtype != np.float32
         or vectors.shape != (stored_manifest.record_count, dimension)
-        or len(chunks) != stored_manifest.record_count
     ):
         raise ArtifactCompatibilityError(
             "Vector artifact shape or record count is incompatible"
         )
-    chunk_ids = [chunk.chunk_id for chunk in chunks]
-    if len(chunk_ids) != len(set(chunk_ids)):
-        raise ArtifactCompatibilityError("Vector artifact contains duplicate chunk IDs")
     chunk_order = stored_manifest.metadata.get("chunk_order")
     if chunk_order not in (None, "source_artifact_order"):
         raise ArtifactCompatibilityError("Vector artifact chunk order is incompatible")
-    if chunk_order is None and chunk_ids != sorted(chunk_ids):
-        raise ArtifactCompatibilityError("Vector artifact chunk order is incompatible")
-    if vectors.size:
-        if not np.isfinite(vectors).all():
-            raise ArtifactCompatibilityError("Vector artifact contains non-finite values")
-        norms = np.linalg.norm(vectors, axis=1)
-        if not np.allclose(norms, 1.0, rtol=1e-5, atol=1e-6):
-            raise ArtifactCompatibilityError("Vector artifact is not normalized")
+    chunks = JsonlChunkStore.load(
+        chunks_path,
+        expected_count=stored_manifest.record_count,
+        expected_checksum=stored_manifest.metadata.get("chunks_sha256"),
+        require_sorted_chunk_ids=chunk_order is None,
+        progress_interval_records=load_progress_interval_records,
+    )
+    _validate_vector_rows(
+        vectors,
+        batch_size=validation_batch_size,
+        progress_interval_records=load_progress_interval_records,
+    )
     return vectors, chunks, stored_manifest
 
 
@@ -527,28 +527,89 @@ def _validate_manifest(
             )
 
 
-def _load_chunks(path: Path) -> list[LegalChunk]:
-    chunks: list[LegalChunk] = []
-    with path.open("r", encoding="utf-8") as stream:
-        for line in stream:
-            if not line.strip():
-                raise ValueError("blank chunk record")
-            chunks.append(LegalChunk.model_validate_json(line))
-    return chunks
-
-
-def _validate_checksum(path: Path, expected: object, label: str) -> None:
+def _validate_checksum(
+    path: Path,
+    expected: object,
+    label: str,
+    *,
+    progress_interval_bytes: int,
+) -> None:
     try:
-        actual = _sha256_file(path)
+        actual = _sha256_file(
+            path,
+            progress_interval_bytes=progress_interval_bytes,
+            progress_label=label,
+        )
     except OSError as error:
         raise ArtifactCompatibilityError(f"Vector {label} cannot be read") from error
     if not isinstance(expected, str) or actual != expected:
         raise ArtifactCompatibilityError(f"Vector {label} checksum mismatch")
 
 
-def _sha256_file(path: Path) -> str:
+def _sha256_file(
+    path: Path,
+    *,
+    progress_interval_bytes: int | None = None,
+    progress_label: str | None = None,
+) -> str:
     digest = sha256()
+    processed_bytes = 0
+    next_progress = progress_interval_bytes
+    total_bytes = path.stat().st_size
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
+            processed_bytes += len(chunk)
+            if next_progress is not None and processed_bytes >= next_progress:
+                _LOGGER.info(
+                    "vector_artifact_checksum_progress",
+                    extra={
+                        "artifact_component": progress_label,
+                        "processed_bytes": processed_bytes,
+                        "total_bytes": total_bytes,
+                    },
+                )
+                while processed_bytes >= next_progress:
+                    next_progress += progress_interval_bytes
     return digest.hexdigest()
+
+
+def _validate_vector_rows(
+    vectors: np.ndarray,
+    *,
+    batch_size: int,
+    progress_interval_records: int,
+) -> None:
+    """Validate finite normalized rows without allocating a corpus-sized copy."""
+    total = int(vectors.shape[0])
+    next_progress = progress_interval_records
+    _LOGGER.info(
+        "vector_matrix_validation_started",
+        extra={"total_chunk_count": total},
+    )
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        batch = np.asarray(vectors[start:end], dtype=np.float32)
+        if not np.isfinite(batch).all():
+            raise ArtifactCompatibilityError(
+                "Vector artifact contains non-finite values"
+            )
+        norms = np.linalg.norm(batch, axis=1)
+        if not np.allclose(norms, 1.0, rtol=1e-5, atol=1e-6):
+            raise ArtifactCompatibilityError(
+                "Vector artifact is not normalized"
+            )
+        if end >= next_progress:
+            _LOGGER.info(
+                "vector_matrix_validation_progress",
+                extra={
+                    "chunk_count": end,
+                    "total_chunk_count": total,
+                },
+            )
+            while end >= next_progress:
+                next_progress += progress_interval_records
+    _LOGGER.info(
+        "vector_matrix_validation_completed",
+        extra={"chunk_count": total, "total_chunk_count": total},
+    )

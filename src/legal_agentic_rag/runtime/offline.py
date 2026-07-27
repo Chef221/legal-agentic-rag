@@ -77,7 +77,10 @@ from legal_agentic_rag.runtime.build_validation import (
 
 _LOGGER = logging.getLogger(__name__)
 _BUILD_STATE_FILENAME = "build_state.json"
-_COMPATIBLE_RESUME_UPGRADES = {("0.20.0", "0.20.1")}
+_COMPATIBLE_RESUME_UPGRADES = {
+    ("0.20.0", "0.20.2"),
+    ("0.20.1", "0.20.2"),
+}
 
 
 class OfflineBuildRuntime:

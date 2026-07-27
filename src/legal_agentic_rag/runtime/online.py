@@ -150,7 +150,10 @@ class OnlineRuntimeFactory:
 
         bm25 = SQLiteFTS5BM25Backend(self._config.offline.bm25)
         bm25.load(self._directory("bm25_directory"), bm25_manifest)
-        vector = NumpyVectorBackend(self._config.offline.vector_index)
+        vector = NumpyVectorBackend(
+            self._config.offline.vector_index,
+            runtime_config=self._config.online.vector_runtime,
+        )
         vector.load(self._directory("vector_directory"), vector_manifest)
         graph = AdjacencyGraphBackend(self._config.offline.graph_index)
         graph.load(self._directory("graph_directory"), graph_manifest)

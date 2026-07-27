@@ -1607,6 +1607,24 @@ Future — Competition Adaptation
 
 ---
 
+Milestone 17.5 đã sửa:
+
+- online vector `chunks.jsonl` dùng disk-backed byte-offset store thay vì
+  materialize toàn bộ corpus thành Pydantic objects;
+- compact postings cho unified filters;
+- bounded vector validation và exact cosine scoring batches;
+- chỉ materialize final top-k chunks;
+- startup progress logging không chứa legal content;
+- giữ nguyên vector artifact format và retrieval semantics;
+- build state `0.20.0`/`0.20.1` được nâng có kiểm soát lên `0.20.2`;
+- version `0.20.2`, không thêm dependency.
+
+Full-corpus validation đã được người dùng xác nhận `is_full_corpus = true` và
+`is_valid = true`. Online/UI smoke trên artifact thật vẫn phải chạy lại sau
+memory-safe loader trước khi đánh dấu toàn bộ Milestone 17 Completed.
+
+---
+
 ## 39. Final Instruction to Coding Agents
 
 Khi không chắc chắn:

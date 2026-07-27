@@ -844,6 +844,11 @@ mới; không sửa tay `build_state.json`.
 
 ### 17.3 Resumable Vector Batches
 
+Compatibility note: version `0.20.2` only changes online vector loading/search,
+not offline output, canonical config hash, or artifact lineage. Partial build
+state schema `1.1` from `0.20.0` or `0.20.1` may therefore be upgraded directly
+to `0.20.2`; all other version/config transitions remain fail closed.
+
 Từ version `0.20.1`, vector build dùng workspace bền vững
 `.vector.partial` trong artifact root thay vì thư mục staging ngẫu nhiên:
 

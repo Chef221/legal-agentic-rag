@@ -829,6 +829,27 @@ online smoke test load được artifact set.
 
 ---
 
+### Milestone 17.5 Memory-bounded Online Vector Loader
+
+- full-corpus validation đã hoàn thành với 1.278.201 chunks và vector shape
+  `(1_278_201, 384)`;
+- Colab 12 GiB đo được online server OOM-kill (`-9`) do materialize toàn bộ
+  vector `chunks.jsonl` thành Pydantic objects;
+- version `0.20.2` dùng validated disk-backed JSONL chunk store với byte offsets;
+- compact inverted postings hỗ trợ đúng unified filters mà không giữ full chunk;
+- vector validation và exact cosine scoring chạy theo configurable batches;
+- top-k chỉ materialize final chunks và giữ deterministic chunk-ID tie-break;
+- checksum/metadata/vector validation có progress logs;
+- artifact format hiện có được reuse, không rebuild vector;
+- build state `0.20.0`/`0.20.1` được nâng có kiểm soát lên `0.20.2`;
+- unit/integration regression tests không dùng full corpus hoặc network;
+- không thêm dependency.
+
+Full-corpus online smoke và UI smoke phải chạy lại trên artifact thật trước khi
+đánh dấu toàn bộ Milestone 17 Completed.
+
+---
+
 ## 20. Milestone 18 — Model-backed Answer Generator
 
 **Status:** Implementation complete; model benchmark pending GPU and labeled

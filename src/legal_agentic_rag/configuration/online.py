@@ -51,6 +51,20 @@ class RetrievalConfig(BaseModel):
         return self
 
 
+class VectorRuntimeConfig(BaseModel):
+    """Memory bounds and progress cadence for online vector loading/search."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    validation_batch_size: int = Field(default=8_192, gt=0)
+    search_batch_size: int = Field(default=32_768, gt=0)
+    load_progress_interval_records: int = Field(default=100_000, gt=0)
+    checksum_progress_interval_bytes: int = Field(
+        default=256 * 1024 * 1024,
+        gt=0,
+    )
+
+
 class RerankerConfig(BaseModel):
     """Pinned multilingual cross-encoder and bounded inference policy."""
 
@@ -204,6 +218,9 @@ class OnlineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
+    vector_runtime: VectorRuntimeConfig = Field(
+        default_factory=VectorRuntimeConfig
+    )
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)
     context_grading: ContextGradingConfig = Field(

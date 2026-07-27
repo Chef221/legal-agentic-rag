@@ -25,6 +25,7 @@ from legal_agentic_rag.configuration import (
     RelationshipNormalizationConfig,
     RerankerConfig,
     VectorIndexConfig,
+    VectorRuntimeConfig,
 )
 from legal_agentic_rag.schemas import RetrievalStrategy
 
@@ -75,6 +76,22 @@ def test_retrieval_config_validates_candidate_and_graph_limits() -> None:
         RetrievalConfig(graph_seed_document_k=101)
     with pytest.raises(ValidationError):
         RetrievalConfig(default_strategy="rerank")
+
+
+def test_vector_runtime_config_bounds_online_load_and_search_batches() -> None:
+    """Online dense execution is explicitly bounded without changing artifacts."""
+    config = VectorRuntimeConfig()
+
+    assert config.validation_batch_size == 8_192
+    assert config.search_batch_size == 32_768
+    assert config.load_progress_interval_records == 100_000
+    assert config.checksum_progress_interval_bytes == 256 * 1024 * 1024
+    with pytest.raises(ValidationError):
+        VectorRuntimeConfig(validation_batch_size=0)
+    with pytest.raises(ValidationError):
+        VectorRuntimeConfig(search_batch_size=0)
+    with pytest.raises(ValidationError):
+        VectorRuntimeConfig(load_progress_interval_records=0)
 
 
 def test_relationship_and_graph_index_configuration_is_explicit() -> None:
