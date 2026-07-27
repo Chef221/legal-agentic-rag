@@ -182,6 +182,13 @@ inline, hệ thống hiển thị deterministic các marker đã kiểm tra ở 
 Combined form như `[E1, E2]` cũng được nhận diện. Hệ thống không tự suy ra hoặc
 tạo evidence ID mới.
 
+Từ version `0.20.11`, cross-encoder mặc định dùng `input_mode =
+"legal_context"`: tên, số, loại văn bản, cơ quan ban hành, lĩnh vực, metadata
+hiệu lực và cấu trúc Điều được đặt trước chunk text. Nhờ vậy reranker có thể
+phân biệt quy định tổng quát với văn bản chỉ áp dụng cho một nhóm đối tượng.
+`text_only` vẫn có thể chọn bằng config để A/B benchmark; artifact hiện có
+không cần rebuild.
+
 Chạy benchmark có nhãn:
 
 ```powershell

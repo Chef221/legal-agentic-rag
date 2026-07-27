@@ -975,6 +975,19 @@ attempt dù structured list hợp lệ. Version `0.20.10` nhận combined bracke
 và render declared allowlisted IDs thành visible markers khi answer thiếu
 marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
 
+### Milestone 18.1 — Legal-context Cross-encoder Input
+
+- measured failure: answer đúng nhưng top citation thuộc văn bản chuyên biệt về
+  người giúp việc gia đình;
+- root cause: sparse/dense index dùng title-aware `search_text`, còn
+  cross-encoder chỉ nhận chunk body nên mất document scope;
+- version `0.20.11` thêm legal-context input từ named unified metadata;
+- configurable `legal_context|text_only` để benchmark, mặc định legal context;
+- không cộng heuristic score, không đổi public hit schema và không rebuild
+  BM25/vector artifacts;
+- unit/integration tests kiểm tra metadata selection, raw-field isolation,
+  text-only comparison và payload/trace preservation.
+
 ---
 
 ## 21. Future — Competition Adaptation

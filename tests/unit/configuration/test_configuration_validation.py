@@ -221,6 +221,9 @@ def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:
     assert config.batch_size == 8
     assert config.max_length == 512
     assert config.max_candidates == 100
+    assert config.input_mode == "legal_context"
+    with pytest.raises(ValidationError):
+        RerankerConfig(input_mode="unknown")
     with pytest.raises(ValidationError):
         RerankerConfig(model_revision="")
     with pytest.raises(ValidationError):

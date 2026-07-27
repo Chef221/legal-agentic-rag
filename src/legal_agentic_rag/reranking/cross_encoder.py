@@ -16,6 +16,9 @@ from legal_agentic_rag.exceptions import (
     ModelError,
     RetrievalError,
 )
+from legal_agentic_rag.reranking.legal_context import (
+    build_legal_rerank_text,
+)
 from legal_agentic_rag.schemas.retrieval import (
     RetrievalHit,
     RetrievalQuery,
@@ -91,7 +94,10 @@ class CrossEncoderReranker:
                 warnings=["no_rerank_candidates"],
             )
         question = query.rewritten_question or query.normalized_question
-        pairs = [(question, hit.text) for hit in values]
+        pairs = [
+            (question, self._candidate_text(hit))
+            for hit in values
+        ]
         scores = self._predict(pairs)
         order = sorted(
             range(len(values)),
@@ -114,6 +120,7 @@ class CrossEncoderReranker:
                 "candidate_count": len(values),
                 "selected_count": len(hits),
                 "model_name": self.model_name,
+                "reranker_input_mode": self._config.input_mode,
                 "latency_ms": latency_ms,
             },
         )
@@ -201,6 +208,11 @@ class CrossEncoderReranker:
     def _identity(value: object) -> object:
         """Keep raw logits rather than applying an output activation."""
         return value
+
+    def _candidate_text(self, hit: RetrievalHit) -> str:
+        if self._config.input_mode == "text_only":
+            return hit.text
+        return build_legal_rerank_text(hit)
 
     @staticmethod
     def _load_cross_encoder(config: RerankerConfig) -> _CrossEncoderModel:

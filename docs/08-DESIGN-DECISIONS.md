@@ -1317,3 +1317,34 @@ attempt dù JSON draft và declared citation list đã hợp lệ. Version `0.20
 
 Đây là bước presentation normalization cho citation IDs đã được model declare
 và hệ thống xác minh, không phải semantic verification của từng claim.
+
+---
+
+## D061 — Cross-encoder Must See Unified Legal Scope Metadata
+
+**Status:** Accepted
+
+Full-corpus answer smoke testing returned the correct “12 ngày” conclusion,
+but the highest-ranked citation came from Article 23 of a document whose scope
+was limited to domestic workers. BM25 and dense retrieval use title-aware
+`search_text`, while the cross-encoder previously received only the chunk body.
+The reranker therefore could not reliably distinguish a generally applicable
+provision from a provision with a narrower document scope.
+
+Starting with version `0.20.11`:
+
+- the default cross-encoder input mode is `legal_context`;
+- the candidate text places named unified metadata before the legal body;
+- eligible metadata includes document title, number, type, issuing authority,
+  legal field, effect metadata, and legal structure;
+- raw dataset fields, arbitrary metadata, and source URLs are excluded;
+- `text_only` remains available for controlled A/B comparison;
+- the raw cross-encoder score remains the final reranking score;
+- no heuristic boost or penalty is added;
+- retrieval-hit identity, trace provenance, and artifact identity remain
+  unchanged;
+- existing chunks, embeddings, BM25, vector, and graph artifacts do not need to
+  be rebuilt.
+
+Effect metadata remains a dataset snapshot under D017 and must not be presented
+as an independent confirmation of current legal validity.

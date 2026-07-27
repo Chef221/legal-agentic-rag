@@ -105,6 +105,7 @@ class RerankerConfig(BaseModel):
     max_length: int = Field(default=512, gt=0, le=512)
     max_candidates: int = Field(default=100, gt=0, le=100)
     local_files_only: bool = False
+    input_mode: Literal["text_only", "legal_context"] = "legal_context"
 
 
 class GenerationConfig(BaseModel):

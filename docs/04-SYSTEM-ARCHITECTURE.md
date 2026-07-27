@@ -144,6 +144,11 @@ Chịu trách nhiệm:
 - reranking;
 - retrieval trace.
 
+Cross-encoder input dùng unified legal metadata cùng chunk text để giữ phạm vi
+văn bản trong quyết định rerank. Adapter chỉ đọc các field đã định danh:
+document title/number/type, issuing authority, legal field, effect metadata và
+legal structure. Raw dataset fields không đi vào reranker.
+
 ### 3.5 Generation and Verification Layer
 
 Chịu trách nhiệm:

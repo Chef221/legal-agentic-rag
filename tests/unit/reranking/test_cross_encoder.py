@@ -9,7 +9,10 @@ from legal_agentic_rag.exceptions import (
     ModelError,
     RetrievalError,
 )
-from legal_agentic_rag.reranking import CrossEncoderReranker
+from legal_agentic_rag.reranking import (
+    CrossEncoderReranker,
+    build_legal_rerank_text,
+)
 from legal_agentic_rag.schemas import (
     RetrievalHit,
     RetrievalQuery,
@@ -48,7 +51,22 @@ def _hit(chunk_id: str, rank: int) -> RetrievalHit:
         score=1 / (60 + rank),
         strategy=RetrievalStrategy.HYBRID,
         text=f"Legal text {chunk_id}",
-        metadata={"article_number": str(rank)},
+        metadata={
+            "document_title": f"Văn bản phạm vi {chunk_id}",
+            "document_number": f"0{rank}/2026/QH",
+            "document_type": "Luật",
+            "issuing_authority": "Quốc hội",
+            "legal_field": "Lao động",
+            "effect_status": "Còn hiệu lực",
+            "effective_date": "2026-01-01",
+            "source_url": "https://example.test/not-for-model-input",
+            "raw_dataset_field": "must-not-leak",
+            "structure": {
+                "article_number": str(rank),
+                "article_title": f"Phạm vi {chunk_id}",
+                "clause_numbers": ["1", "2"],
+            },
+        },
         retrieval_trace=RetrievalTrace(rrf_score=1 / (60 + rank)),
     )
 
@@ -74,7 +92,16 @@ def test_cross_encoder_scores_sorts_and_preserves_trace(
     assert response.hits[0].retrieval_trace.rrf_score == candidates[1].score
     assert response.hits[0].retrieval_trace.reranker_score == pytest.approx(0.9)
     assert response.hits[0].metadata == candidates[1].metadata
-    assert model.calls[0][0][0] == ("rewritten question", "Legal text first")
+    first_pair = model.calls[0][0][0]
+    assert first_pair[0] == "rewritten question"
+    assert "Tên văn bản: Văn bản phạm vi first" in first_pair[1]
+    assert "Số ký hiệu: 01/2026/QH" in first_pair[1]
+    assert "Tình trạng hiệu lực: Còn hiệu lực" in first_pair[1]
+    assert "Điều: 1" in first_pair[1]
+    assert "Khoản: 1, 2" in first_pair[1]
+    assert first_pair[1].endswith("Nội dung:\nLegal text first")
+    assert "source_url" not in first_pair[1]
+    assert "must-not-leak" not in first_pair[1]
     assert model.calls[0][1]["batch_size"] == 8
     assert model.calls[0][1]["apply_softmax"] is False
     identity = model.calls[0][1]["activation_fn"]
@@ -82,6 +109,36 @@ def test_cross_encoder_scores_sorts_and_preserves_trace(
     assert reranker.provider_name == "sentence-transformers"
     assert reranker.provider_version == "fixture-version"
     assert reranker.model_revision == "1427fd652930e4ba29e8149678df786c240d8825"
+
+
+def test_text_only_reranker_input_mode_preserves_reference_pair() -> None:
+    """Explicit text-only mode supports controlled quality comparison."""
+    model = _FixtureModel(np.asarray([0.5], dtype=np.float32))
+    reranker = CrossEncoderReranker(
+        RerankerConfig(input_mode="text_only"),
+        model_loader=lambda config: model,
+    )
+
+    reranker.rerank(
+        _query(top_k=1, candidate_k=1),
+        [_hit("first", 1)],
+    )
+
+    assert model.calls[0][0] == [
+        ("rewritten question", "Legal text first")
+    ]
+
+
+def test_legal_context_builder_uses_only_named_unified_metadata() -> None:
+    """Arbitrary metadata and URLs do not enter the cross-encoder text."""
+    value = build_legal_rerank_text(_hit("scope", 1))
+
+    assert "Tên văn bản: Văn bản phạm vi scope" in value
+    assert "Cơ quan ban hành: Quốc hội" in value
+    assert "Tên điều: Phạm vi scope" in value
+    assert "raw_dataset_field" not in value
+    assert "must-not-leak" not in value
+    assert "https://example.test" not in value
 
 
 def test_empty_candidates_do_not_load_model() -> None:

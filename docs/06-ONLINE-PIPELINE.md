@@ -206,7 +206,12 @@ Milestone 10 triển khai policy:
   `1427fd652930e4ba29e8149678df786c240d8825`;
 - inference mặc định chạy CPU, batch 8, max length 512 và không fine-tune;
 - model nhận `rewritten_question` nếu có, nếu không dùng `normalized_question`,
-  ghép với `RetrievalHit.text`;
+  ghép với legal-context candidate text;
+- legal-context mặc định gồm tên/số/loại văn bản, cơ quan ban hành, lĩnh vực,
+  metadata hiệu lực, cấu trúc Điều/Khoản/Điểm và `RetrievalHit.text`;
+- `input_mode = "text_only"` giữ input cũ cho controlled A/B benchmark;
+- chỉ named unified metadata được đưa vào model; URL và arbitrary metadata bị
+  loại;
 - final score là raw cross-encoder logit, không cộng với raw BM25, dense hoặc
   RRF score;
 - tie theo reranker score được break bằng retrieval rank trước đó rồi `chunk_id`;

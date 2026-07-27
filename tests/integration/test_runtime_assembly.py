@@ -505,7 +505,7 @@ def test_offline_runtime_resumes_from_validated_stage_checkpoints(
     ).build()
 
     upgraded_state = json.loads(state_path.read_text(encoding="utf-8"))
-    assert upgraded_state["code_version"] == "0.20.10"
+    assert upgraded_state["code_version"] == "0.20.11"
     assert resumed.validation_report.is_valid is True
     assert resumed.validation_report.is_full_corpus is True
     assert resumed.artifact_manifests["vector_index"].record_count == 2
