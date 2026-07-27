@@ -1296,3 +1296,24 @@ version `0.20.9` áp dụng:
 Đây là deterministic normalization của hai biểu diễn citation trong cùng model
 draft, không phải semantic citation verification và không cho phép model tạo
 căn cứ mới.
+
+---
+
+## D060 — Deterministic Rendering of Verified Declared Citation IDs
+
+**Status:** Accepted
+
+Full-corpus `0.20.9` xác nhận Qwen tiếp tục bỏ exact `[E#]` marker trong cả hai
+attempt dù JSON draft và declared citation list đã hợp lệ. Version `0.20.10`
+áp dụng:
+
+- nhận diện từng evidence ID trong combined bracket marker như `[E1, E2]`;
+- khi sufficient answer không có bracket marker, render declared IDs đã qua
+  selected-evidence allowlist thành marker ở cuối answer;
+- citation objects tiếp tục được dựng từ trusted Evidence, không từ model text;
+- không tạo ID mới hoặc suy đoán một evidence không được model declare;
+- unknown declared ID, unknown visible marker và insufficient answer có marker
+  vẫn bị từ chối.
+
+Đây là bước presentation normalization cho citation IDs đã được model declare
+và hệ thống xác minh, không phải semantic verification của từng claim.

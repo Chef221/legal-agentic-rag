@@ -177,6 +177,11 @@ chuẩn. Danh sách `cited_evidence_ids` dư thừa của model được chuẩn
 marker đã kiểm tra allowlist. Marker hoặc declared ID không tồn tại trong
 selected evidence vẫn bị từ chối.
 
+Từ version `0.20.10`, khi model trả valid declared evidence IDs nhưng bỏ marker
+inline, hệ thống hiển thị deterministic các marker đã kiểm tra ở cuối answer.
+Combined form như `[E1, E2]` cũng được nhận diện. Hệ thống không tự suy ra hoặc
+tạo evidence ID mới.
+
 Chạy benchmark có nhãn:
 
 ```powershell

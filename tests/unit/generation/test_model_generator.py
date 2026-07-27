@@ -134,19 +134,43 @@ def test_model_generator_rejects_unknown_or_missing_citations() -> None:
         )
 
 
-def test_model_generator_requires_citation_markers_in_answer_text() -> None:
-    """Structured citations must also remain visible beside generated claims."""
+def test_model_generator_appends_verified_declared_markers_when_missing() -> None:
+    """Known declared citations become visible without inventing an identity."""
     provider = _FixtureProvider(
         _completion(answer="Doanh nghiệp phải nộp thuế đúng thời hạn.")
     )
 
-    with pytest.raises(ModelError, match="markers"):
-        ModelBackedAnswerGenerator(provider).generate(
-            _query(),
-            [_evidence()],
-            RetrievalStrategy.HYBRID,
-            "model-answer-query",
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1]")
+    assert response.citations[0].evidence_id == "E1"
+
+
+def test_model_generator_accepts_combined_bracket_markers() -> None:
+    """Common combined marker syntax resolves to verified evidence identities."""
+    provider = _FixtureProvider(
+        _completion(
+            answer="Hai căn cứ cùng hỗ trợ nhận định [E2, E1].",
+            cited_evidence_ids=["E1", "E2"],
         )
+    )
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [
+            _evidence("E1", "chunk-1"),
+            _evidence("E2", "chunk-2"),
+        ],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert [item.evidence_id for item in response.citations] == ["E2", "E1"]
 
 
 def test_model_generator_uses_verified_markers_as_citation_order() -> None:

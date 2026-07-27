@@ -449,6 +449,15 @@ citation selection. Điều này cho phép sửa deterministic trường hợp m
 declared ID và marker vẫn phải thuộc selected-evidence allowlist; answer đủ căn
 cứ vẫn phải có ít nhất một marker và citation metadata vẫn do hệ thống dựng.
 
+Version `0.20.10` xử lý model không tuân thủ inline-marker formatting:
+
+- combined bracket form như `[E1, E2]` được parse thành từng verified ID;
+- nếu sufficient draft không có bracket marker, declared IDs đã qua allowlist
+  được render deterministic ở cuối answer;
+- không suy luận claim-to-evidence mapping mới và không tạo evidence ID;
+- unknown declared ID, unknown visible marker và insufficient draft có marker
+  vẫn fail closed.
+
 Qwen2.5-3B-Instruct revision
 `a1d308dfcc03e09da285d49d912439a655a571e8` là candidate tham chiếu cho smoke
 test GPU 16 GiB, không phải model production đã được chốt. M18 chưa fine-tune,

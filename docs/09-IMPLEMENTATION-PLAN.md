@@ -970,6 +970,11 @@ Smoke `0.20.8` xác định cả hai model attempts đều tạo JSON hợp lệ
 IDs và markers trong selected-evidence allowlist. Unknown marker, answer không
 có marker và insufficient answer có marker tiếp tục fail closed.
 
+Smoke `0.20.9` cho thấy Qwen tiếp tục bỏ exact bracket marker ở cả correction
+attempt dù structured list hợp lệ. Version `0.20.10` nhận combined bracket IDs
+và render declared allowlisted IDs thành visible markers khi answer thiếu
+marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
+
 ---
 
 ## 21. Future — Competition Adaptation
