@@ -1655,6 +1655,15 @@ Milestone 17.8 đã sửa:
 - bỏ runtime dependency Gradio, không thêm dependency;
 - version `0.20.5`.
 
+Milestone 17.9 đã tạo:
+
+- optional GPU-resident exact dense scorer trong NumPy vector adapter;
+- typed `cpu|cuda` search device và bounded device transfer batch;
+- giữ float32 cosine, filter, tie-break, artifact và public schema;
+- explicit CUDA fail-closed, CPU default không đổi;
+- reuse vector/sidecar hiện có, không re-embed hoặc rebuild;
+- version `0.20.6`.
+
 ---
 
 ## 39. Final Instruction to Coding Agents

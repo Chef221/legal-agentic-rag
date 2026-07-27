@@ -83,6 +83,8 @@ class VectorRuntimeConfig(BaseModel):
     prefer_serving_metadata: bool = True
     require_serving_metadata: bool = False
     serving_metadata_build_batch_size: int = Field(default=10_000, gt=0)
+    search_device: Literal["cpu", "cuda"] = "cpu"
+    device_transfer_batch_size: int = Field(default=32_768, gt=0)
 
 
 class RerankerConfig(BaseModel):

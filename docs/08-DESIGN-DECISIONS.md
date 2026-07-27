@@ -1178,3 +1178,27 @@ Version `0.20.5` áp dụng:
 
 Đây vẫn là diagnostic baseline UI, không phải production frontend và không thêm
 authentication, CORS, reverse proxy hay deployment framework.
+
+---
+
+## D056 — Optional GPU-resident Exact Dense Scoring
+
+**Status:** Accepted
+
+Full-corpus smoke `0.20.5` trên Colab GPU đo được dense retrieval mất 52,28 giây
+trong khi reranker CUDA mất 17,02 giây. Vector artifact là normalized float32
+matrix 1.278.201 x 384 và vừa bộ nhớ GPU 16 GiB. Version `0.20.6` áp dụng:
+
+- `online.vector_runtime.search_device` là typed execution choice `cpu|cuda`;
+- CUDA path dùng PyTorch đã có qua dependency model hiện tại và import lazy;
+- matrix NumPy memory-map được chuyển theo bounded batches rồi giữ resident trên
+  GPU cho toàn bộ vòng đời server;
+- unfiltered query dùng exact GPU matrix-vector product;
+- filtered query dùng bounded `index_select`, không copy toàn matrix lần nữa;
+- output score/rank/schema, vector manifest và sidecar không thay đổi;
+- explicit CUDA request fail startup nếu device không khả dụng hoặc load lỗi;
+- CPU NumPy path vẫn là default và không phụ thuộc CUDA;
+- không thêm FAISS/vector database, không re-embed và không rebuild artifact.
+
+Quyết định này là runtime acceleration của reference backend, không phải quyết
+định vector database production.

@@ -815,3 +815,15 @@ Version `0.20.5` thay Gradio diagnostic consumer bằng một trang HTML same-or
 - không suy ra public URL từ internal host `127.0.0.1`;
 - hoạt động qua Colab port proxy và vẫn dùng đúng một online runtime;
 - chỉ render response bằng text-safe DOM APIs.
+
+Version `0.20.6` bổ sung exact GPU-resident dense scoring:
+
+- `online.vector_runtime.search_device` chọn `cpu` hoặc `cuda`;
+- CUDA load matrix float32 hiện có theo bounded transfer batches đúng một lần;
+- query không filter dùng một matrix-vector product trên GPU;
+- filtered query dùng bounded GPU index-select batches;
+- score vẫn là exact normalized inner product và final tie-break vẫn theo
+  `chunk_id`;
+- CUDA không khả dụng hoặc thiếu bộ nhớ làm startup fail rõ ràng, không silently
+  fallback CPU;
+- không re-embed, rebuild artifact hoặc thêm vector database.

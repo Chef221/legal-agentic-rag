@@ -894,6 +894,18 @@ trước khi chuyển sang graph disk-backed loader.
 
 ---
 
+### Milestone 17.9 GPU-resident Exact Dense Search
+
+- measured full-corpus dense latency: 52,28 giây cho 1.278.201 x 384 float32;
+- version `0.20.6` thêm optional PyTorch CUDA scorer trong NumPy adapter;
+- vector matrix được chuyển theo bounded batches và giữ resident trên GPU;
+- unfiltered và filtered exact cosine đều giữ candidate order/output contract;
+- explicit CUDA fail-closed, CPU default không đổi;
+- reuse `vectors.npy`, sidecar và manifests hiện có; không re-embed/rebuild;
+- unit test so sánh NumPy/Torch CPU, CUDA failure và optional live CUDA smoke.
+
+---
+
 ## 20. Milestone 18 — Model-backed Answer Generator
 
 **Status:** Implementation complete; model benchmark pending GPU and labeled

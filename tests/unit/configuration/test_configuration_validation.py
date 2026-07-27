@@ -113,12 +113,18 @@ def test_vector_runtime_config_bounds_online_load_and_search_batches() -> None:
     assert config.prefer_serving_metadata is True
     assert config.require_serving_metadata is False
     assert config.serving_metadata_build_batch_size == 10_000
+    assert config.search_device == "cpu"
+    assert config.device_transfer_batch_size == 32_768
     with pytest.raises(ValidationError):
         VectorRuntimeConfig(validation_batch_size=0)
     with pytest.raises(ValidationError):
         VectorRuntimeConfig(search_batch_size=0)
     with pytest.raises(ValidationError):
         VectorRuntimeConfig(load_progress_interval_records=0)
+    with pytest.raises(ValidationError):
+        VectorRuntimeConfig(search_device="tpu")
+    with pytest.raises(ValidationError):
+        VectorRuntimeConfig(device_transfer_batch_size=0)
 
 
 def test_relationship_and_graph_index_configuration_is_explicit() -> None:

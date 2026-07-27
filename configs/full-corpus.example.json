@@ -36,7 +36,9 @@
     },
     "vector_runtime": {
       "prefer_serving_metadata": true,
-      "require_serving_metadata": true
+      "require_serving_metadata": true,
+      "search_device": "cuda",
+      "device_transfer_batch_size": 32768
     }
   },
   "build_validation": {

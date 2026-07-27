@@ -123,6 +123,12 @@ Từ version `0.20.5`, `/ui` là diagnostic HTML dùng same-origin HTTP tới
 `/api/v1/answer`. UI không còn dùng Gradio queue/SSE nên hoạt động qua Colab
 port proxy mà không tạo runtime thứ hai.
 
+Từ version `0.20.6`, full-corpus GPU profile có thể đặt
+`online.vector_runtime.search_device = "cuda"`. Runtime chuyển matrix float32
+hiện có lên GPU đúng một lần và giữ exact cosine search; không re-embed hoặc đổi
+vector artifact. `cpu` vẫn là mặc định và CUDA được yêu cầu sẽ fail closed nếu
+không khả dụng.
+
 Chạy benchmark có nhãn:
 
 ```powershell

@@ -32,6 +32,9 @@ from legal_agentic_rag.indexing.vector.chunk_store import JsonlChunkStore
 from legal_agentic_rag.indexing.vector.serving_metadata import (
     SQLiteVectorChunkStore,
 )
+from legal_agentic_rag.indexing.vector.torch_scorer import (
+    TorchExactVectorScorer,
+)
 from legal_agentic_rag.schemas.legal_documents import LegalChunk
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
@@ -68,6 +71,7 @@ class NumpyVectorBackend:
         self._vectors: np.ndarray | None = None
         self._chunks: Sequence[LegalChunk] = []
         self._manifest: ArtifactManifest | None = None
+        self._accelerated_scorer: TorchExactVectorScorer | None = None
 
     @property
     def source_artifact_identity(self) -> tuple[str, str, str]:
@@ -147,6 +151,7 @@ class NumpyVectorBackend:
         sorted_vectors = matrix[order] if order else matrix
         self._chunks = sorted_chunks
         self._vectors = np.ascontiguousarray(sorted_vectors, dtype=np.float32)
+        self._configure_search_acceleration()
         self._manifest = self._build_manifest(
             sorted_chunks,
             source_manifest,
@@ -339,6 +344,7 @@ class NumpyVectorBackend:
         self._vectors = vectors
         self._chunks = chunks
         self._manifest = stored_manifest
+        self._configure_search_acceleration()
         _LOGGER.info(
             "vector_index_loaded",
             extra={
@@ -391,6 +397,11 @@ class NumpyVectorBackend:
         candidate_indexes: np.ndarray | None,
     ) -> np.ndarray:
         """Score exact cosine candidates without a corpus-sized matrix copy."""
+        if self._accelerated_scorer is not None:
+            return self._accelerated_scorer.score(
+                query_vector,
+                candidate_indexes,
+            )
         candidate_count = (
             len(self._chunks)
             if candidate_indexes is None
@@ -409,6 +420,26 @@ class NumpyVectorBackend:
                 dtype=np.float32,
             )
         return scores
+
+    def _configure_search_acceleration(self) -> None:
+        self._accelerated_scorer = None
+        if self._runtime_config.search_device == "cpu":
+            return
+        if self._vectors is None:
+            raise BackendInitializationError(
+                "Vector matrix is unavailable for accelerated search"
+            )
+        self._accelerated_scorer = TorchExactVectorScorer(
+            self._vectors,
+            device=self._runtime_config.search_device,
+            transfer_batch_size=(
+                self._runtime_config.device_transfer_batch_size
+            ),
+            search_batch_size=self._runtime_config.search_batch_size,
+            progress_interval_records=(
+                self._runtime_config.load_progress_interval_records
+            ),
+        )
 
     def _ranked_offsets(
         self,

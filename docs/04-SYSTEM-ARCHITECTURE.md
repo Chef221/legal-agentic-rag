@@ -329,6 +329,10 @@ lineage, dataset/model/backend compatibility rồi tạo `OnlineRuntime`.
 Online runtime không được gọi dataset source, cleaner, parser, chunker hoặc
 method `build`/`persist` của backend.
 
+Reference NumPy vector backend có thể dùng optional GPU-resident PyTorch scorer
+trong cùng indexing adapter. Accelerator chỉ thay execution device của exact
+float32 cosine, không đổi artifact, unified schema hoặc `VectorBackend` contract.
+
 ---
 
 ## 8. Data Flow
