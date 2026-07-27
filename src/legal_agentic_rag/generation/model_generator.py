@@ -83,7 +83,7 @@ class ModelBackedAnswerGenerator:
             )
             try:
                 draft = self._parse_draft(completion)
-                self._validate_draft(draft, evidence_by_id)
+                draft = self._validate_draft(draft, evidence_by_id)
                 break
             except ModelError as error:
                 _LOGGER.warning(
@@ -187,7 +187,7 @@ class ModelBackedAnswerGenerator:
     def _validate_draft(
         draft: ModelAnswerDraft,
         evidence_by_id: dict[str, Evidence],
-    ) -> None:
+    ) -> ModelAnswerDraft:
         unknown_ids = [
             value
             for value in draft.cited_evidence_ids
@@ -195,11 +195,38 @@ class ModelBackedAnswerGenerator:
         ]
         if unknown_ids:
             raise ModelError("Model cited evidence that was not supplied")
-        markers = _EVIDENCE_MARKER_PATTERN.findall(draft.answer)
-        if list(dict.fromkeys(markers)) != draft.cited_evidence_ids:
+        markers = list(
+            dict.fromkeys(_EVIDENCE_MARKER_PATTERN.findall(draft.answer))
+        )
+        unknown_markers = [
+            value for value in markers if value not in evidence_by_id
+        ]
+        if unknown_markers:
+            raise ModelError("Model answer used an unknown evidence marker")
+        if draft.insufficient_evidence:
+            if markers:
+                raise ModelError(
+                    "Insufficient model answer used evidence markers"
+                )
+            return draft
+        if not markers:
             raise ModelError(
                 "Model answer omitted required evidence markers"
             )
+        if markers != draft.cited_evidence_ids:
+            _LOGGER.info(
+                "model_citation_ids_normalized_from_markers",
+                extra={
+                    "declared_evidence_count": len(
+                        draft.cited_evidence_ids
+                    ),
+                    "marker_evidence_count": len(markers),
+                },
+            )
+            return draft.model_copy(
+                update={"cited_evidence_ids": markers}
+            )
+        return draft
 
     @staticmethod
     def _correction_prompt(base_prompt: str) -> str:
@@ -218,6 +245,8 @@ class ModelBackedAnswerGenerator:
             return "structured_output_schema"
         if "not supplied" in message:
             return "unknown_evidence_id"
+        if "unknown evidence marker" in message:
+            return "unknown_evidence_marker"
         if "markers" in message:
             return "evidence_marker_mismatch"
         return "model_output_validation"

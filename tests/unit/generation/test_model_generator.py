@@ -149,6 +149,51 @@ def test_model_generator_requires_citation_markers_in_answer_text() -> None:
         )
 
 
+def test_model_generator_uses_verified_markers_as_citation_order() -> None:
+    """Visible markers canonically select citations from the supplied allowlist."""
+    provider = _FixtureProvider(
+        _completion(
+            answer="Nghĩa vụ thứ hai [E2], sau đó nghĩa vụ thứ nhất [E1].",
+            cited_evidence_ids=["E1", "E2"],
+        )
+    )
+    evidence = [
+        _evidence("E1", "chunk-1"),
+        _evidence("E2", "chunk-2"),
+    ]
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        evidence,
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert [item.evidence_id for item in response.citations] == ["E2", "E1"]
+    assert [item.chunk_id for item in response.citations] == [
+        "chunk-2",
+        "chunk-1",
+    ]
+
+
+def test_model_generator_rejects_unknown_visible_marker() -> None:
+    """A marker not present in selected evidence remains a hard failure."""
+    provider = _FixtureProvider(
+        _completion(
+            answer="Nhận định không có căn cứ [E9].",
+            cited_evidence_ids=["E1"],
+        )
+    )
+
+    with pytest.raises(ModelError, match="unknown evidence marker"):
+        ModelBackedAnswerGenerator(provider).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+
 def test_model_generator_abstains_without_calling_provider() -> None:
     """Empty context never reaches the model and produces no citation."""
     provider = _FixtureProvider(_completion())

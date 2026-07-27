@@ -443,6 +443,12 @@ không hợp lệ, generator có tối đa một correction attempt theo typed
 `max_structured_output_retries`; retry không gửi lại raw completion và log chỉ
 ghi failure category.
 
+Version `0.20.9` dùng thứ tự marker `[E#]` xuất hiện trong answer làm canonical
+citation selection. Điều này cho phép sửa deterministic trường hợp model trả
+`cited_evidence_ids` khác thứ tự hoặc dư ID không được dùng trong answer. Mọi
+declared ID và marker vẫn phải thuộc selected-evidence allowlist; answer đủ căn
+cứ vẫn phải có ít nhất một marker và citation metadata vẫn do hệ thống dựng.
+
 Qwen2.5-3B-Instruct revision
 `a1d308dfcc03e09da285d49d912439a655a571e8` là candidate tham chiếu cho smoke
 test GPU 16 GiB, không phải model production đã được chốt. M18 chưa fine-tune,

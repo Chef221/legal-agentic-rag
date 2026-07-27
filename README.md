@@ -172,6 +172,11 @@ evidence-ID allowlist và marker verification. Nếu draft đầu tiên sai form
 generator được phép yêu cầu model sửa đúng một lần; raw completion và legal
 content không được ghi vào log.
 
+Từ version `0.20.9`, marker `[E#]` hiển thị sát nhận định là thứ tự citation
+chuẩn. Danh sách `cited_evidence_ids` dư thừa của model được chuẩn hóa theo các
+marker đã kiểm tra allowlist. Marker hoặc declared ID không tồn tại trong
+selected evidence vẫn bị từ chối.
+
 Chạy benchmark có nhãn:
 
 ```powershell

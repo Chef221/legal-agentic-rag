@@ -964,6 +964,12 @@ non-content logging và tối đa một structured-output correction attempt. C�
 kiểm tra unknown evidence ID, marker mismatch, citation construction và
 abstention không được nới lỏng.
 
+Smoke `0.20.8` xác định cả hai model attempts đều tạo JSON hợp lệ nhưng redundant
+`cited_evidence_ids` không khớp marker order/usage trong answer. Version
+`0.20.9` chuẩn hóa citation IDs từ visible markers sau khi kiểm tra cả declared
+IDs và markers trong selected-evidence allowlist. Unknown marker, answer không
+có marker và insufficient answer có marker tiếp tục fail closed.
+
 ---
 
 ## 21. Future — Competition Adaptation

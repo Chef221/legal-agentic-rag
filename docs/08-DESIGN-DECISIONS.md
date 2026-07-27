@@ -1272,3 +1272,27 @@ Version `0.20.8` áp dụng:
 
 Không thêm constrained-decoding dependency, không silently repair citation và
 không thay Agent retrieval retry limit.
+
+---
+
+## D059 — Visible Evidence Markers Are the Canonical Citation Selection
+
+**Status:** Accepted
+
+Full-corpus `0.20.8` log xác nhận Qwen trả valid structured draft ở cả hai
+attempt nhưng `cited_evidence_ids` khác marker usage/order trong answer. Vì
+marker `[E#]` nằm trực tiếp cạnh legal claim còn list ID là dữ liệu dư thừa,
+version `0.20.9` áp dụng:
+
+- mọi declared evidence ID vẫn phải thuộc selected-evidence allowlist;
+- mọi marker trong answer cũng phải thuộc cùng allowlist;
+- sufficient answer phải có ít nhất một marker;
+- thứ tự marker xuất hiện lần đầu là canonical citation order;
+- redundant ID list được normalize theo marker order;
+- Citation objects vẫn do hệ thống dựng từ trusted Evidence;
+- insufficient answer có marker, unknown marker hoặc answer không marker đều
+  fail closed.
+
+Đây là deterministic normalization của hai biểu diễn citation trong cùng model
+draft, không phải semantic citation verification và không cho phép model tạo
+căn cứ mới.
