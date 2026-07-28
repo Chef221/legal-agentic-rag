@@ -735,8 +735,7 @@ Khi có gold answers hoặc human labels:
 
 ## 19. Milestone 17 — Full Corpus Build and Baseline Validation
 
-**Status:** Implementation complete; full-corpus execution pending capable
-runtime
+**Status:** Completed
 
 ### Objectives
 
@@ -823,9 +822,9 @@ runtime
 Normalizer vẫn cần disk-derived ID indexes và cleaner hiện materialize stage
 output trước khi persist, nhưng hai stage này đã hoàn thành trên Colab 12 GiB
 trong full-corpus measurement. Parser/chunker/BM25/vector build đã chuyển sang
-bounded execution sau OOM measurement. Milestone vẫn chưa được đánh dấu
-Completed trước khi version `0.20.1` tạo được full validation report thật và
-online smoke test load được artifact set.
+bounded execution sau OOM measurement. Full-corpus run sau đó đã tạo report
+thật với `is_full_corpus = true`, `is_valid = true`, load được online artifact
+set và hoàn thành retrieval/answer smoke.
 
 ---
 
@@ -845,8 +844,8 @@ online smoke test load được artifact set.
 - unit/integration regression tests không dùng full corpus hoặc network;
 - không thêm dependency.
 
-Full-corpus online smoke và UI smoke phải chạy lại trên artifact thật trước khi
-đánh dấu toàn bộ Milestone 17 Completed.
+Full-corpus online smoke và UI smoke đã chạy trên artifact thật; lỗi OOM loader
+không còn tái hiện sau memory-bounded implementation.
 
 ---
 
@@ -950,12 +949,13 @@ evaluation data
 
 ### Current Limitation
 
-Local Transformers provider đã sẵn sàng ở version `0.20.7`, nhưng full-corpus
-smoke với Qwen2.5-3B-Instruct và benchmark chất lượng có nhãn chưa chạy. M18 chưa
-chọn model cuối cùng, chưa fine-tune và chưa semantic-verify support của từng
-claim. OpenAI-compatible endpoint phải hỗ trợ JSON response mode. Chất lượng
-thực tế chỉ được kết luận sau benchmark có nhãn trên GPU; lựa chọn model không
-bị giới hạn bởi CPU của máy phát triển.
+Local Transformers provider đã hoàn thành full-corpus smoke với
+Qwen2.5-3B-Instruct: model-backed answer, system-built citation và verifier đều
+thành công. M18 vẫn chưa chọn model cuối cùng, chưa fine-tune, chưa
+semantic-verify support của từng claim và chưa có benchmark chất lượng có nhãn.
+OpenAI-compatible endpoint phải hỗ trợ JSON response mode. Chất lượng thực tế
+chỉ được kết luận sau benchmark có nhãn trên GPU; lựa chọn model không bị giới
+hạn bởi CPU của máy phát triển.
 
 Full-corpus smoke đầu tiên của `0.20.7` xác nhận model load và inference thành
 công nhưng completion bị strict draft validation từ chối. Version `0.20.8`
@@ -990,7 +990,103 @@ marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
 
 ---
 
-## 21. Future — Competition Adaptation
+## 21. Milestone 19 — Query Understanding and Multi-query Retrieval
+
+**Status:** Completed
+
+### Objectives
+
+- hiểu tín hiệu pháp lý xuất hiện trực tiếp trong câu hỏi;
+- tạo nhiều query forms có kiểm soát mà không thêm kiến thức;
+- định tuyến Agent theo intent trong giới hạn hiện có;
+- tăng recall bằng multi-query hybrid và giữ trace;
+- không phụ thuộc dataset AIO hoặc format cuộc thi.
+
+### Implemented Baseline
+
+- typed `QueryAnalysis`, `QueryVariant` và `QueryVariantContribution`;
+- deterministic extraction cho document number, Điều/Khoản/Điểm, năm, scope,
+  relationship cues và conservative intent;
+- normalized, framing-stripped và legal-reference variants, mặc định tối đa 3;
+- runtime recompute analysis trước fixed retrieval hoặc Agent;
+- BM25/dense execution theo từng variant và unweighted multi-branch RRF;
+- aggregate sparse/dense contributions cùng per-variant trace;
+- adaptive graph-first route cho relationship intent;
+- BM25 retry route cho explicit-reference/quantitative intent;
+- retry rewriter dùng user-derived variants trước original/normalized forms;
+- legacy single-query behavior khi feature bị tắt hoặc chỉ có một variant;
+- unit/integration tests không network, model hoặc dataset thật.
+
+### Limitations
+
+- đây là rule-based signal extraction, chưa semantic-grade intent;
+- không dùng synonym expansion hoặc LLM query rewrite;
+- generic natural-language question thường chỉ có một safe variant;
+- semantic applicability và claim-level verification thuộc milestone tiếp theo;
+- chưa tune variant policy hoặc RRF bằng official labeled data.
+
+### Done When
+
+- query analysis và variants serialize qua unified schema;
+- explicit reference extraction giữ nguyên user text;
+- multi-query RRF không cộng raw backend scores;
+- conflicting duplicate payload fail closed;
+- route vẫn tôn trọng requested strategy và `max_retry = 2`;
+- artifacts hiện có load lại mà không rebuild;
+- full local test suite pass.
+
+---
+
+## 22. Milestone 20 — Evidence Applicability and Context Selection
+
+**Status:** Completed
+
+### Objectives
+
+- chọn context tốt hơn sau retrieval/reranking mà không phụ thuộc dataset AIO;
+- ưu tiên evidence khớp explicit legal reference của người dùng;
+- giữ nguyên whole legal chunks và token budget;
+- giải thích được mọi quyết định chọn/bỏ evidence;
+- fail closed khi explicit reference không được selected evidence hỗ trợ.
+
+### Implemented Baseline
+
+- typed `EvidenceApplicability`, `EvidenceSelectionReason` và
+  `EvidenceSelectionTrace`;
+- deterministic selector dùng source rank, reference match, lexical overlap và
+  configured inactive-status penalty;
+- exact chunk deduplication trước selection;
+- whole-chunk count/token budgeting với reason riêng;
+- selection trace được giữ trong `ContextBuildResult` và từng selected
+  `Evidence`;
+- explicit document/article coverage trong rule-based context grader;
+- applicability score và status counts cho debugging;
+- `legal_applicability_interpreted = false` để không overclaim;
+- typed bounded `online.evidence_selection` config;
+- không thêm dependency, model, dataset hoặc artifact format;
+- unit/integration tests không network/model/full corpus.
+
+### Limitations
+
+- lexical overlap không phải semantic relevance model;
+- effect status chỉ là dataset snapshot và explicit configured label;
+- không xác định luật chung/chuyên ngành hoặc văn bản ưu tiên;
+- không giải quyết xung đột, sửa đổi, thay thế hoặc hiệu lực theo thời điểm;
+- chưa claim-level verify câu trả lời;
+- weights chưa tune bằng official labeled benchmark.
+
+### Done When
+
+- explicit reference match có thể thay đổi context order deterministically;
+- inactive/reference mismatch có trace và warning;
+- every unique hit được selected hoặc có omission reason;
+- grader abstains khi explicit reference coverage thất bại;
+- legacy artifacts load không cần rebuild;
+- full local test suite pass.
+
+---
+
+## 23. Future — Competition Adaptation
 
 ### Objectives
 
@@ -1017,7 +1113,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 22. Milestone Execution Rules
+## 24. Milestone Execution Rules
 
 Mỗi milestone phải:
 

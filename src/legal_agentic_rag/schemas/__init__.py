@@ -13,6 +13,9 @@ from legal_agentic_rag.schemas.answering import (
     ContextBuildResult,
     ContextGrade,
     Evidence,
+    EvidenceApplicability,
+    EvidenceSelectionReason,
+    EvidenceSelectionTrace,
     ModelAnswerDraft,
 )
 from legal_agentic_rag.schemas.auditing import (
@@ -65,6 +68,11 @@ from legal_agentic_rag.schemas.parsing import (
 )
 from legal_agentic_rag.schemas.retrieval import (
     GraphPathStep,
+    QueryAnalysis,
+    QueryIntent,
+    QueryVariant,
+    QueryVariantContribution,
+    QueryVariantKind,
     RetrievalFilters,
     RetrievalHit,
     RetrievalQuery,
@@ -127,6 +135,9 @@ __all__ = [
     "DocumentParsingDiagnostic",
     "DocumentChunkingDiagnostic",
     "Evidence",
+    "EvidenceApplicability",
+    "EvidenceSelectionReason",
+    "EvidenceSelectionTrace",
     "EvaluationCase",
     "EvaluationCaseResult",
     "EvaluationResourceUsage",
@@ -135,6 +146,11 @@ __all__ = [
     "EvaluationTargetGranularity",
     "GenerationCaseMetrics",
     "GraphPathStep",
+    "QueryAnalysis",
+    "QueryIntent",
+    "QueryVariant",
+    "QueryVariantContribution",
+    "QueryVariantKind",
     "HtmlCleaningResult",
     "HealthResponse",
     "LegalBlock",

@@ -71,6 +71,34 @@ Không được:
 
 ---
 
+## 4.1 Query Understanding and Variants
+
+Milestone 19 phân tích deterministic trên `normalized_question`:
+
+- số hiệu văn bản;
+- Điều, Khoản và Điểm được nhắc trực tiếp;
+- năm;
+- tín hiệu phạm vi như `đối với`, `trong trường hợp`;
+- tín hiệu quan hệ như `sửa đổi`, `thay thế`, `bãi bỏ`;
+- intent bảo thủ: reference, relationship, quantitative, procedure,
+  eligibility, obligation, prohibition hoặc definition.
+
+Runtime không tin query-analysis do client cung cấp mà luôn tính lại. Query
+variants chỉ được tạo bằng:
+
+1. câu normalized đầy đủ;
+2. bỏ framing như `xin hỏi` hoặc `theo quy định của pháp luật`;
+3. ghép lại reference xuất hiện trực tiếp trong câu hỏi.
+
+Không dùng synonym dictionary, LLM rewrite hoặc tự thêm thuật ngữ pháp lý.
+`online.query_understanding.max_variants` giới hạn từ 1 đến 5, mặc định 3.
+
+Khi có nhiều variant, hybrid retrieval gọi BM25 và dense cho từng variant rồi
+RRF toàn bộ branch ranks. Raw score không được cộng trực tiếp. Mỗi per-variant
+rank, raw score và RRF contribution được giữ trong `RetrievalTrace`.
+
+---
+
 ## 5. Fixed Retrieval Strategies
 
 ### 5.1 BM25 Retrieval
@@ -94,7 +122,8 @@ Phù hợp với:
 - câu hỏi có lexical overlap cao.
 
 Milestone 7 triển khai BM25 search bằng SQLite FTS5 phía sau protocol chung.
-Query chỉ dùng `normalized_question`; analyzer case-insensitive nhưng giữ dấu
+Mỗi branch dùng `rewritten_question` khi có, nếu không dùng
+`normalized_question`; analyzer case-insensitive nhưng giữ dấu
 tiếng Việt và số. `RetrievalFilters` được áp dụng exact trên document ID, loại
 văn bản, lĩnh vực và trạng thái hiệu lực. Hit trả `RetrievalHit` cùng BM25 rank,
 score, legal chunk metadata, artifact version và latency; backend không log
@@ -330,6 +359,26 @@ Công việc:
 - giữ source URL;
 - gán evidence ID.
 
+Milestone 20 chèn bước applicability screening trước token-budget selection:
+
+```text
+Ranked Retrieval Hits
+→ exact chunk deduplication
+→ explicit document/article reference matching
+→ lexical overlap + configured effect-status screening
+→ deterministic evidence ordering
+→ whole-chunk token/count budgeting
+→ Evidence + EvidenceSelectionTrace
+```
+
+Reference chỉ được lấy từ trusted `QueryAnalysis` do runtime dựng lại. Mismatch
+không bị xóa tuyệt đối vì có thể là supporting evidence, nhưng bị hạ thứ tự và
+được cảnh báo. Inactive status chỉ có tác động nếu label được cấu hình rõ trong
+`generation.inactive_effect_statuses`.
+
+Selection score không được mô tả là xác suất relevance hoặc kết luận hiệu lực
+pháp lý. Nó chỉ là policy score có trace, không cộng vào retrieval/reranker score.
+
 Ví dụ:
 
 ```text
@@ -373,6 +422,15 @@ Output logic:
 Fixed baseline có thể dùng rule hoặc cấu hình đơn giản.
 
 LLM-based context grading thuộc giai đoạn sau.
+
+Milestone 20 mở rộng rule-based grader:
+
+- explicit document/article reference phải có ít nhất một selected evidence
+  khớp;
+- context chỉ gồm `inactive` hoặc `reference_mismatch` không được xem là đủ;
+- lexical overlap được báo cáo để chẩn đoán nhưng không tự tuyên bố semantic
+  relevance;
+- metadata ghi `legal_applicability_interpreted = false`.
 
 ---
 
@@ -607,13 +665,18 @@ Milestone 14 reference workflow:
 - route mặc định `hybrid_rerank → graph → hybrid`;
 - explicit `requested_strategy` được ưu tiên nếu tool tương ứng đã đăng ký;
 - route luôn được lọc qua descriptor của closed registry;
-- query rewrite chỉ tái sử dụng `original_question` hoặc
-  `normalized_question`, không tự thêm thuật ngữ pháp lý;
+- query rewrite tái sử dụng bounded query variants trước
+  `original_question`/`normalized_question`, không tự thêm thuật ngữ pháp lý;
 - context builder không phải tool vì chỉ chuyển typed retrieval output thành
   bounded evidence, không truy cập backend;
 - generation hoặc citation verification thất bại tạo abstention;
 - terminal output là `AgentRunResult` gồm `AnswerResponse`, `AgentState`,
   `AgentStopReason` và total latency.
+
+Milestone 19 giữ explicit requested strategy ở vị trí đầu. Nếu không có
+requested strategy, relationship intent ưu tiên `graph`; query có reference
+hoặc quantitative intent giữ `hybrid_rerank` đầu và đưa BM25 vào retry plan.
+Route vẫn bị giới hạn bởi `max_retry = 2` và closed registry.
 
 Luồng:
 

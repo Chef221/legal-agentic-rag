@@ -6,7 +6,11 @@ from pathlib import Path
 
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend, VectorIndexBuilder
-from legal_agentic_rag.retrieval import DenseRetriever, FixedRetriever
+from legal_agentic_rag.retrieval import (
+    DenseRetriever,
+    FixedRetriever,
+    QueryUnderstandingService,
+)
 from legal_agentic_rag.schemas import (
     ArtifactManifest,
     ArtifactType,
@@ -104,25 +108,28 @@ def test_persisted_indexes_run_fixed_hybrid_rrf(tmp_path: Path) -> None:
     loaded_vector = NumpyVectorBackend()
     loaded_vector.load(tmp_path / "vector", vector_manifest)
 
-    response = FixedRetriever(
-        loaded_bm25,
-        DenseRetriever(provider, loaded_vector),
-    ).search(
+    query = QueryUnderstandingService().enrich(
         RetrievalQuery(
             query_id="query-hybrid",
-            original_question="Mức phạt chạy xe nhanh?",
-            normalized_question="mức phạt chạy quá tốc độ xe",
+            original_question="Xin hỏi: mức phạt chạy xe nhanh?",
+            normalized_question="Xin hỏi: mức phạt chạy quá tốc độ xe",
             top_k=2,
             candidate_k=3,
             requested_strategy=RetrievalStrategy.HYBRID,
         )
     )
+    response = FixedRetriever(
+        loaded_bm25,
+        DenseRetriever(provider, loaded_vector),
+    ).search(query)
 
     assert response.strategy == RetrievalStrategy.HYBRID
+    assert len(response.query.query_variants) == 2
     assert response.hits[0].chunk_id == "chunk-traffic"
     assert response.hits[0].retrieval_trace.bm25_rank is not None
     assert response.hits[0].retrieval_trace.dense_rank is not None
     assert response.hits[0].retrieval_trace.rrf_score == response.hits[0].score
+    assert response.hits[0].retrieval_trace.query_variant_contributions
     assert response.artifact_versions == {
         "bm25_index": "1.0",
         "vector_index": "1.0",

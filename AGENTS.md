@@ -1329,8 +1329,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 18 — Model-backed Answer Generator
-(Implementation Completed; Model Benchmark Pending)
+Milestone 20 — Evidence Applicability and Context Selection
+(Implementation Completed; Official Quality Benchmark Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1576,8 +1576,7 @@ Milestone 17.4 đã sửa:
 - build state `0.20.0` được nâng có kiểm soát lên `0.20.1`;
 - version `0.20.1`, không thêm dependency.
 
-Milestone 17 chưa được đánh dấu Completed vì chưa chạy xong full AIO build trên
-môi trường đủ RAM/GPU và chưa có report thật đồng thời:
+Milestone 17 đã được xác nhận bằng full AIO build và report thật:
 
 ```text
 is_full_corpus = true
@@ -1596,7 +1595,39 @@ Milestone 18 đã tạo:
 - unit tests không network cho prompt, parsing, citation và provider failures.
 
 Milestone 18 chưa chọn/fine-tune model cuối cùng, chưa semantic-verify từng claim
-và chưa benchmark chất lượng trên GPU/labeled data.
+và chưa benchmark chất lượng trên labeled data. Full-corpus Qwen2.5-3B smoke đã
+trả model-backed answer với citation hợp lệ.
+
+Milestone 19 đã tạo:
+
+- typed query analysis, bounded query variants và per-variant contribution;
+- deterministic extraction chỉ từ user text cho document number,
+  Điều/Khoản/Điểm, năm, scope cue, relationship cue và conservative intent;
+- runtime recompute analysis trước fixed retrieval hoặc Agent;
+- multi-query BM25/dense với unweighted RRF, không cộng raw scores;
+- adaptive graph-first route cho relationship query;
+- retry rewriter ưu tiên user-derived variants;
+- fail-closed duplicate-payload validation và trace đầy đủ;
+- unit/integration tests không network, model hoặc dataset thật.
+
+Milestone 19 không triển khai synonym/LLM query expansion, semantic context
+grading, claim-level citation verification hoặc learned fusion.
+
+Milestone 20 đã tạo:
+
+- typed evidence applicability, selection reason và per-hit selection trace;
+- deterministic context ranking dùng source rank, explicit reference match,
+  lexical overlap và configured inactive-status penalty;
+- whole-chunk token/count budgeting với omission reason;
+- selection provenance trong `ContextBuildResult` và selected `Evidence`;
+- explicit document/article reference coverage trong context grader;
+- fail-closed context chỉ có inactive hoặc reference-mismatched evidence;
+- typed bounded `online.evidence_selection` configuration;
+- unit/integration tests không network, model hoặc dataset thật.
+
+Milestone 20 không diễn giải semantic legal applicability, không xác minh hiệu
+lực pháp luật hiện tại, không giải quyết xung đột văn bản và không claim-level
+verify answer.
 
 Competition adaptation chỉ bắt đầu sau khi người dùng yêu cầu và có thông tin
 BTC:
@@ -1620,8 +1651,8 @@ Milestone 17.5 đã sửa:
 - version `0.20.2`, không thêm dependency.
 
 Full-corpus validation đã được người dùng xác nhận `is_full_corpus = true` và
-`is_valid = true`. Online/UI smoke trên artifact thật vẫn phải chạy lại sau
-memory-safe loader trước khi đánh dấu toàn bộ Milestone 17 Completed.
+`is_valid = true`. Online/UI smoke trên artifact thật cũng đã hoàn thành sau
+memory-safe loader.
 
 Milestone 17.6 đã sửa:
 

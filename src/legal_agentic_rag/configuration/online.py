@@ -87,6 +87,28 @@ class VectorRuntimeConfig(BaseModel):
     device_transfer_batch_size: int = Field(default=32_768, gt=0)
 
 
+class QueryUnderstandingConfig(BaseModel):
+    """Bound deterministic query analysis and multi-query execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    multi_query_enabled: bool = True
+    adaptive_routing_enabled: bool = True
+    max_variants: int = Field(default=3, ge=1, le=5)
+
+
+class EvidenceSelectionConfig(BaseModel):
+    """Deterministic evidence applicability and ranking policy."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    enabled: bool = True
+    reference_match_boost: float = Field(default=2.0, ge=0, le=10)
+    lexical_overlap_weight: float = Field(default=1.0, ge=0, le=10)
+    inactive_penalty: float = Field(default=2.0, ge=0, le=10)
+
+
 class RerankerConfig(BaseModel):
     """Pinned multilingual cross-encoder and bounded inference policy."""
 
@@ -272,6 +294,12 @@ class OnlineConfig(BaseModel):
     )
     vector_runtime: VectorRuntimeConfig = Field(
         default_factory=VectorRuntimeConfig
+    )
+    query_understanding: QueryUnderstandingConfig = Field(
+        default_factory=QueryUnderstandingConfig
+    )
+    evidence_selection: EvidenceSelectionConfig = Field(
+        default_factory=EvidenceSelectionConfig
     )
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)

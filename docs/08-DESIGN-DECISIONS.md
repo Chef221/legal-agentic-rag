@@ -1348,3 +1348,73 @@ Starting with version `0.20.11`:
 
 Effect metadata remains a dataset snapshot under D017 and must not be presented
 as an independent confirmation of current legal validity.
+
+---
+
+## D062 — Deterministic Query Understanding and Bounded Multi-query RRF
+
+**Status:** Accepted
+
+The baseline router previously followed a fixed strategy order and its retry
+rewriter could only alternate between original and normalized question forms.
+Version `0.21.0` adds query intelligence without depending on AIO fields,
+competition labels, an LLM, or external legal knowledge:
+
+- `QueryUnderstandingService` extracts only explicit document numbers,
+  Điều/Khoản/Điểm references, years, scope cues, relationship cues and a
+  conservative intent;
+- runtime recomputes trusted analysis instead of accepting client-supplied
+  analysis;
+- variants are limited to normalized text, removal of generic framing, and
+  concatenation of references already present in the question;
+- `online.query_understanding.max_variants` is bounded from 1 to 5 and defaults
+  to 3;
+- hybrid retrieval executes BM25 and dense once per active variant and applies
+  standard unweighted RRF over every branch rank;
+- backend raw scores are never added or normalized together;
+- per-variant branch rank, raw score and contribution are persisted in typed
+  retrieval trace fields;
+- duplicate chunk IDs with conflicting legal payload fail closed;
+- relationship intent prioritizes graph retrieval, while explicit requested
+  strategy remains first and Agent retries remain capped at two;
+- disabled query understanding preserves the legacy single-query path;
+- existing legal chunks, BM25, vector and graph artifacts remain compatible.
+
+This is deterministic query planning, not semantic question understanding.
+Synonym expansion, legal-term invention, LLM rewriting, learned fusion weights
+and semantic applicability grading remain outside M19.
+
+---
+
+## D063 — Deterministic Evidence Applicability Screening Before Generation
+
+**Status:** Accepted
+
+Retrieval and reranking scores alone do not explain whether selected context
+matches an explicit legal reference in the user's question. Version `0.22.0`
+adds a deterministic selection layer without claiming semantic legal judgment:
+
+- the selector reads only unified retrieval metadata and trusted
+  `QueryAnalysis`;
+- source rank remains a signal but an exact document/article match may outrank
+  a higher raw retrieval rank;
+- lexical overlap is computed deterministically and used only inside context
+  selection;
+- inactive effect status is penalized only when the corresponding label is
+  explicitly configured;
+- unknown effect status remains selectable and produces a warning;
+- reference mismatch is demoted and traced, not silently deleted;
+- every unique retrieval hit is classified as selected, count-omitted or
+  token-budget-omitted;
+- selection score is not added back into BM25, dense, RRF or cross-encoder
+  scores;
+- the structural grader requires selected coverage for explicit document and
+  article references and fails closed for context containing only inactive or
+  reference-mismatched evidence;
+- metadata explicitly records that semantic relevance and legal applicability
+  were not interpreted;
+- existing corpus and index artifacts remain compatible.
+
+This policy improves evidence precision and debuggability but does not verify
+current legal validity, resolve conflicts between instruments, infer exceptions
+or prove claim-level support.

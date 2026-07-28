@@ -5,6 +5,11 @@ from pydantic import ValidationError
 
 from legal_agentic_rag.schemas.retrieval import (
     GraphPathStep,
+    QueryAnalysis,
+    QueryIntent,
+    QueryVariant,
+    QueryVariantContribution,
+    QueryVariantKind,
     RetrievalFilters,
     RetrievalHit,
     RetrievalQuery,
@@ -61,6 +66,55 @@ def test_retrieval_trace_preserves_branch_contributions() -> None:
         rrf_score=0.031,
     )
     assert trace.rrf_score == pytest.approx(0.031)
+
+
+def test_query_analysis_and_variants_are_typed_and_unique() -> None:
+    """Internal understanding output is validated instead of hidden metadata."""
+    query = RetrievalQuery(
+        query_id="query-analysis",
+        original_question="Điều 113 của 45/2019/QH14 quy định gì?",
+        normalized_question="Điều 113 của 45/2019/QH14 quy định gì?",
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.REFERENCE_LOOKUP,
+            document_numbers=["45/2019/QH14"],
+            article_numbers=["113"],
+        ),
+        query_variants=[
+            QueryVariant(
+                variant_id="qv1",
+                text="Điều 113 của 45/2019/QH14 quy định gì?",
+                kind=QueryVariantKind.NORMALIZED,
+            ),
+            QueryVariant(
+                variant_id="qv2",
+                text="Điều 113 45/2019/QH14",
+                kind=QueryVariantKind.LEGAL_REFERENCE,
+            ),
+        ],
+    )
+
+    assert query.query_analysis is not None
+    assert query.query_analysis.has_explicit_legal_reference
+
+    with pytest.raises(ValidationError):
+        RetrievalQuery.model_validate(
+            {
+                **query.model_dump(mode="python"),
+                "query_variants": [query.query_variants[0]] * 2,
+            }
+        )
+
+
+def test_query_variant_trace_rejects_non_retrieval_branch() -> None:
+    """Only sparse/dense variant contributions can enter query-fusion trace."""
+    with pytest.raises(ValidationError):
+        QueryVariantContribution(
+            variant_id="qv1",
+            strategy=RetrievalStrategy.GRAPH,
+            rank=1,
+            raw_score=1.0,
+            rrf_contribution=1 / 61,
+        )
 
 
 def test_graph_trace_requires_consistent_hop_metadata() -> None:

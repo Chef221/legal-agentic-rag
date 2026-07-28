@@ -15,6 +15,7 @@ from legal_agentic_rag.configuration import (
     DatasetSourceConfig,
     DocumentNormalizationConfig,
     EmbeddingConfig,
+    EvidenceSelectionConfig,
     GenerationConfig,
     GraphIndexConfig,
     HtmlCleaningConfig,
@@ -22,6 +23,7 @@ from legal_agentic_rag.configuration import (
     LoggingConfig,
     OfflineConfig,
     OfflineExecutionConfig,
+    QueryUnderstandingConfig,
     RetrievalConfig,
     RelationshipNormalizationConfig,
     RerankerConfig,
@@ -127,6 +129,20 @@ def test_vector_runtime_config_bounds_online_load_and_search_batches() -> None:
         VectorRuntimeConfig(device_transfer_batch_size=0)
 
 
+def test_query_understanding_config_is_enabled_and_bounded() -> None:
+    """Query analysis and multi-query behavior are explicit runtime policy."""
+    config = QueryUnderstandingConfig()
+
+    assert config.enabled is True
+    assert config.multi_query_enabled is True
+    assert config.adaptive_routing_enabled is True
+    assert config.max_variants == 3
+    with pytest.raises(ValidationError):
+        QueryUnderstandingConfig(max_variants=0)
+    with pytest.raises(ValidationError):
+        QueryUnderstandingConfig(max_variants=6)
+
+
 def test_relationship_and_graph_index_configuration_is_explicit() -> None:
     """Graph labels are never guessed and the reference backend is typed."""
     relationship = RelationshipNormalizationConfig(
@@ -209,6 +225,22 @@ def test_generation_and_context_grading_defaults_are_bounded() -> None:
         )
     with pytest.raises(ValidationError):
         ContextGradingConfig(minimum_evidence_count=0)
+
+
+def test_evidence_selection_defaults_are_bounded_and_optional() -> None:
+    """Applicability ranking weights cannot become unbounded or negative."""
+    selection = EvidenceSelectionConfig()
+
+    assert selection.enabled is True
+    assert selection.reference_match_boost == 2.0
+    assert selection.lexical_overlap_weight == 1.0
+    assert selection.inactive_penalty == 2.0
+    with pytest.raises(ValidationError):
+        EvidenceSelectionConfig(reference_match_boost=-1)
+    with pytest.raises(ValidationError):
+        EvidenceSelectionConfig(lexical_overlap_weight=11)
+    with pytest.raises(ValidationError):
+        EvidenceSelectionConfig(inactive_penalty=float("inf"))
 
 
 def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:

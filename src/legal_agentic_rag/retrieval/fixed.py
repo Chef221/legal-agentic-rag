@@ -6,14 +6,24 @@ import logging
 from time import perf_counter
 from typing import Protocol
 
-from legal_agentic_rag.configuration.online import RerankerConfig, RetrievalConfig
+from legal_agentic_rag.configuration.online import (
+    QueryUnderstandingConfig,
+    RerankerConfig,
+    RetrievalConfig,
+)
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.contracts.graph_backend import GraphBackend
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, RetrievalError
 from legal_agentic_rag.retrieval.graph import GraphExpandedRetriever
+from legal_agentic_rag.retrieval.multi_query import (
+    QueryBranchResult,
+    fuse_query_branches,
+)
 from legal_agentic_rag.retrieval.rerank import RerankingRetriever
 from legal_agentic_rag.retrieval.rrf import reciprocal_rank_fusion
 from legal_agentic_rag.schemas.retrieval import (
+    QueryVariant,
+    QueryVariantKind,
     RetrievalQuery,
     RetrievalResponse,
     RetrievalStrategy,
@@ -38,10 +48,14 @@ class HybridRetriever:
         bm25_retriever: _RetrievalBranch,
         dense_retriever: _RetrievalBranch,
         config: RetrievalConfig | None = None,
+        query_understanding_config: QueryUnderstandingConfig | None = None,
     ) -> None:
         self._bm25 = bm25_retriever
         self._dense = dense_retriever
         self._config = config or RetrievalConfig()
+        self._query_config = (
+            query_understanding_config or QueryUnderstandingConfig()
+        )
 
     @property
     def source_artifact_identity(self) -> tuple[str, str, str]:
@@ -60,35 +74,78 @@ class HybridRetriever:
             raise RetrievalError("Hybrid retriever received a non-hybrid request")
         _ = self.source_artifact_identity
         started = perf_counter()
-        branch_base = query.model_copy(
-            update={"top_k": query.candidate_k, "candidate_k": query.candidate_k}
-        )
-        bm25_response = self._bm25.search(
-            branch_base.model_copy(
-                update={"requested_strategy": RetrievalStrategy.BM25}
+        variants = self._active_variants(query)
+        branch_results: list[QueryBranchResult] = []
+        response_pairs: list[
+            tuple[str, RetrievalResponse, RetrievalResponse]
+        ] = []
+        for variant in variants:
+            branch_base = query.model_copy(
+                update={
+                    "top_k": query.candidate_k,
+                    "candidate_k": query.candidate_k,
+                    "rewritten_question": (
+                        variant.text
+                        if variant.text != query.normalized_question
+                        else None
+                    ),
+                }
             )
-        )
-        dense_response = self._dense.search(
-            branch_base.model_copy(
-                update={"requested_strategy": RetrievalStrategy.DENSE}
+            bm25_response = self._bm25.search(
+                branch_base.model_copy(
+                    update={"requested_strategy": RetrievalStrategy.BM25}
+                )
             )
-        )
-        self._validate_branch_response(
-            bm25_response, query.query_id, RetrievalStrategy.BM25
-        )
-        self._validate_branch_response(
-            dense_response, query.query_id, RetrievalStrategy.DENSE
-        )
-        hits = reciprocal_rank_fusion(
-            bm25_response.hits,
-            dense_response.hits,
-            rrf_constant=self._config.rrf_constant,
-            top_k=query.top_k,
-        )
-        warnings = self._warnings(bm25_response, dense_response, bool(hits))
-        artifact_versions = self._artifact_versions(
-            bm25_response, dense_response
-        )
+            dense_response = self._dense.search(
+                branch_base.model_copy(
+                    update={"requested_strategy": RetrievalStrategy.DENSE}
+                )
+            )
+            self._validate_branch_response(
+                bm25_response, query.query_id, RetrievalStrategy.BM25
+            )
+            self._validate_branch_response(
+                dense_response, query.query_id, RetrievalStrategy.DENSE
+            )
+            response_pairs.append(
+                (variant.variant_id, bm25_response, dense_response)
+            )
+            branch_results.extend(
+                (
+                    QueryBranchResult(
+                        variant.variant_id,
+                        RetrievalStrategy.BM25,
+                        bm25_response.hits,
+                    ),
+                    QueryBranchResult(
+                        variant.variant_id,
+                        RetrievalStrategy.DENSE,
+                        dense_response.hits,
+                    ),
+                )
+            )
+
+        if len(variants) == 1:
+            _, bm25_response, dense_response = response_pairs[0]
+            hits = reciprocal_rank_fusion(
+                bm25_response.hits,
+                dense_response.hits,
+                rrf_constant=self._config.rrf_constant,
+                top_k=query.top_k,
+            )
+            warnings = self._warnings(
+                bm25_response,
+                dense_response,
+                bool(hits),
+            )
+        else:
+            hits = fuse_query_branches(
+                branch_results,
+                rrf_constant=self._config.rrf_constant,
+                top_k=query.top_k,
+            )
+            warnings = self._multi_query_warnings(response_pairs, bool(hits))
+        artifact_versions = self._multi_query_artifact_versions(response_pairs)
         latency_ms = (perf_counter() - started) * 1000
         _LOGGER.info(
             "hybrid_retrieval_completed",
@@ -96,8 +153,13 @@ class HybridRetriever:
                 "query_id": query.query_id,
                 "strategy": RetrievalStrategy.HYBRID.value,
                 "candidate_count": len(hits),
-                "bm25_candidate_count": len(bm25_response.hits),
-                "dense_candidate_count": len(dense_response.hits),
+                "query_variant_count": len(variants),
+                "bm25_candidate_count": sum(
+                    len(pair[1].hits) for pair in response_pairs
+                ),
+                "dense_candidate_count": sum(
+                    len(pair[2].hits) for pair in response_pairs
+                ),
                 "latency_ms": latency_ms,
             },
         )
@@ -111,6 +173,22 @@ class HybridRetriever:
             warnings=warnings,
             artifact_versions=artifact_versions,
         )
+
+    def _active_variants(self, query: RetrievalQuery) -> list[QueryVariant]:
+        effective_query = query.rewritten_question or query.normalized_question
+        if (
+            self._query_config.multi_query_enabled
+            and query.rewritten_question is None
+            and query.query_variants
+        ):
+            return query.query_variants[: self._query_config.max_variants]
+        return [
+            QueryVariant(
+                variant_id="qv-active",
+                text=effective_query,
+                kind=QueryVariantKind.NORMALIZED,
+            )
+        ]
 
     @staticmethod
     def _validate_branch_response(
@@ -147,6 +225,39 @@ class HybridRetriever:
             versions[name] = version
         return versions
 
+    @classmethod
+    def _multi_query_artifact_versions(
+        cls,
+        responses: list[tuple[str, RetrievalResponse, RetrievalResponse]],
+    ) -> dict[str, str]:
+        versions: dict[str, str] = {}
+        for _, bm25, dense in responses:
+            pair_versions = cls._artifact_versions(bm25, dense)
+            for name, version in pair_versions.items():
+                if name in versions and versions[name] != version:
+                    raise ArtifactCompatibilityError(
+                        "Query variants report conflicting artifact versions"
+                    )
+                versions[name] = version
+        return versions
+
+    @staticmethod
+    def _multi_query_warnings(
+        responses: list[tuple[str, RetrievalResponse, RetrievalResponse]],
+        has_hits: bool,
+    ) -> list[str]:
+        warnings: list[str] = []
+        for variant_id, bm25, dense in responses:
+            warnings.extend(
+                f"{variant_id}:bm25:{warning}" for warning in bm25.warnings
+            )
+            warnings.extend(
+                f"{variant_id}:dense:{warning}" for warning in dense.warnings
+            )
+        if not has_hits:
+            warnings.append("no_hybrid_matches")
+        return list(dict.fromkeys(warnings))
+
 
 class FixedRetriever:
     """Route explicitly among the completed fixed retrieval strategies."""
@@ -157,6 +268,7 @@ class FixedRetriever:
         dense_retriever: _RetrievalBranch,
         config: RetrievalConfig | None = None,
         *,
+        query_understanding_config: QueryUnderstandingConfig | None = None,
         reranker: Reranker | None = None,
         reranker_config: RerankerConfig | None = None,
         graph_backend: GraphBackend | None = None,
@@ -165,7 +277,12 @@ class FixedRetriever:
         self._bm25 = bm25_retriever
         self._dense = dense_retriever
         self._config = config or RetrievalConfig()
-        self._hybrid = HybridRetriever(bm25_retriever, dense_retriever, self._config)
+        self._hybrid = HybridRetriever(
+            bm25_retriever,
+            dense_retriever,
+            self._config,
+            query_understanding_config,
+        )
         self._hybrid_rerank = (
             RerankingRetriever(self._hybrid, reranker, reranker_config)
             if reranker is not None

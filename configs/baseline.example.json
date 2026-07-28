@@ -13,7 +13,20 @@
       "relationship_type_mapping": {}
     }
   },
-  "online": {},
+  "online": {
+    "query_understanding": {
+      "enabled": true,
+      "multi_query_enabled": true,
+      "adaptive_routing_enabled": true,
+      "max_variants": 3
+    },
+    "evidence_selection": {
+      "enabled": true,
+      "reference_match_boost": 2.0,
+      "lexical_overlap_weight": 1.0,
+      "inactive_penalty": 2.0
+    }
+  },
   "logging": {
     "level": "INFO"
   },

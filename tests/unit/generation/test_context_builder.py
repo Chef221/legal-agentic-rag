@@ -6,6 +6,7 @@ from legal_agentic_rag.configuration import GenerationConfig
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.generation import ContextBuilder
 from legal_agentic_rag.schemas import (
+    QueryAnalysis,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
@@ -138,3 +139,38 @@ def test_context_builder_deprioritizes_only_explicit_inactive_statuses() -> None
     result = builder.build(_response([inactive, current]))
 
     assert result.evidence[0].chunk_id == "current"
+
+
+def test_context_builder_records_applicability_and_budget_decisions() -> None:
+    """Selected and omitted hits retain a typed evidence-selection trace."""
+    matching = _hit("matching", 2, token_count=3)
+    matching_metadata = dict(matching.metadata)
+    matching_metadata["document_number"] = "45/2019/QH14"
+    matching_metadata["structure"] = {"article_number": "113"}
+    matching = matching.model_copy(update={"metadata": matching_metadata})
+    wrong = _hit("wrong", 1, token_count=3)
+    response = _response([wrong, matching])
+    query = response.query.model_copy(
+        update={
+            "query_analysis": QueryAnalysis(
+                document_numbers=["45/2019/QH14"],
+                article_numbers=["113"],
+            )
+        }
+    )
+    response = response.model_copy(update={"query": query})
+
+    result = ContextBuilder(
+        GenerationConfig(max_evidence=1, max_context_tokens=10)
+    ).build(response)
+
+    assert [item.chunk_id for item in result.evidence] == ["matching"]
+    assert result.evidence[0].metadata["evidence_selection"][
+        "applicability"
+    ] == "explicit_match"
+    assert [item.chunk_id for item in result.selection_trace] == [
+        "matching",
+        "wrong",
+    ]
+    assert result.selection_trace[0].selected is True
+    assert result.selection_trace[1].reason == "max_evidence"

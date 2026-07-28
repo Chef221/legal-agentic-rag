@@ -6,7 +6,7 @@ from legal_agentic_rag.schemas.retrieval import RetrievalQuery
 
 
 class ConservativeQueryRewriter:
-    """Reuse only user-supplied query forms when a retrieval retry is needed."""
+    """Reuse only user-derived query forms when a retrieval retry is needed."""
 
     def rewrite(
         self,
@@ -17,6 +17,7 @@ class ConservativeQueryRewriter:
     ) -> str | None:
         """Return an unused user-supplied form, or null when none is available."""
         candidates = (
+            *(variant.text for variant in query.query_variants),
             query.original_question.strip(),
             query.normalized_question.strip(),
         )

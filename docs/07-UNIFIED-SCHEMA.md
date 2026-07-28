@@ -458,6 +458,8 @@ JSONL nên public schema không thay đổi.
   "top_k": 10,
   "candidate_k": 100,
   "requested_strategy": "string|null",
+  "query_analysis": "QueryAnalysis|null",
+  "query_variants": [],
   "metadata": {}
 }
 ```
@@ -465,6 +467,40 @@ JSONL nên public schema không thay đổi.
 `RetrievalFilters` chỉ chứa field chung của unified schema. Empty list
 nghĩa là không áp dụng filter tương ứng. Backend-specific filter không
 được đưa vào core contract.
+
+### QueryAnalysis
+
+Milestone 19 thêm nested contract có consumer rõ ràng là router, query rewriter
+và multi-query retriever:
+
+```json
+{
+  "intent": "general|reference_lookup|relationship|quantitative|procedure|eligibility|obligation|prohibition|definition",
+  "document_numbers": [],
+  "article_numbers": [],
+  "clause_numbers": [],
+  "point_numbers": [],
+  "year_mentions": [],
+  "scope_cues": [],
+  "relationship_cues": []
+}
+```
+
+Mọi value phải xuất hiện trong câu hỏi normalized. Runtime tính lại analysis;
+không dùng analysis do public client tự khai báo.
+
+### QueryVariant
+
+```json
+{
+  "variant_id": "qv1",
+  "text": "string",
+  "kind": "normalized|framing_stripped|legal_reference"
+}
+```
+
+Variant ID và text phải unique. Variant không được thêm kiến thức hoặc thuật ngữ
+không có trong câu hỏi. Số lượng do typed config giới hạn.
 
 ---
 
@@ -496,9 +532,25 @@ nghĩa là không áp dụng filter tương ứng. Backend-specific filter khôn
   "rrf_score": 0.031,
   "reranker_score": 0.92,
   "graph_hop": null,
-  "graph_path": []
+  "graph_path": [],
+  "query_variant_contributions": []
 }
 ```
+
+Mỗi `QueryVariantContribution` ghi:
+
+```json
+{
+  "variant_id": "qv1",
+  "strategy": "bm25|dense",
+  "rank": 1,
+  "raw_score": 12.4,
+  "rrf_contribution": 0.016
+}
+```
+
+Cặp `(variant_id, strategy)` phải unique trong trace của một hit. Chỉ BM25 và
+dense được phép tham gia query fusion.
 
 Mỗi item trong `graph_path` có:
 
@@ -521,6 +573,17 @@ schema mới. Với hybrid hit:
 - contribution của nhánh không có chunk bằng `0.0`, rank/score nhánh đó là null;
 - `rank` là final fused rank và `strategy = "hybrid"`;
 - metadata của duplicate chunk phải giống nhau giữa hai branch.
+
+Milestone 19 mở rộng cùng phép RRF sang nhiều bounded query variants:
+
+- mỗi variant có một BM25 và một dense branch;
+- `bm25_rrf_contribution` và `dense_rrf_contribution` là tổng contribution theo
+  loại branch;
+- `rrf_score` là tổng của hai giá trị trên;
+- `RetrievalHit.score` tiếp tục bằng `rrf_score`;
+- best rank/raw score của mỗi loại branch giữ trong field cũ;
+- mọi per-variant contribution giữ trong typed list mới;
+- duplicate chunk có payload khác nhau giữa variants bị từ chối.
 
 Trong Milestone 10, cross-encoder tiếp tục tái sử dụng `RetrievalQuery`,
 `RetrievalHit`, `RetrievalTrace` và `RetrievalResponse`; không cần nested schema
@@ -614,6 +677,7 @@ relationships và source processing hash trỏ về normalized documents.
   "relevance_score": 0.0,
   "coverage_score": 0.0,
   "consistency_score": 0.0,
+  "applicability_score": 0.0,
   "missing_aspects": [],
   "warnings": [],
   "metadata": {}
@@ -690,13 +754,45 @@ Milestone 12 thêm typed result cho consumer rõ ràng là fixed RAG service:
   "duplicate_hit_count": 0,
   "estimated_token_count": 0,
   "truncated": false,
-  "warnings": []
+  "warnings": [],
+  "selection_trace": []
 }
 ```
 
 `truncated` chỉ cho biết có whole hit bị bỏ vì count/token budget. Legal text
 không bị cắt một phần. Mọi input hit phải được selected, omitted hoặc classified
 là exact duplicate.
+
+### EvidenceSelectionTrace
+
+Milestone 20 thêm một record cho mỗi unique retrieval hit:
+
+```json
+{
+  "chunk_id": "string",
+  "source_rank": 1,
+  "selection_rank": 1,
+  "applicability": "explicit_match",
+  "document_reference_match": true,
+  "article_reference_match": true,
+  "lexical_overlap_score": 0.5,
+  "selection_score": 5.5,
+  "selected": true,
+  "reason": "selected"
+}
+```
+
+`applicability` chỉ nhận:
+
+- `explicit_match`;
+- `compatible`;
+- `unknown`;
+- `inactive`;
+- `reference_mismatch`.
+
+`reason` chỉ nhận `selected`, `max_evidence` hoặc `token_budget`.
+Trace phải phân loại mọi unique hit; selected trace order phải khớp danh sách
+`Evidence`. Đây là selection provenance, không phải semantic/legal verdict.
 
 `insufficient_evidence` là required field và không có implicit default.
 

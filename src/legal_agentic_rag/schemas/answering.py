@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from enum import StrEnum
 
 from pydantic import (
     BaseModel,
@@ -72,6 +73,67 @@ class Evidence(BaseModel):
         return _optional_text(value)
 
 
+class EvidenceApplicability(StrEnum):
+    """Conservative evidence applicability classification."""
+
+    EXPLICIT_MATCH = "explicit_match"
+    COMPATIBLE = "compatible"
+    UNKNOWN = "unknown"
+    INACTIVE = "inactive"
+    REFERENCE_MISMATCH = "reference_mismatch"
+
+
+class EvidenceSelectionReason(StrEnum):
+    """Reason one unique retrieval hit was selected or omitted."""
+
+    SELECTED = "selected"
+    MAX_EVIDENCE = "max_evidence"
+    TOKEN_BUDGET = "token_budget"
+
+
+class EvidenceSelectionTrace(BaseModel):
+    """Explain deterministic ranking and selection of one retrieval hit."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    chunk_id: str
+    source_rank: int = Field(ge=1)
+    selection_rank: int | None = Field(default=None, ge=1)
+    applicability: EvidenceApplicability
+    document_reference_match: bool | None = None
+    article_reference_match: bool | None = None
+    lexical_overlap_score: float = Field(ge=0, le=1)
+    selection_score: float
+    selected: bool
+    reason: EvidenceSelectionReason
+
+    @field_validator("chunk_id")
+    @classmethod
+    def validate_chunk_id(cls, value: str) -> str:
+        """Require the selected or omitted chunk identity."""
+        return _non_empty(value)
+
+    @model_validator(mode="after")
+    def validate_selection_state(self) -> "EvidenceSelectionTrace":
+        """Align selected flag, selection rank, and reason."""
+        if self.selected:
+            if (
+                self.reason != EvidenceSelectionReason.SELECTED
+                or self.selection_rank is None
+            ):
+                raise ValueError(
+                    "selected evidence requires selected reason and rank"
+                )
+        elif (
+            self.reason == EvidenceSelectionReason.SELECTED
+            or self.selection_rank is not None
+        ):
+            raise ValueError(
+                "omitted evidence must not have selected reason or rank"
+            )
+        return self
+
+
 class ContextGrade(BaseModel):
     """Structured assessment of whether selected evidence is sufficient."""
 
@@ -82,6 +144,7 @@ class ContextGrade(BaseModel):
     relevance_score: float = Field(default=0.0, ge=0, le=1)
     coverage_score: float = Field(default=0.0, ge=0, le=1)
     consistency_score: float = Field(default=0.0, ge=0, le=1)
+    applicability_score: float = Field(default=0.0, ge=0, le=1)
     missing_aspects: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
@@ -100,6 +163,9 @@ class ContextBuildResult(BaseModel):
     estimated_token_count: int = Field(ge=0)
     truncated: bool = False
     warnings: list[str] = Field(default_factory=list)
+    selection_trace: list[EvidenceSelectionTrace] = Field(
+        default_factory=list
+    )
 
     @model_validator(mode="after")
     def validate_counts(self) -> "ContextBuildResult":
@@ -122,6 +188,23 @@ class ContextBuildResult(BaseModel):
             or len(chunk_ids) != len(set(chunk_ids))
         ):
             raise ValueError("selected evidence identities must be unique")
+        if self.selection_trace:
+            trace_chunk_ids = [item.chunk_id for item in self.selection_trace]
+            if len(trace_chunk_ids) != len(set(trace_chunk_ids)):
+                raise ValueError("selection trace chunk IDs must be unique")
+            if len(self.selection_trace) != (
+                self.selected_count + self.omitted_hit_count
+            ):
+                raise ValueError(
+                    "selection trace must classify every unique retrieval hit"
+                )
+            selected_trace = [
+                item for item in self.selection_trace if item.selected
+            ]
+            if [item.chunk_id for item in selected_trace] != chunk_ids:
+                raise ValueError(
+                    "selected trace order must match selected evidence"
+                )
         return self
 
 

@@ -6,9 +6,22 @@ import re
 
 from pydantic import ValidationError
 
-from legal_agentic_rag.configuration.online import GenerationConfig
+from legal_agentic_rag.configuration.online import (
+    EvidenceSelectionConfig,
+    GenerationConfig,
+)
 from legal_agentic_rag.exceptions import DataValidationError
-from legal_agentic_rag.schemas.answering import ContextBuildResult, Evidence
+from legal_agentic_rag.generation.evidence_selector import (
+    EvidenceSelector,
+    ScoredEvidenceCandidate,
+)
+from legal_agentic_rag.schemas.answering import (
+    ContextBuildResult,
+    Evidence,
+    EvidenceApplicability,
+    EvidenceSelectionReason,
+    EvidenceSelectionTrace,
+)
 from legal_agentic_rag.schemas.retrieval import RetrievalHit, RetrievalResponse
 
 _TOKEN_PATTERN = re.compile(r"\w+|[^\w\s]", flags=re.UNICODE)
@@ -17,8 +30,13 @@ _TOKEN_PATTERN = re.compile(r"\w+|[^\w\s]", flags=re.UNICODE)
 class ContextBuilder:
     """Select complete legal chunks without truncating their legal text."""
 
-    def __init__(self, config: GenerationConfig | None = None) -> None:
+    def __init__(
+        self,
+        config: GenerationConfig | None = None,
+        selection_config: EvidenceSelectionConfig | None = None,
+    ) -> None:
         self._config = config or GenerationConfig()
+        self._selector = EvidenceSelector(selection_config, self._config)
 
     def build(self, response: RetrievalResponse) -> ContextBuildResult:
         """Build deterministic evidence within count and context-token limits."""
@@ -27,24 +45,39 @@ class ContextBuilder:
         omitted_count = 0
         estimated_tokens = 0
         warnings: list[str] = []
-        for hit in sorted(
-            unique_hits,
-            key=lambda item: (
-                self._is_inactive(item),
-                item.rank,
-                item.chunk_id,
-            ),
-        ):
+        selection_trace: list[EvidenceSelectionTrace] = []
+        for candidate in self._selector.score(response.query, unique_hits):
+            hit = candidate.hit
             token_count = self._token_count(hit)
+            if len(selected) >= self._config.max_evidence:
+                omitted_count += 1
+                selection_trace.append(
+                    self._trace(
+                        candidate,
+                        reason=EvidenceSelectionReason.MAX_EVIDENCE,
+                    )
+                )
+                continue
             if (
-                len(selected) >= self._config.max_evidence
-                or estimated_tokens + token_count
+                estimated_tokens + token_count
                 > self._config.max_context_tokens
             ):
                 omitted_count += 1
+                selection_trace.append(
+                    self._trace(
+                        candidate,
+                        reason=EvidenceSelectionReason.TOKEN_BUDGET,
+                    )
+                )
                 continue
-            evidence = self._evidence(hit, len(selected) + 1)
+            trace = self._trace(
+                candidate,
+                reason=EvidenceSelectionReason.SELECTED,
+                selection_rank=len(selected) + 1,
+            )
+            evidence = self._evidence(hit, len(selected) + 1, trace)
             selected.append(evidence)
+            selection_trace.append(trace)
             estimated_tokens += token_count
             if evidence.effect_status is None:
                 warnings.append(f"effect_status_unknown:{evidence.evidence_id}")
@@ -53,6 +86,23 @@ class ContextBuilder:
                 in self._config.inactive_effect_statuses
             ):
                 warnings.append(f"inactive_effect_status:{evidence.evidence_id}")
+            if (
+                trace.applicability
+                == EvidenceApplicability.REFERENCE_MISMATCH
+            ):
+                warnings.append(
+                    f"explicit_reference_mismatch:{evidence.evidence_id}"
+                )
+        if (
+            response.query.query_analysis is not None
+            and response.query.query_analysis.has_explicit_legal_reference
+            and not any(
+                item.applicability == EvidenceApplicability.EXPLICIT_MATCH
+                and item.selected
+                for item in selection_trace
+            )
+        ):
+            warnings.append("explicit_reference_not_selected")
         if omitted_count:
             warnings.append("context_budget_exhausted")
         if duplicate_count:
@@ -68,6 +118,7 @@ class ContextBuilder:
             estimated_token_count=estimated_tokens,
             truncated=bool(omitted_count),
             warnings=warnings,
+            selection_trace=selection_trace,
         )
 
     @staticmethod
@@ -99,15 +150,12 @@ class ContextBuilder:
             return value
         return max(1, len(_TOKEN_PATTERN.findall(hit.text)))
 
-    def _is_inactive(self, hit: RetrievalHit) -> bool:
-        status = hit.metadata.get("effect_status")
-        return (
-            isinstance(status, str)
-            and status.casefold() in self._config.inactive_effect_statuses
-        )
-
     @staticmethod
-    def _evidence(hit: RetrievalHit, index: int) -> Evidence:
+    def _evidence(
+        hit: RetrievalHit,
+        index: int,
+        trace: EvidenceSelectionTrace,
+    ) -> Evidence:
         structure = hit.metadata.get("structure")
         hierarchy = structure if isinstance(structure, dict) else {}
         try:
@@ -130,6 +178,7 @@ class ContextBuilder:
                     "retrieval_score": hit.score,
                     "retrieval_strategy": hit.strategy.value,
                     "retrieval_trace": hit.retrieval_trace.model_dump(mode="json"),
+                    "evidence_selection": trace.model_dump(mode="json"),
                     "chunk_metadata": hit.metadata,
                 },
             )
@@ -137,3 +186,26 @@ class ContextBuilder:
             raise DataValidationError(
                 "Retrieval hit cannot be converted into legal evidence"
             ) from error
+
+    @staticmethod
+    def _trace(
+        candidate: ScoredEvidenceCandidate,
+        *,
+        reason: EvidenceSelectionReason,
+        selection_rank: int | None = None,
+    ) -> EvidenceSelectionTrace:
+        selected = reason == EvidenceSelectionReason.SELECTED
+        return EvidenceSelectionTrace(
+            chunk_id=candidate.hit.chunk_id,
+            source_rank=candidate.hit.rank,
+            selection_rank=selection_rank,
+            applicability=candidate.applicability,
+            document_reference_match=(
+                candidate.document_reference_match
+            ),
+            article_reference_match=candidate.article_reference_match,
+            lexical_overlap_score=candidate.lexical_overlap_score,
+            selection_score=candidate.selection_score,
+            selected=selected,
+            reason=reason,
+        )

@@ -6,10 +6,12 @@ Hệ thống Agentic RAG cho bài toán trả lời câu hỏi pháp luật Vi�
 
 Dự án đã hoàn thành implementation cho:
 
-`Milestone 18 — Model-backed Answer Generator`
+`Milestone 20 — Evidence Applicability and Context Selection`
 
-Full-corpus execution chưa được tuyên bố hoàn thành cho tới khi có
-`build_validation.json` thật với `is_full_corpus = true` và `is_valid = true`.
+Full-corpus AIO execution đã tạo `build_validation.json` thật với
+`is_full_corpus = true`, `is_valid = true` và online smoke đã load được toàn bộ
+artifact set. Đây là bằng chứng vận hành baseline, không phải benchmark chất
+lượng chính thức của cuộc thi.
 
 M18 bổ sung model-backed grounded generation qua endpoint OpenAI-compatible
 hoặc Hugging Face Transformers chạy local. `extractive` vẫn là backend mặc
@@ -188,6 +190,24 @@ hiệu lực và cấu trúc Điều được đặt trước chunk text. Nhờ 
 phân biệt quy định tổng quát với văn bản chỉ áp dụng cho một nhóm đối tượng.
 `text_only` vẫn có thể chọn bằng config để A/B benchmark; artifact hiện có
 không cần rebuild.
+
+Từ version `0.21.0`, runtime phân tích các tín hiệu xuất hiện trực tiếp trong
+câu hỏi: số hiệu văn bản, Điều/Khoản/Điểm, năm, phạm vi, quan hệ văn bản và
+intent bảo thủ. Hệ thống tạo tối đa ba query variants chỉ bằng cách bỏ framing
+hoặc ghép lại reference đã có trong câu hỏi; không tự thêm thuật ngữ pháp lý.
+Hybrid retrieval chạy BM25/dense cho các variants rồi RRF toàn bộ branch ranks,
+giữ từng contribution trong trace. Agent ưu tiên graph cho câu hỏi quan hệ văn
+bản và dùng variants còn lại khi retry. Cấu hình nằm tại
+`online.query_understanding`; artifact hiện có không cần rebuild.
+
+Từ version `0.22.0`, context builder không còn chỉ lấy lần lượt theo retrieval
+rank. Mỗi hit được đánh giá bảo thủ bằng reference người dùng đã nêu, lexical
+overlap, effect-status label đã cấu hình và source rank. Kết quả giữ typed
+selection trace cho cả hit được chọn và bị bỏ. Context grader fail closed nếu
+câu hỏi nêu rõ số hiệu văn bản hoặc Điều nhưng không có selected evidence khớp.
+Đây là deterministic applicability screening, không phải kết luận pháp lý về
+hiệu lực hay phạm vi áp dụng. Cấu hình nằm tại `online.evidence_selection`;
+artifact hiện có không cần rebuild.
 
 Chạy benchmark có nhãn:
 

@@ -11,6 +11,7 @@ from legal_agentic_rag.generation import (
 )
 from legal_agentic_rag.schemas import (
     AgentStopReason,
+    QueryAnalysis,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
@@ -47,6 +48,45 @@ class _FixedRetriever:
         )
 
 
+@dataclass
+class _ReferenceRetriever:
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        strategy = query.requested_strategy
+        assert strategy is not None
+        hits = [
+            RetrievalHit(
+                chunk_id="wrong-reference",
+                document_id="wrong-document",
+                rank=1,
+                score=2.0,
+                strategy=strategy,
+                text="Điều 113. Nội dung thuộc văn bản khác.",
+                metadata={
+                    "document_number": "145/2020/NĐ-CP",
+                    "structure": {"article_number": "113"},
+                },
+            ),
+            RetrievalHit(
+                chunk_id="exact-reference",
+                document_id="exact-document",
+                rank=2,
+                score=1.0,
+                strategy=strategy,
+                text="Điều 113. Người lao động được nghỉ hằng năm.",
+                metadata={
+                    "document_number": "45/2019/QH14",
+                    "structure": {"article_number": "113"},
+                },
+            ),
+        ]
+        return RetrievalResponse(
+            query=query,
+            strategy=strategy,
+            hits=hits,
+            artifact_versions={"legal_chunks": "1.0"},
+        )
+
+
 def test_fixed_registry_runs_through_agent_to_verified_answer() -> None:
     """The Agent composes retrieval, grading, generation, and verification tools."""
     registry = build_fixed_tool_registry(
@@ -73,3 +113,40 @@ def test_fixed_registry_runs_through_agent_to_verified_answer() -> None:
         "chunk-agent-integration"
     )
     assert result.response.metadata["agent"]["attempt_count"] == 1
+
+
+def test_agent_selects_exact_user_reference_before_higher_raw_rank() -> None:
+    """Applicability selection is preserved through grading and generation."""
+    registry = build_fixed_tool_registry(
+        retriever=_ReferenceRetriever(),
+        context_grader=RuleBasedContextGrader(),
+        answer_generator=ExtractiveAnswerGenerator(),
+        citation_verifier=RuleBasedCitationVerifier(),
+    )
+    workflow = DeterministicAgentWorkflow(registry)
+    query = RetrievalQuery(
+        query_id="agent-reference-integration",
+        original_question="Điều 113 Luật 45/2019/QH14 quy định gì?",
+        normalized_question="Điều 113 Luật 45/2019/QH14 quy định gì?",
+        query_analysis=QueryAnalysis(
+            document_numbers=["45/2019/QH14"],
+            article_numbers=["113"],
+        ),
+        top_k=2,
+        candidate_k=2,
+    )
+
+    result = workflow.run(query)
+
+    assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
+    assert [
+        item.chunk_id for item in result.state.selected_evidence
+    ][:2] == ["exact-reference", "wrong-reference"]
+    assert result.state.selected_evidence[0].metadata[
+        "evidence_selection"
+    ]["applicability"] == "explicit_match"
+    assert result.state.context_grade is not None
+    assert result.state.context_grade.metadata["reference_coverage"] == {
+        "document": True,
+        "article": True,
+    }

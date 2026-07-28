@@ -7,8 +7,12 @@ from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     Citation,
     CitationVerificationResult,
+    ContextBuildResult,
     ContextGrade,
     Evidence,
+    EvidenceApplicability,
+    EvidenceSelectionReason,
+    EvidenceSelectionTrace,
 )
 
 
@@ -63,6 +67,49 @@ def test_context_scores_are_bounded() -> None:
     """Grader scores stay within the documented zero-to-one range."""
     with pytest.raises(ValidationError):
         ContextGrade(is_sufficient=True, score=1.1)
+
+
+def test_evidence_selection_trace_aligns_with_context_evidence() -> None:
+    """Selection trace has a typed reason and matches selected evidence order."""
+    evidence = Evidence(
+        evidence_id="E1",
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        text="Nội dung.",
+    )
+    trace = EvidenceSelectionTrace(
+        chunk_id="chunk-1",
+        source_rank=2,
+        selection_rank=1,
+        applicability=EvidenceApplicability.EXPLICIT_MATCH,
+        document_reference_match=True,
+        lexical_overlap_score=0.5,
+        selection_score=3.0,
+        selected=True,
+        reason=EvidenceSelectionReason.SELECTED,
+    )
+
+    result = ContextBuildResult(
+        evidence=[evidence],
+        input_hit_count=1,
+        selected_count=1,
+        omitted_hit_count=0,
+        duplicate_hit_count=0,
+        estimated_token_count=2,
+        selection_trace=[trace],
+    )
+
+    assert result.selection_trace[0].selection_rank == 1
+    with pytest.raises(ValidationError):
+        EvidenceSelectionTrace(
+            chunk_id="chunk-1",
+            source_rank=1,
+            applicability=EvidenceApplicability.UNKNOWN,
+            lexical_overlap_score=0.0,
+            selection_score=1.0,
+            selected=True,
+            reason=EvidenceSelectionReason.SELECTED,
+        )
 
 
 def test_citation_verification_result_is_consistent() -> None:

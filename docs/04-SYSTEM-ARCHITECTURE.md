@@ -59,6 +59,7 @@ flowchart TD
     subgraph ONLINE["Online Phase"]
         Q["User Question"]
         R["Query Normalizer"]
+        R2["Query Understanding"]
         S["Fixed Router or Agent"]
         T1["BM25 Search"]
         T2["Dense Search"]
@@ -73,7 +74,8 @@ flowchart TD
         O["Final Response"]
 
         Q --> R
-        R --> S
+        R --> R2
+        R2 --> S
         S --> T1
         S --> T2
         S --> T3
@@ -149,6 +151,13 @@ văn bản trong quyết định rerank. Adapter chỉ đọc các field đã đ
 document title/number/type, issuing authority, legal field, effect metadata và
 legal structure. Raw dataset fields không đi vào reranker.
 
+Milestone 19 bổ sung query-understanding service dùng chung cho fixed runtime và
+Agent. Service chỉ trích xuất tín hiệu có trong câu hỏi, tạo bounded variants
+không thêm kiến thức pháp luật, và đưa typed analysis vào `RetrievalQuery`.
+Hybrid retrieval có thể chạy BM25/dense trên nhiều variant rồi RRF toàn bộ
+branch ranks; mỗi contribution được giữ trong retrieval trace. Artifact và
+backend contract không thay đổi.
+
 ### 3.5 Generation and Verification Layer
 
 Chịu trách nhiệm:
@@ -158,6 +167,14 @@ Chịu trách nhiệm:
 - evidence citation;
 - citation verification;
 - insufficient evidence behavior.
+
+Milestone 20 thêm deterministic evidence selector giữa retrieval/reranking và
+context packaging. Selector dùng source rank, lexical overlap, explicit
+document/article reference và effect-status label đã cấu hình; không truy cập
+raw dataset hoặc external legal source. Mỗi selected/omitted hit có typed trace.
+Context grader kiểm tra coverage của explicit reference và loại context chỉ gồm
+inactive/reference-mismatched evidence, nhưng luôn công khai rằng chưa diễn giải
+semantic legal applicability.
 
 ### 3.6 Agent and Tools Layer
 

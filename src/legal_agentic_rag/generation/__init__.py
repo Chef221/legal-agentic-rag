@@ -5,6 +5,7 @@ from legal_agentic_rag.generation.citation_verifier import (
 )
 from legal_agentic_rag.generation.context_builder import ContextBuilder
 from legal_agentic_rag.generation.context_grader import RuleBasedContextGrader
+from legal_agentic_rag.generation.evidence_selector import EvidenceSelector
 from legal_agentic_rag.generation.extractive_generator import (
     ExtractiveAnswerGenerator,
 )
@@ -22,6 +23,7 @@ from legal_agentic_rag.generation.transformers_provider import (
 
 __all__ = [
     "ContextBuilder",
+    "EvidenceSelector",
     "ExtractiveAnswerGenerator",
     "FixedRAGService",
     "ModelBackedAnswerGenerator",

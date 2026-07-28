@@ -39,6 +39,83 @@ class RetrievalStrategy(StrEnum):
     GRAPH = "graph"
 
 
+class QueryIntent(StrEnum):
+    """Deterministic high-level intent inferred only from user-supplied text."""
+
+    GENERAL = "general"
+    REFERENCE_LOOKUP = "reference_lookup"
+    RELATIONSHIP = "relationship"
+    QUANTITATIVE = "quantitative"
+    PROCEDURE = "procedure"
+    ELIGIBILITY = "eligibility"
+    OBLIGATION = "obligation"
+    PROHIBITION = "prohibition"
+    DEFINITION = "definition"
+
+
+class QueryVariantKind(StrEnum):
+    """Origin of a bounded query variant."""
+
+    NORMALIZED = "normalized"
+    FRAMING_STRIPPED = "framing_stripped"
+    LEGAL_REFERENCE = "legal_reference"
+
+
+class QueryVariant(BaseModel):
+    """One deterministic search form derived without adding legal knowledge."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    variant_id: str
+    text: str
+    kind: QueryVariantKind
+
+    @field_validator("variant_id", "text")
+    @classmethod
+    def validate_required_text(cls, value: str) -> str:
+        """Reject variants without stable identity or searchable text."""
+        return _non_empty(value)
+
+
+class QueryAnalysis(BaseModel):
+    """Typed legal signals extracted directly from a normalized question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: QueryIntent = QueryIntent.GENERAL
+    document_numbers: list[str] = Field(default_factory=list)
+    article_numbers: list[str] = Field(default_factory=list)
+    clause_numbers: list[str] = Field(default_factory=list)
+    point_numbers: list[str] = Field(default_factory=list)
+    year_mentions: list[str] = Field(default_factory=list)
+    scope_cues: list[str] = Field(default_factory=list)
+    relationship_cues: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "document_numbers",
+        "article_numbers",
+        "clause_numbers",
+        "point_numbers",
+        "year_mentions",
+        "scope_cues",
+        "relationship_cues",
+    )
+    @classmethod
+    def validate_extracted_values(cls, values: list[str]) -> list[str]:
+        """Keep extracted signals unique, non-empty, and deterministic."""
+        return _unique_strings(values)
+
+    @property
+    def has_explicit_legal_reference(self) -> bool:
+        """Return whether the question names a document or legal structure."""
+        return bool(
+            self.document_numbers
+            or self.article_numbers
+            or self.clause_numbers
+            or self.point_numbers
+        )
+
+
 class RetrievalFilters(BaseModel):
     """Backend-neutral filters supported by the unified chunk schema."""
 
@@ -77,6 +154,36 @@ class GraphPathStep(BaseModel):
         return _non_empty(value)
 
 
+class QueryVariantContribution(BaseModel):
+    """One sparse or dense rank contribution from a query variant."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    variant_id: str
+    strategy: RetrievalStrategy
+    rank: int = Field(ge=1)
+    raw_score: float
+    rrf_contribution: float = Field(gt=0)
+
+    @field_validator("variant_id")
+    @classmethod
+    def validate_variant_id(cls, value: str) -> str:
+        """Require a stable variant identity."""
+        return _non_empty(value)
+
+    @model_validator(mode="after")
+    def validate_branch_strategy(self) -> "QueryVariantContribution":
+        """Only sparse and dense branches participate in query fusion."""
+        if self.strategy not in {
+            RetrievalStrategy.BM25,
+            RetrievalStrategy.DENSE,
+        }:
+            raise ValueError(
+                "query variant contribution strategy must be bm25 or dense"
+            )
+        return self
+
+
 class RetrievalTrace(BaseModel):
     """Per-hit contributions from retrieval, fusion, reranking, and graph search."""
 
@@ -92,6 +199,9 @@ class RetrievalTrace(BaseModel):
     reranker_score: float | None = None
     graph_hop: int | None = Field(default=None, ge=1, le=2)
     graph_path: list[GraphPathStep] = Field(default_factory=list)
+    query_variant_contributions: list[QueryVariantContribution] = Field(
+        default_factory=list
+    )
 
     @model_validator(mode="after")
     def validate_graph_trace(self) -> "RetrievalTrace":
@@ -102,6 +212,14 @@ class RetrievalTrace(BaseModel):
                 raise ValueError("graph_hop must equal the maximum graph path hop")
         elif self.graph_hop is not None:
             raise ValueError("graph_hop requires a non-empty graph_path")
+        identities = [
+            (item.variant_id, item.strategy)
+            for item in self.query_variant_contributions
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError(
+                "query variant contributions must have unique branch identities"
+            )
         return self
 
 
@@ -118,6 +236,8 @@ class RetrievalQuery(BaseModel):
     top_k: int = Field(default=10, gt=0)
     candidate_k: int = Field(default=100, gt=0)
     requested_strategy: RetrievalStrategy | None = None
+    query_analysis: QueryAnalysis | None = None
+    query_variants: list[QueryVariant] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
     @field_validator("query_id", "original_question", "normalized_question")
@@ -140,6 +260,12 @@ class RetrievalQuery(BaseModel):
         """Ensure the candidate pool can satisfy the requested result count."""
         if self.candidate_k < self.top_k:
             raise ValueError("candidate_k must be greater than or equal to top_k")
+        variant_ids = [item.variant_id for item in self.query_variants]
+        variant_texts = [item.text for item in self.query_variants]
+        if len(variant_ids) != len(set(variant_ids)):
+            raise ValueError("query variant IDs must not contain duplicates")
+        if len(variant_texts) != len(set(variant_texts)):
+            raise ValueError("query variant text must not contain duplicates")
         return self
 
 

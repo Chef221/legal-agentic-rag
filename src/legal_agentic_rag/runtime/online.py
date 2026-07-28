@@ -7,7 +7,10 @@ from pathlib import Path
 from time import perf_counter
 from typing import Protocol
 
-from legal_agentic_rag.agent import DeterministicAgentWorkflow
+from legal_agentic_rag.agent import (
+    DeterministicAgentWorkflow,
+    DeterministicStrategyRouter,
+)
 from legal_agentic_rag.configuration.application import ApplicationConfig
 from legal_agentic_rag.contracts import (
     AgentWorkflow,
@@ -28,7 +31,11 @@ from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
 from legal_agentic_rag.reranking import CrossEncoderReranker
-from legal_agentic_rag.retrieval import DenseRetriever, FixedRetriever
+from legal_agentic_rag.retrieval import (
+    DenseRetriever,
+    FixedRetriever,
+    QueryUnderstandingService,
+)
 from legal_agentic_rag.schemas import (
     AgentRunResult,
     ArtifactManifest,
@@ -60,11 +67,13 @@ class OnlineRuntime:
         retriever: _Retriever,
         registry: ToolRegistry,
         manifests: dict[str, ArtifactManifest],
+        query_understanding: QueryUnderstandingService,
     ) -> None:
         self._workflow = workflow
         self._retriever = retriever
         self._registry = registry
         self._manifests = dict(manifests)
+        self._query_understanding = query_understanding
 
     @property
     def workflow(self) -> AgentWorkflow:
@@ -85,11 +94,38 @@ class OnlineRuntime:
 
     def answer(self, query: RetrievalQuery) -> AgentRunResult:
         """Run one typed legal question through the assembled Agent."""
-        return self._workflow.run(query)
+        return self._workflow.run(self._understand(query))
 
     def retrieve(self, query: RetrievalQuery) -> RetrievalResponse:
         """Run one fixed retrieval strategy without exposing backend clients."""
-        return self._retriever.search(query)
+        return self._retriever.search(self._understand(query))
+
+    def _understand(self, query: RetrievalQuery) -> RetrievalQuery:
+        enriched = self._query_understanding.enrich(query)
+        analysis = enriched.query_analysis
+        _LOGGER.info(
+            "query_understanding_completed",
+            extra={
+                "query_id": query.query_id,
+                "query_intent": (
+                    analysis.intent.value if analysis is not None else None
+                ),
+                "query_variant_count": len(enriched.query_variants),
+                "document_reference_count": (
+                    len(analysis.document_numbers)
+                    if analysis is not None
+                    else 0
+                ),
+                "structure_reference_count": (
+                    len(analysis.article_numbers)
+                    + len(analysis.clause_numbers)
+                    + len(analysis.point_numbers)
+                    if analysis is not None
+                    else 0
+                ),
+            },
+        )
+        return enriched
 
 
 class OnlineRuntimeFactory:
@@ -221,10 +257,16 @@ class OnlineRuntimeFactory:
         )
 
         dense = DenseRetriever(self._embedding_provider, vector)
+        query_understanding = QueryUnderstandingService(
+            self._config.online.query_understanding
+        )
         retriever = FixedRetriever(
             bm25,
             dense,
             self._config.online.retrieval,
+            query_understanding_config=(
+                self._config.online.query_understanding
+            ),
             reranker=self._reranker,
             reranker_config=self._config.online.reranker,
             graph_backend=graph,
@@ -246,6 +288,13 @@ class OnlineRuntimeFactory:
             registry,
             agent_config=self._config.online.agent,
             generation_config=self._config.online.generation,
+            evidence_selection_config=(
+                self._config.online.evidence_selection
+            ),
+            router=DeterministicStrategyRouter(
+                self._config.online.agent,
+                self._config.online.query_understanding,
+            ),
         )
         manifests = {
             manifest.artifact_type.value: manifest
@@ -272,6 +321,7 @@ class OnlineRuntimeFactory:
             retriever=retriever,
             registry=registry,
             manifests=manifests,
+            query_understanding=query_understanding,
         )
 
     def _validate_embedding_provider(

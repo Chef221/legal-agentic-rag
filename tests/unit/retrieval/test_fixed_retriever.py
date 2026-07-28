@@ -10,6 +10,8 @@ from legal_agentic_rag.configuration import RetrievalConfig
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, RetrievalError
 from legal_agentic_rag.retrieval import FixedRetriever, HybridRetriever
 from legal_agentic_rag.schemas import (
+    QueryVariant,
+    QueryVariantKind,
     RetrievalFilters,
     RetrievalHit,
     RetrievalQuery,
@@ -117,6 +119,37 @@ def test_hybrid_retriever_keeps_namespaced_warnings_and_empty_status() -> None:
         "dense:no_dense_matches",
         "no_hybrid_matches",
     ]
+
+
+def test_hybrid_retriever_fuses_bounded_query_variants() -> None:
+    """Hybrid retrieval calls both branches per planned variant and traces them."""
+    bm25, dense = _branches()
+    query = _query().model_copy(
+        update={
+            "query_variants": [
+                QueryVariant(
+                    variant_id="qv1",
+                    text="normalized question",
+                    kind=QueryVariantKind.NORMALIZED,
+                ),
+                QueryVariant(
+                    variant_id="qv2",
+                    text="question",
+                    kind=QueryVariantKind.FRAMING_STRIPPED,
+                ),
+            ]
+        }
+    )
+
+    response = HybridRetriever(bm25, dense).search(query)
+
+    assert len(bm25.calls) == len(dense.calls) == 2
+    assert bm25.calls[0].rewritten_question is None
+    assert bm25.calls[1].rewritten_question == "question"
+    shared = response.hits[0]
+    assert shared.chunk_id == "shared"
+    assert len(shared.retrieval_trace.query_variant_contributions) == 4
+    assert shared.score == pytest.approx(2 / 61 + 2 / 62)
 
 
 def test_hybrid_retriever_fails_closed_for_source_or_branch_mismatch() -> None:

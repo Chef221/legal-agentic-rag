@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 from time import perf_counter
 
-from legal_agentic_rag.configuration.online import AgentConfig, GenerationConfig
+from legal_agentic_rag.configuration.online import (
+    AgentConfig,
+    EvidenceSelectionConfig,
+    GenerationConfig,
+)
 from legal_agentic_rag.exceptions import ConfigurationError, DataValidationError
 from legal_agentic_rag.generation.context_builder import ContextBuilder
 from legal_agentic_rag.schemas.agent_state import (
@@ -66,6 +70,7 @@ class DeterministicAgentWorkflow:
         *,
         agent_config: AgentConfig | None = None,
         generation_config: GenerationConfig | None = None,
+        evidence_selection_config: EvidenceSelectionConfig | None = None,
         context_builder: ContextBuilder | None = None,
         router: DeterministicStrategyRouter | None = None,
         query_rewriter: ConservativeQueryRewriter | None = None,
@@ -74,7 +79,10 @@ class DeterministicAgentWorkflow:
         self._config = agent_config or AgentConfig()
         self._router = router or DeterministicStrategyRouter(self._config)
         self._rewriter = query_rewriter or ConservativeQueryRewriter()
-        self._context_builder = context_builder or ContextBuilder(generation_config)
+        self._context_builder = context_builder or ContextBuilder(
+            generation_config,
+            evidence_selection_config,
+        )
         registered = {descriptor.name for descriptor in registry.descriptors()}
         missing = _REQUIRED_FINAL_TOOLS - registered
         if missing:

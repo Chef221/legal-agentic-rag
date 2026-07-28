@@ -8,6 +8,7 @@ from typing import Protocol
 
 from legal_agentic_rag.configuration.online import (
     ContextGradingConfig,
+    EvidenceSelectionConfig,
     GenerationConfig,
 )
 from legal_agentic_rag.contracts.answer_generator import AnswerGenerator
@@ -53,11 +54,15 @@ class FixedRAGService:
         answer_generator: AnswerGenerator | None = None,
         citation_verifier: CitationVerifier | None = None,
         generation_config: GenerationConfig | None = None,
+        evidence_selection_config: EvidenceSelectionConfig | None = None,
         grading_config: ContextGradingConfig | None = None,
     ) -> None:
         generation = generation_config or GenerationConfig()
         self._retriever = retriever
-        self._context_builder = context_builder or ContextBuilder(generation)
+        self._context_builder = context_builder or ContextBuilder(
+            generation,
+            evidence_selection_config,
+        )
         self._context_grader = context_grader or RuleBasedContextGrader(
             grading_config
         )
