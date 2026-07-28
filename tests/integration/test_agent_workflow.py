@@ -6,11 +6,14 @@ from legal_agentic_rag.agent import DeterministicAgentWorkflow
 from legal_agentic_rag.contracts import AgentWorkflow
 from legal_agentic_rag.generation import (
     ExtractiveAnswerGenerator,
+    ModelBackedCitationVerifier,
     RuleBasedCitationVerifier,
     RuleBasedContextGrader,
 )
 from legal_agentic_rag.schemas import (
     AgentStopReason,
+    AnswerResponse,
+    Citation,
     QueryAnalysis,
     RetrievalHit,
     RetrievalQuery,
@@ -87,6 +90,89 @@ class _ReferenceRetriever:
         )
 
 
+class _UnsupportedSyntheticGenerator:
+    def generate(
+        self,
+        query: RetrievalQuery,
+        evidence: list,
+        retrieval_strategy: RetrievalStrategy,
+        trace_id: str,
+    ) -> AnswerResponse:
+        source = evidence[0]
+        return AnswerResponse(
+            question=query.original_question,
+            answer="Doanh nghiệp được miễn nghĩa vụ trong 99 năm. [E1]",
+            citations=[
+                Citation(
+                    evidence_id=source.evidence_id,
+                    chunk_id=source.chunk_id,
+                    document_id=source.document_id,
+                    document_title=source.document_title,
+                    document_number=source.document_number,
+                    article_number=source.article_number,
+                    source_url=source.source_url,
+                )
+            ],
+            insufficient_evidence=False,
+            retrieval_strategy=retrieval_strategy,
+            trace_id=trace_id,
+            metadata={"semantic_synthesis": True},
+        )
+
+
+class _SupportedSyntheticGenerator:
+    def generate(
+        self,
+        query: RetrievalQuery,
+        evidence: list,
+        retrieval_strategy: RetrievalStrategy,
+        trace_id: str,
+    ) -> AnswerResponse:
+        source = evidence[0]
+        return AnswerResponse(
+            question=query.original_question,
+            answer="Doanh nghiệp phải tuân thủ quy định pháp luật. [E1]",
+            citations=[
+                Citation(
+                    evidence_id=source.evidence_id,
+                    chunk_id=source.chunk_id,
+                    document_id=source.document_id,
+                    document_title=source.document_title,
+                    document_number=source.document_number,
+                    article_number=source.article_number,
+                    source_url=source.source_url,
+                )
+            ],
+            insufficient_evidence=False,
+            retrieval_strategy=retrieval_strategy,
+            trace_id=trace_id,
+            metadata={"semantic_synthesis": True},
+        )
+
+
+@dataclass
+class _SemanticProvider:
+    label: str
+    provider_name: str = "fixture"
+    provider_version: str = "1.0"
+    model_name: str = "fixture-semantic-verifier"
+    model_revision: str = "fixture-revision"
+
+    def complete(
+        self,
+        *,
+        system_instruction: str,
+        user_prompt: str,
+    ) -> str:
+        assert "CLAIMS_AND_CITED_EVIDENCE_JSON" in user_prompt
+        assert system_instruction
+        return (
+            '{"assessments":[{"claim_id":"C1","label":'
+            f'"{self.label}"'
+            "}]}"
+        )
+
+
 def test_fixed_registry_runs_through_agent_to_verified_answer() -> None:
     """The Agent composes retrieval, grading, generation, and verification tools."""
     registry = build_fixed_tool_registry(
@@ -113,6 +199,7 @@ def test_fixed_registry_runs_through_agent_to_verified_answer() -> None:
         "chunk-agent-integration"
     )
     assert result.response.metadata["agent"]["attempt_count"] == 1
+    assert "citation_verification" in result.response.metadata
 
 
 def test_agent_selects_exact_user_reference_before_higher_raw_rank() -> None:
@@ -150,3 +237,60 @@ def test_agent_selects_exact_user_reference_before_higher_raw_rank() -> None:
         "document": True,
         "article": True,
     }
+
+
+def test_agent_abstains_when_synthesized_claim_is_not_grounded() -> None:
+    """Claim-level failure prevents a structurally cited answer from escaping."""
+    registry = build_fixed_tool_registry(
+        retriever=_FixedRetriever(),
+        context_grader=RuleBasedContextGrader(),
+        answer_generator=_UnsupportedSyntheticGenerator(),
+        citation_verifier=RuleBasedCitationVerifier(),
+    )
+    result = DeterministicAgentWorkflow(registry).run(
+        RetrievalQuery(
+            query_id="unsupported-claim-integration",
+            original_question="Doanh nghiệp phải thực hiện nghĩa vụ nào?",
+            normalized_question="nghĩa vụ doanh nghiệp",
+            top_k=1,
+            candidate_k=1,
+        )
+    )
+
+    assert result.stop_reason == AgentStopReason.CITATION_VERIFICATION_FAILED
+    assert result.response.insufficient_evidence is True
+    verification = result.response.metadata["citation_verification"]
+    assert verification["claim_level_verification_performed"] is True
+    assert verification["claim_coverage_score"] == 0.0
+    assert "unsupported_claim:C1" in verification["errors"]
+
+
+def test_agent_abstains_when_semantic_model_contradicts_grounded_claim() -> None:
+    """A semantic failure after hard checks cannot escape as a final answer."""
+    verifier = ModelBackedCitationVerifier(
+        RuleBasedCitationVerifier(),
+        _SemanticProvider("contradicted"),
+        max_structured_output_retries=0,
+    )
+    registry = build_fixed_tool_registry(
+        retriever=_FixedRetriever(),
+        context_grader=RuleBasedContextGrader(),
+        answer_generator=_SupportedSyntheticGenerator(),
+        citation_verifier=verifier,
+    )
+
+    result = DeterministicAgentWorkflow(registry).run(
+        RetrievalQuery(
+            query_id="semantic-failure-integration",
+            original_question="Doanh nghiệp phải tuân thủ điều gì?",
+            normalized_question="doanh nghiệp tuân thủ",
+            top_k=1,
+            candidate_k=1,
+        )
+    )
+
+    assert result.stop_reason == AgentStopReason.CITATION_VERIFICATION_FAILED
+    assert result.response.insufficient_evidence is True
+    verification = result.response.metadata["citation_verification"]
+    assert verification["semantic_verification"]["is_valid"] is False
+    assert "semantic_contradicted:C1" in verification["errors"]

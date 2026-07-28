@@ -26,6 +26,8 @@ Chỉ sử dụng các evidence được cung cấp; không dùng kiến thức 
 Không tự tạo tên văn bản, số văn bản, Điều, Khoản hoặc căn cứ pháp luật.
 Mỗi nhận định pháp lý phải được hỗ trợ bởi evidence_id đã cung cấp.
 Đặt marker [E#] ngay sau nhận định được evidence đó hỗ trợ.
+Mỗi câu chứa nhận định pháp lý phải có marker riêng; không gom citation cho nhiều
+câu ở cuối đoạn.
 Nếu evidence không đủ, đặt insufficient_evidence=true và không đoán.
 Trả lời ngắn gọn, trực tiếp bằng tiếng Việt.
 Chỉ trả về một JSON object; không dùng Markdown, code fence hoặc lời dẫn.
@@ -153,6 +155,7 @@ class ModelBackedAnswerGenerator:
             "QUY TẮC OUTPUT:\n"
             "- Chỉ dùng đúng 4 field trong schema.\n"
             "- answer phải ngắn gọn và có marker [E#] sát nhận định.\n"
+            "- Mỗi câu pháp lý phải có marker riêng trong chính câu đó.\n"
             "- cited_evidence_ids phải đúng bằng các marker xuất hiện trong answer.\n"
             "- Không dùng evidence không cần thiết.\n\n"
             "OUTPUT_JSON_SCHEMA:\n"

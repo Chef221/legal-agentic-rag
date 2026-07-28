@@ -176,6 +176,31 @@ Context grader kiểm tra coverage của explicit reference và loại context c
 inactive/reference-mismatched evidence, nhưng luôn công khai rằng chưa diễn giải
 semantic legal applicability.
 
+Milestone 21 mở rộng citation verifier từ identity-only thành hai tầng:
+
+1. exact evidence/chunk/document/article identity;
+2. claim-level inline-marker grounding cho synthesized answer.
+
+Claim verifier kiểm tra marker coverage, lexical support, số liệu và phủ định.
+Unsupported claim làm toàn answer fail closed. Kết quả được giữ theo từng claim,
+nhưng hệ thống vẫn công khai chưa dùng semantic entailment model.
+
+Milestone 22 bổ sung tầng thứ ba, tùy chọn, phía sau hai hard-check trên:
+
+3. model-backed semantic support classification cho từng claim đã được M21
+   xác minh identity và marker.
+
+Model chỉ được trả `claim_id` cùng nhãn `supported`, `contradicted` hoặc
+`insufficient`. Core không tin evidence identity hay citation do model tạo.
+Kết quả sai schema, thiếu/thừa claim hoặc không phải `supported` đều fail
+closed. Backend mặc định `disabled`; provider cụ thể vẫn nằm sau
+`ChatModelProvider` và `CitationVerifier`.
+
+Nếu generator và semantic verifier có cùng pinned local Transformers runtime
+identity, online composition root chỉ load một tokenizer/model. Hai provider
+vẫn giữ prompt, token limits và structured-output retry độc lập, đồng thời dùng
+chung reentrant inference lock để tránh truy cập model đồng thời không an toàn.
+
 ### 3.6 Agent and Tools Layer
 
 Chịu trách nhiệm:

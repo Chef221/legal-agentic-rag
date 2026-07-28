@@ -542,7 +542,65 @@ Citation verifier kiểm tra:
 
 Baseline verifier có thể là rule-based.
 
-Semantic claim verification được bổ sung sau.
+Semantic claim verification được triển khai tùy chọn từ Milestone 22.
+
+### 11.2 Milestone 21 Claim-level Grounding
+
+Với synthesized answer:
+
+```text
+Answer text
+→ sentence/claim segmentation
+→ inline [E#] extraction
+→ response Citation + selected Evidence allowlist
+→ lexical support check
+→ exact numeric preservation
+→ claim-negation preservation
+→ per-claim result
+→ verified answer hoặc abstention
+```
+
+Mỗi claim pháp lý phải có marker riêng. Citation object tồn tại nhưng không được
+dùng trong answer không đủ để ground claim. Một marker ở câu cuối không tự bao
+phủ các câu trước.
+
+Rule-based baseline chỉ xác nhận:
+
+- claim có linked evidence thật;
+- claim/evidence có minimum lexical overlap;
+- mọi số trong claim xuất hiện trong linked evidence;
+- từ phủ định trong claim không được tự thêm so với evidence.
+
+Nó không chứng minh semantic entailment, không xử lý logic ngoại lệ phức tạp và
+không phát hiện mọi trường hợp đảo nghĩa. Extractive answer không chạy claim
+verification vì nội dung evidence được trình bày nguyên văn; identity verifier
+vẫn chạy bình thường.
+
+### 11.3 Milestone 22 Model-backed Semantic Claim Verification
+
+Khi `online.semantic_verification.backend` khác `disabled`:
+
+```text
+M21 identity + claim hard checks
+→ chỉ giữ claim đã qua hard checks
+→ gửi claim và đúng linked evidence qua ChatModelProvider
+→ strict JSON: claim_id + supported|contradicted|insufficient
+→ kiểm tra đủ, đúng thứ tự và không trùng claim_id
+→ gắn lại trusted evidence IDs và model provenance
+→ verified answer hoặc abstention
+```
+
+Semantic verifier không được tạo citation, evidence ID, document metadata hoặc
+legal conclusion mới. `contradicted`, `insufficient`, output sai schema, lỗi
+provider và prompt vượt giới hạn đều fail closed. Model không chạy nếu hard
+checks đã thất bại, answer là abstention hoặc answer dùng extractive backend.
+Backend mặc định `disabled`, vì vậy test mặc định không tải model, không gọi
+network và không cần GPU.
+
+Với hai backend `transformers` cùng model name, revision, device, dtype và
+`local_files_only`, runtime chia sẻ model weights. Sai bất kỳ phần nào trong
+runtime identity thì mỗi provider phải tự load backend tương ứng; không được
+silently reuse weights khác cấu hình.
 
 ### 11.1 Milestone 12 Fixed RAG Policy
 

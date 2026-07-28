@@ -7,22 +7,22 @@ from time import perf_counter
 from typing import Protocol
 
 from legal_agentic_rag.configuration.online import (
+    ClaimVerificationConfig,
     ContextGradingConfig,
     EvidenceSelectionConfig,
     GenerationConfig,
+    SemanticVerificationConfig,
 )
 from legal_agentic_rag.contracts.answer_generator import AnswerGenerator
 from legal_agentic_rag.contracts.citation_verifier import CitationVerifier
 from legal_agentic_rag.contracts.context_grader import ContextGrader
 from legal_agentic_rag.exceptions import ModelError, RetrievalError
-from legal_agentic_rag.generation.citation_verifier import (
-    RuleBasedCitationVerifier,
-)
 from legal_agentic_rag.generation.context_builder import ContextBuilder
 from legal_agentic_rag.generation.context_grader import RuleBasedContextGrader
 from legal_agentic_rag.generation.extractive_generator import (
     ExtractiveAnswerGenerator,
 )
+from legal_agentic_rag.generation.factory import build_citation_verifier
 from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     CitationVerificationResult,
@@ -55,6 +55,8 @@ class FixedRAGService:
         citation_verifier: CitationVerifier | None = None,
         generation_config: GenerationConfig | None = None,
         evidence_selection_config: EvidenceSelectionConfig | None = None,
+        claim_verification_config: ClaimVerificationConfig | None = None,
+        semantic_verification_config: SemanticVerificationConfig | None = None,
         grading_config: ContextGradingConfig | None = None,
     ) -> None:
         generation = generation_config or GenerationConfig()
@@ -67,7 +69,16 @@ class FixedRAGService:
             grading_config
         )
         self._answer_generator = answer_generator or ExtractiveAnswerGenerator()
-        self._citation_verifier = citation_verifier or RuleBasedCitationVerifier()
+        self._citation_verifier = (
+            citation_verifier
+            or build_citation_verifier(
+                claim_verification_config or ClaimVerificationConfig(),
+                (
+                    semantic_verification_config
+                    or SemanticVerificationConfig()
+                ),
+            )
+        )
 
     def answer(self, query: RetrievalQuery) -> AnswerResponse:
         """Return a verified grounded answer or a fail-closed abstention."""

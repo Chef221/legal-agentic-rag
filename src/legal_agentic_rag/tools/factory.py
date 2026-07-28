@@ -29,8 +29,14 @@ def build_fixed_tool_registry(
     citation_verifier: CitationVerifier,
     retrieval_timeout_seconds: float = 30.0,
     generation_timeout_seconds: float = 30.0,
+    verification_timeout_seconds: float | None = None,
 ) -> ToolRegistry:
     """Build exactly the eight approved tools from injected fixed services."""
+    verification_timeout = (
+        generation_timeout_seconds
+        if verification_timeout_seconds is None
+        else verification_timeout_seconds
+    )
     tools = fixed_retrieval_tools(
         retriever,
         timeout_seconds=retrieval_timeout_seconds,
@@ -48,7 +54,7 @@ def build_fixed_tool_registry(
             ),
             CitationVerificationTool(
                 citation_verifier,
-                timeout_seconds=generation_timeout_seconds,
+                timeout_seconds=verification_timeout,
             ),
         ]
     )

@@ -75,9 +75,11 @@ class _Tokenizer:
 class _Model:
     def __init__(self) -> None:
         self.options: dict[str, Any] = {}
+        self.max_new_token_calls: list[int] = []
 
     def generate(self, **options: Any) -> torch.Tensor:
         self.options = options
+        self.max_new_token_calls.append(options["max_new_tokens"])
         return torch.cat(
             (
                 options["input_ids"],
@@ -139,3 +141,53 @@ def test_factory_selects_model_generator_for_transformers_backend() -> None:
         build_answer_generator(_config()),
         ModelBackedAnswerGenerator,
     )
+
+
+def test_compatible_providers_share_weights_but_keep_separate_limits() -> None:
+    """Generator and verifier load one model while enforcing their own bounds."""
+    tokenizer = _Tokenizer()
+    model = _Model()
+    load_count = 0
+
+    def load() -> tuple[Any, Any, Any]:
+        nonlocal load_count
+        load_count += 1
+        return torch, tokenizer, model
+
+    generator_provider = TransformersChatProvider(
+        _config(max_output_tokens=32),
+        runtime_loader=load,
+    )
+    verifier_config = _config(
+        max_input_tokens=12,
+        max_output_tokens=7,
+    )
+    verifier_provider = generator_provider.with_shared_runtime(
+        verifier_config
+    )
+
+    generator_provider.complete(
+        system_instruction="generator",
+        user_prompt="question",
+    )
+    verifier_provider.complete(
+        system_instruction="verifier",
+        user_prompt="claim",
+    )
+
+    assert load_count == 1
+    assert model.max_new_token_calls == [32, 7]
+    assert generator_provider.can_share_runtime_with(verifier_config) is True
+
+
+def test_provider_rejects_incompatible_runtime_sharing() -> None:
+    """Different pinned weights cannot be silently reused."""
+    provider = TransformersChatProvider(
+        _config(),
+        runtime_loader=lambda: (torch, _Tokenizer(), _Model()),
+    )
+    incompatible = _config(model_revision="other-revision")
+
+    assert provider.can_share_runtime_with(incompatible) is False
+    with pytest.raises(BackendInitializationError, match="incompatible"):
+        provider.with_shared_runtime(incompatible)

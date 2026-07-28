@@ -39,6 +39,18 @@
       "lexical_overlap_weight": 1.0,
       "inactive_penalty": 2.0
     },
+    "claim_verification": {
+      "enabled": true,
+      "require_inline_citations": true,
+      "minimum_lexical_support": 0.25,
+      "minimum_claim_tokens": 2,
+      "require_numeric_match": true,
+      "require_negation_match": true,
+      "max_claims": 20
+    },
+    "semantic_verification": {
+      "backend": "disabled"
+    },
     "bm25_runtime": {
       "max_query_terms": 8,
       "max_document_frequency_ratio": 0.25

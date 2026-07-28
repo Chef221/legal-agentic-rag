@@ -25,6 +25,7 @@ from legal_agentic_rag.configuration.offline import (
 from legal_agentic_rag.configuration.online import (
     AgentConfig,
     BM25RuntimeConfig,
+    ClaimVerificationConfig,
     ContextGradingConfig,
     EvidenceSelectionConfig,
     GenerationConfig,
@@ -32,6 +33,7 @@ from legal_agentic_rag.configuration.online import (
     QueryUnderstandingConfig,
     RerankerConfig,
     RetrievalConfig,
+    SemanticVerificationConfig,
     StartupValidationConfig,
     VectorRuntimeConfig,
 )
@@ -43,6 +45,7 @@ __all__ = [
     "ArtifactConfig",
     "BM25IndexConfig",
     "BuildValidationConfig",
+    "ClaimVerificationConfig",
     "ChunkingConfig",
     "ContextGradingConfig",
     "EvidenceSelectionConfig",
@@ -62,6 +65,7 @@ __all__ = [
     "OnlineConfig",
     "QueryUnderstandingConfig",
     "RerankerConfig",
+    "SemanticVerificationConfig",
     "ServingConfig",
     "StartupValidationConfig",
     "RelationshipNormalizationConfig",

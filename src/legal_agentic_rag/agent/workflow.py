@@ -350,15 +350,35 @@ class DeterministicAgentWorkflow:
             )
         result = CitationVerificationResult.model_validate(verification.output)
         if not result.is_valid:
+            abstention = self._abstention(
+                query,
+                strategy,
+                ["citation_verification_failed", *result.errors],
+            )
             return (
-                self._abstention(
-                    query,
-                    strategy,
-                    ["citation_verification_failed", *result.errors],
+                abstention.model_copy(
+                    update={
+                        "metadata": {
+                            **abstention.metadata,
+                            "citation_verification": result.model_dump(
+                                mode="json"
+                            ),
+                        }
+                    }
                 ),
                 AgentStopReason.CITATION_VERIFICATION_FAILED,
             )
-        return response, AgentStopReason.ANSWER_VERIFIED
+        return (
+            response.model_copy(
+                update={
+                    "metadata": {
+                        **response.metadata,
+                        "citation_verification": result.model_dump(mode="json"),
+                    }
+                }
+            ),
+            AgentStopReason.ANSWER_VERIFIED,
+        )
 
     def _finish(
         self,

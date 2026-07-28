@@ -6,7 +6,7 @@ Hệ thống Agentic RAG cho bài toán trả lời câu hỏi pháp luật Vi�
 
 Dự án đã hoàn thành implementation cho:
 
-`Milestone 20 — Evidence Applicability and Context Selection`
+`Milestone 22 — Model-backed Semantic Claim Verification`
 
 Full-corpus AIO execution đã tạo `build_validation.json` thật với
 `is_full_corpus = true`, `is_valid = true` và online smoke đã load được toàn bộ
@@ -208,6 +208,26 @@ câu hỏi nêu rõ số hiệu văn bản hoặc Điều nhưng không có sele
 Đây là deterministic applicability screening, không phải kết luận pháp lý về
 hiệu lực hay phạm vi áp dụng. Cấu hình nằm tại `online.evidence_selection`;
 artifact hiện có không cần rebuild.
+
+Từ version `0.23.0`, synthesized answer được tách thành từng claim trước khi
+được trả ra ngoài. Mỗi claim pháp lý phải có inline marker `[E#]`; marker phải
+khớp response citation và selected evidence. Baseline kiểm tra lexical support,
+số liệu và từ phủ định theo từng claim, rồi fail closed nếu có claim không được
+ground. Kết quả từng claim nằm trong `citation_verification` metadata. Đây là
+deterministic grounding, chưa phải semantic entailment model. Extractive backend
+được miễn bước này vì nó trình bày nguyên văn evidence. Cấu hình nằm tại
+`online.claim_verification`; không cần rebuild artifact.
+
+Từ version `0.24.0`, citation verifier có thể chạy thêm một tầng semantic
+model-backed sau toàn bộ hard checks của M21. Model chỉ phân loại từng
+`claim_id` thành `supported`, `contradicted` hoặc `insufficient`; evidence ID,
+citation và provenance luôn được hệ thống gắn lại từ dữ liệu đã xác minh. Output
+thiếu/thừa claim, sai schema, lỗi model hoặc nhãn khác `supported` đều fail
+closed. Backend mặc định là `disabled`, nên local test/UI không cần GPU hay API.
+Cấu hình nằm tại `online.semantic_verification`; không cần rebuild artifact.
+Khi generator và semantic verifier cùng dùng đúng một Transformers
+model/revision/device/dtype, composition root chia sẻ một bộ weights nhưng vẫn
+giữ giới hạn input/output riêng cho từng consumer.
 
 Chạy benchmark có nhãn:
 

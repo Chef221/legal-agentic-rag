@@ -29,6 +29,8 @@ class TransformersChatProvider:
         config: GenerationConfig,
         *,
         runtime_loader: RuntimeLoader | None = None,
+        runtime_lock: RLock | None = None,
+        runtime_is_shared: bool = False,
     ) -> None:
         if config.backend != "transformers":
             raise BackendInitializationError(
@@ -49,12 +51,50 @@ class TransformersChatProvider:
         self._device = config.device
         self._torch_dtype = config.torch_dtype
         self._local_files_only = config.local_files_only
+        self._runtime_identity = (
+            self.model_name,
+            self.model_revision,
+            self._device,
+            self._torch_dtype,
+            self._local_files_only,
+        )
         self._max_input_tokens = config.max_input_tokens
         self._max_output_tokens = config.max_output_tokens
         self._temperature = config.temperature
         self._runtime_loader = runtime_loader or self._load_runtime
+        self._runtime_is_shared = runtime_is_shared
         self._runtime: tuple[Any, Any, Any] | None = None
-        self._lock = RLock()
+        self._lock = runtime_lock or RLock()
+
+    def can_share_runtime_with(self, config: GenerationConfig) -> bool:
+        """Return whether another provider can safely reuse these model weights."""
+        return (
+            config.backend == "transformers"
+            and (
+                config.model_name,
+                config.model_revision,
+                config.device,
+                config.torch_dtype,
+                config.local_files_only,
+            )
+            == self._runtime_identity
+        )
+
+    def with_shared_runtime(
+        self,
+        config: GenerationConfig,
+    ) -> "TransformersChatProvider":
+        """Create a provider with independent limits and shared model weights."""
+        if not self.can_share_runtime_with(config):
+            raise BackendInitializationError(
+                "Transformers providers have incompatible runtime identities"
+            )
+        return TransformersChatProvider(
+            config,
+            runtime_loader=self._require_runtime,
+            runtime_lock=self._lock,
+            runtime_is_shared=True,
+        )
 
     def complete(
         self,
@@ -133,7 +173,11 @@ class TransformersChatProvider:
                 "Transformers model initialization failed"
             ) from error
         _LOGGER.info(
-            "transformers_chat_model_initialized",
+            (
+                "transformers_chat_model_reused"
+                if self._runtime_is_shared
+                else "transformers_chat_model_initialized"
+            ),
             extra={
                 "model_name": self.model_name,
                 "model_revision": self.model_revision,

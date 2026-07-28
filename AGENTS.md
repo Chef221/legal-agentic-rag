@@ -1329,7 +1329,7 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 20 — Evidence Applicability and Context Selection
+Milestone 22 — Model-backed Semantic Claim Verification
 (Implementation Completed; Official Quality Benchmark Pending)
 ```
 
@@ -1628,6 +1628,41 @@ Milestone 20 đã tạo:
 Milestone 20 không diễn giải semantic legal applicability, không xác minh hiệu
 lực pháp luật hiện tại, không giải quyết xung đột văn bản và không claim-level
 verify answer.
+
+Milestone 21 đã tạo:
+
+- typed claim support status và per-claim verification result;
+- bounded deterministic claim segmentation;
+- inline evidence marker coverage cho synthesized answer;
+- exact mapping từ claim marker tới response citation và selected evidence;
+- lexical support, numeric preservation và negation preservation checks;
+- unused citation và unsupported claim rejection;
+- fail-closed Agent abstention cùng persisted verification metadata;
+- extractive-mode exemption có explicit warning;
+- unit/integration tests không network, model hoặc dataset thật.
+
+Milestone 21 chưa semantic-entailment verify, chưa contradiction-detect đầy đủ,
+chưa xử lý complex coreference/multi-hop claim và chưa tune threshold trên
+labeled competition data.
+
+Milestone 22 đã tạo:
+
+- optional two-stage model-backed verifier sau toàn bộ M21 hard checks;
+- typed three-way semantic label: supported, contradicted, insufficient;
+- strict model draft chỉ gồm claim ID và label;
+- trusted evidence IDs được gắn lại từ deterministic claim result;
+- exact claim completeness/order validation;
+- provider/model/revision provenance trong verification metadata;
+- fail-closed Agent abstention cho non-supported, invalid schema và model error;
+- backend mặc định disabled, không buộc local runtime dùng GPU hoặc network;
+- reuse `ChatModelProvider`, không thêm dependency và không rebuild artifact;
+- generator/verifier cùng exact Transformers runtime identity dùng chung một
+  bộ weights, giữ token limits riêng và shared inference lock;
+- unit/integration tests không model thật, network hoặc dataset thật.
+
+Milestone 22 chưa benchmark model trên labeled legal claims, chưa giải quyết đầy
+đủ temporal validity, exception scope, conflict of laws hoặc multi-hop legal
+reasoning và không thay thế legal expert review.
 
 Competition adaptation chỉ bắt đầu sau khi người dùng yêu cầu và có thông tin
 BTC:

@@ -236,6 +236,168 @@ class Citation(BaseModel):
         return _optional_text(value)
 
 
+class ClaimSupportStatus(StrEnum):
+    """Outcome of deterministic claim-to-evidence grounding."""
+
+    SUPPORTED = "supported"
+    UNSUPPORTED = "unsupported"
+
+
+class ClaimVerification(BaseModel):
+    """Grounding result for one answer claim and its inline evidence markers."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    claim_id: str = Field(pattern=r"^C[1-9][0-9]*$")
+    claim_text: str
+    evidence_ids: list[str] = Field(default_factory=list)
+    status: ClaimSupportStatus
+    lexical_support_score: float = Field(ge=0, le=1)
+    numeric_match: bool
+    negation_match: bool
+    errors: list[str] = Field(default_factory=list)
+
+    @field_validator("claim_text")
+    @classmethod
+    def validate_claim_text(cls, value: str) -> str:
+        """Require visible claim text after citation markers are removed."""
+        return _non_empty(value)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def validate_claim_evidence_ids(cls, values: list[str]) -> list[str]:
+        """Require unique evidence markers in their answer order."""
+        normalized = [_non_empty(value) for value in values]
+        if any(
+            not value.startswith("E")
+            or not value[1:].isdigit()
+            or value[1] == "0"
+            for value in normalized
+        ):
+            raise ValueError("claim evidence IDs must use the E<number> format")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("claim evidence IDs must be unique")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_support_state(self) -> "ClaimVerification":
+        """Align support status with deterministic grounding errors."""
+        supported = self.status == ClaimSupportStatus.SUPPORTED
+        if supported == bool(self.errors):
+            raise ValueError(
+                "supported claims must have no errors and unsupported claims must"
+                " explain their failure"
+            )
+        if supported and not self.evidence_ids:
+            raise ValueError("supported claims require evidence IDs")
+        return self
+
+
+class SemanticSupportLabel(StrEnum):
+    """Model judgment for whether cited evidence entails one answer claim."""
+
+    SUPPORTED = "supported"
+    CONTRADICTED = "contradicted"
+    INSUFFICIENT = "insufficient"
+
+
+class SemanticClaimAssessmentDraft(BaseModel):
+    """Untrusted structured assessment returned by a semantic verifier model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_id: str = Field(pattern=r"^C[1-9][0-9]*$")
+    label: SemanticSupportLabel
+
+
+class SemanticVerificationDraft(BaseModel):
+    """Strict model output before trusted claim links are reattached."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assessments: list[SemanticClaimAssessmentDraft] = Field(min_length=1)
+
+    @field_validator("assessments")
+    @classmethod
+    def validate_unique_claim_ids(
+        cls,
+        values: list[SemanticClaimAssessmentDraft],
+    ) -> list[SemanticClaimAssessmentDraft]:
+        """Require exactly one model judgment per returned claim identity."""
+        claim_ids = [value.claim_id for value in values]
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("semantic assessment claim IDs must be unique")
+        return values
+
+
+class SemanticClaimVerification(BaseModel):
+    """Trusted semantic judgment linked back to deterministic claim evidence."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_id: str = Field(pattern=r"^C[1-9][0-9]*$")
+    evidence_ids: list[str] = Field(min_length=1)
+    label: SemanticSupportLabel
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def validate_evidence_ids(cls, values: list[str]) -> list[str]:
+        """Require unique deterministic evidence identities for each claim."""
+        normalized = [_non_empty(value) for value in values]
+        if any(
+            not value.startswith("E")
+            or not value[1:].isdigit()
+            or value[1] == "0"
+            for value in normalized
+        ):
+            raise ValueError("semantic evidence IDs must use the E<number> format")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("semantic evidence IDs must be unique")
+        return normalized
+
+
+class SemanticVerificationResult(BaseModel):
+    """Trusted aggregate outcome and immutable model provenance."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_valid: bool
+    assessments: list[SemanticClaimVerification] = Field(min_length=1)
+    provider_name: str
+    provider_version: str
+    model_name: str
+    model_revision: str
+    errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "provider_name",
+        "provider_version",
+        "model_name",
+        "model_revision",
+    )
+    @classmethod
+    def validate_provenance(cls, value: str) -> str:
+        """Reject semantic results without complete model provenance."""
+        return _non_empty(value)
+
+    @model_validator(mode="after")
+    def validate_result_consistency(self) -> "SemanticVerificationResult":
+        """Align validity with all claim labels and explicit errors."""
+        claim_ids = [value.claim_id for value in self.assessments]
+        if len(claim_ids) != len(set(claim_ids)):
+            raise ValueError("semantic result claim IDs must be unique")
+        has_failure = bool(self.errors) or any(
+            value.label != SemanticSupportLabel.SUPPORTED
+            for value in self.assessments
+        )
+        if self.is_valid == has_failure:
+            raise ValueError(
+                "semantic is_valid must be false exactly when a claim fails"
+            )
+        return self
+
+
 class ModelAnswerDraft(BaseModel):
     """Strict model output before trusted citation metadata is attached."""
 
@@ -320,13 +482,17 @@ class AnswerResponse(BaseModel):
 
 
 class CitationVerificationResult(BaseModel):
-    """Rule-based structural and referential citation verification result."""
+    """Citation identity and optional claim-grounding verification result."""
 
     model_config = ConfigDict(extra="forbid")
 
     is_valid: bool
     valid_citations: list[Citation] = Field(default_factory=list)
     invalid_citations: list[Citation] = Field(default_factory=list)
+    claim_verifications: list[ClaimVerification] = Field(default_factory=list)
+    claim_coverage_score: float | None = Field(default=None, ge=0, le=1)
+    claim_level_verification_performed: bool = False
+    semantic_verification: SemanticVerificationResult | None = None
     errors: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -338,4 +504,22 @@ class CitationVerificationResult(BaseModel):
             raise ValueError(
                 "is_valid must be false exactly when invalid citations or errors exist"
             )
+        if self.claim_level_verification_performed:
+            if not self.claim_verifications or self.claim_coverage_score is None:
+                raise ValueError(
+                    "performed claim verification requires claims and coverage"
+                )
+        elif self.claim_verifications or self.claim_coverage_score is not None:
+            raise ValueError(
+                "claim verification output requires performed=true"
+            )
+        if self.semantic_verification is not None:
+            if not self.claim_level_verification_performed:
+                raise ValueError(
+                    "semantic verification requires deterministic claim verification"
+                )
+            if self.is_valid != self.semantic_verification.is_valid:
+                raise ValueError(
+                    "semantic and aggregate verification validity must match"
+                )
         return self

@@ -91,6 +91,12 @@ def test_registered_tools_run_retrieval_grade_generate_and_verify() -> None:
         context_grader=RuleBasedContextGrader(),
         answer_generator=ExtractiveAnswerGenerator(),
         citation_verifier=RuleBasedCitationVerifier(),
+        verification_timeout_seconds=45.0,
+    )
+    descriptors = {item.name: item for item in registry.descriptors()}
+    assert (
+        descriptors[ToolName.CITATION_VERIFICATION].timeout_seconds
+        == 45.0
     )
     query = RetrievalQuery(
         query_id="tool-workflow",

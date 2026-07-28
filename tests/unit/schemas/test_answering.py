@@ -7,12 +7,19 @@ from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     Citation,
     CitationVerificationResult,
+    ClaimSupportStatus,
+    ClaimVerification,
     ContextBuildResult,
     ContextGrade,
     Evidence,
     EvidenceApplicability,
     EvidenceSelectionReason,
     EvidenceSelectionTrace,
+    SemanticClaimAssessmentDraft,
+    SemanticClaimVerification,
+    SemanticSupportLabel,
+    SemanticVerificationDraft,
+    SemanticVerificationResult,
 )
 
 
@@ -128,4 +135,118 @@ def test_citation_verification_result_is_consistent() -> None:
         CitationVerificationResult(
             is_valid=True,
             invalid_citations=[_citation()],
+        )
+
+
+def test_claim_verification_contract_aligns_support_and_coverage() -> None:
+    """Claim records explain failure and require performed result metadata."""
+    supported = ClaimVerification(
+        claim_id="C1",
+        claim_text="Người lao động được nghỉ 12 ngày.",
+        evidence_ids=["E1"],
+        status=ClaimSupportStatus.SUPPORTED,
+        lexical_support_score=0.8,
+        numeric_match=True,
+        negation_match=True,
+    )
+    result = CitationVerificationResult(
+        is_valid=True,
+        valid_citations=[_citation()],
+        claim_verifications=[supported],
+        claim_coverage_score=1.0,
+        claim_level_verification_performed=True,
+    )
+
+    assert result.claim_coverage_score == 1.0
+    with pytest.raises(ValidationError):
+        ClaimVerification(
+            claim_id="C2",
+            claim_text="Nhận định thiếu căn cứ.",
+            evidence_ids=[],
+            status=ClaimSupportStatus.UNSUPPORTED,
+            lexical_support_score=0.0,
+            numeric_match=True,
+            negation_match=True,
+        )
+    with pytest.raises(ValidationError):
+        CitationVerificationResult(
+            is_valid=True,
+            claim_verifications=[supported],
+            claim_coverage_score=1.0,
+        )
+
+
+def test_semantic_verification_contract_is_strict_and_provenanced() -> None:
+    """Semantic output separates untrusted model labels from trusted links."""
+    claim = ClaimVerification(
+        claim_id="C1",
+        claim_text="Người lao động được nghỉ 12 ngày.",
+        evidence_ids=["E1"],
+        status=ClaimSupportStatus.SUPPORTED,
+        lexical_support_score=1.0,
+        numeric_match=True,
+        negation_match=True,
+    )
+    draft = SemanticVerificationDraft(
+        assessments=[
+            SemanticClaimAssessmentDraft(
+                claim_id="C1",
+                label=SemanticSupportLabel.SUPPORTED,
+            )
+        ]
+    )
+    semantic = SemanticVerificationResult(
+        is_valid=True,
+        assessments=[
+            SemanticClaimVerification(
+                claim_id="C1",
+                evidence_ids=["E1"],
+                label=SemanticSupportLabel.SUPPORTED,
+            )
+        ],
+        provider_name="fixture",
+        provider_version="1.0",
+        model_name="fixture-model",
+        model_revision="fixture-revision",
+    )
+    result = CitationVerificationResult(
+        is_valid=True,
+        claim_verifications=[claim],
+        claim_coverage_score=1.0,
+        claim_level_verification_performed=True,
+        semantic_verification=semantic,
+    )
+
+    assert draft.assessments[0].claim_id == "C1"
+    assert result.semantic_verification is not None
+    with pytest.raises(ValidationError):
+        SemanticVerificationDraft(
+            assessments=[
+                {"claim_id": "C1", "label": "supported"},
+                {"claim_id": "C1", "label": "insufficient"},
+            ]
+        )
+    with pytest.raises(ValidationError):
+        SemanticVerificationResult(
+            is_valid=True,
+            assessments=[
+                {
+                    "claim_id": "C1",
+                    "evidence_ids": ["E1"],
+                    "label": "contradicted",
+                }
+            ],
+            provider_name="fixture",
+            provider_version="1.0",
+            model_name="fixture-model",
+            model_revision="fixture-revision",
+        )
+    with pytest.raises(ValidationError):
+        CitationVerificationResult(
+            is_valid=False,
+            errors=["semantic_contradicted:C1"],
+            claim_verifications=[claim],
+            claim_coverage_score=1.0,
+            claim_level_verification_performed=True,
+            semantic_verification=semantic,
         )

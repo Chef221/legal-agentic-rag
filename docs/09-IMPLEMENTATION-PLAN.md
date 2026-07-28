@@ -1086,7 +1086,103 @@ marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
 
 ---
 
-## 23. Future — Competition Adaptation
+## 23. Milestone 21 — Claim-level Grounding and Citation Verification
+
+**Status:** Completed
+
+### Objectives
+
+- phát hiện answer có citation đúng identity nhưng claim không được evidence hỗ
+  trợ;
+- bắt buộc inline evidence marker cho từng synthesized legal claim;
+- bảo toàn số liệu và phủ định quan trọng;
+- fail closed trước khi answer rời Agent/API;
+- giữ per-claim verification trace.
+
+### Implemented Baseline
+
+- typed `ClaimSupportStatus` và `ClaimVerification`;
+- bounded `ClaimVerificationConfig`;
+- deterministic claim segmentation và combined-marker extraction;
+- marker-to-response-citation-to-selected-evidence validation;
+- per-claim lexical support score;
+- exact numeric preservation check;
+- conservative claim-negation preservation check;
+- unused citation và uncited claim rejection;
+- per-claim coverage trong `CitationVerificationResult`;
+- Agent giữ verification result cho cả valid answer và abstention;
+- extractive-answer exemption có cảnh báo rõ;
+- unit/integration test cho supported, uncited, wrong-number, negation và
+  end-to-end Agent abstention.
+
+### Limitations
+
+- lexical overlap không chứng minh semantic entailment;
+- chưa dùng NLI/cross-encoder/LLM verifier;
+- chưa xử lý đầy đủ paraphrase, coreference hoặc multi-hop claim;
+- chỉ kiểm tra negation xuất hiện, chưa chứng minh đúng logical scope;
+- sentence segmentation là deterministic baseline;
+- threshold chưa tune trên labeled benchmark chính thức.
+
+### Done When
+
+- mỗi synthesized claim có typed verification record;
+- inline marker phải thuộc response citation và selected evidence;
+- changed quantity và introduced negation fail closed;
+- unsupported claim làm Agent trả abstention;
+- extractive mode vẫn hoạt động;
+- không thêm dependency hoặc rebuild artifact;
+- full local test suite pass.
+
+---
+
+## 24. Milestone 22 — Model-backed Semantic Claim Verification
+
+**Status:** Completed
+
+### Objectives
+
+- kiểm tra semantic support sau hard checks của M21;
+- phân biệt supported, contradicted và insufficient;
+- không cho model tạo hoặc thay đổi citation identity;
+- giữ backend tùy chọn và không buộc local runtime dùng GPU/API;
+- fail closed khi model/provider/schema không đáng tin cậy.
+
+### Implemented Baseline
+
+- typed semantic draft, trusted assessment và aggregate result;
+- `SemanticVerificationConfig` với backend mặc định `disabled`;
+- provider reuse qua `ChatModelProvider`;
+- load-once Transformers runtime sharing cho generator/verifier có exact runtime
+  identity, với inference lock và consumer limits độc lập;
+- two-stage `ModelBackedCitationVerifier`;
+- strict claim completeness/order validation;
+- trusted evidence reattachment từ M21 result;
+- pinned model/provider provenance trong response metadata;
+- bounded structured-output retry;
+- Agent abstention cho contradicted/insufficient/model failure;
+- unit/integration tests không network, model thật hoặc dataset thật.
+
+### Limitations
+
+- chưa benchmark model semantic verifier trên labeled legal claims;
+- chưa calibrate theo competition metric;
+- model có thể sai với điều kiện, ngoại lệ, temporal validity và multi-hop law;
+- backend mặc định vẫn tắt cho đến khi có model/revision được duyệt;
+- semantic verification không thay thế legal expert review.
+
+### Done When
+
+- hard checks luôn chạy trước model;
+- model không thể cung cấp trusted evidence identity;
+- mọi claim được đánh giá đúng một lần;
+- mọi non-supported outcome fail closed;
+- default runtime không cần GPU/network;
+- full local test suite pass.
+
+---
+
+## 25. Future — Competition Adaptation
 
 ### Objectives
 
@@ -1113,7 +1209,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 24. Milestone Execution Rules
+## 26. Milestone Execution Rules
 
 Mỗi milestone phải:
 

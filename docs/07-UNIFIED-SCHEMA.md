@@ -803,13 +803,61 @@ Trace phải phân loại mọi unique hit; selected trace order phải khớp d
   "is_valid": true,
   "valid_citations": [],
   "invalid_citations": [],
+  "claim_verifications": [],
+  "claim_coverage_score": null,
+  "claim_level_verification_performed": false,
+  "semantic_verification": null,
   "errors": [],
   "warnings": []
 }
 ```
 
-Baseline result chỉ xác nhận structural và referential validity. Nó
-không tuyên bố semantic claim verification.
+Milestone 21 thêm `ClaimVerification`:
+
+```json
+{
+  "claim_id": "C1",
+  "claim_text": "Người lao động được nghỉ 12 ngày.",
+  "evidence_ids": ["E1"],
+  "status": "supported",
+  "lexical_support_score": 0.8,
+  "numeric_match": true,
+  "negation_match": true,
+  "errors": []
+}
+```
+
+`status` chỉ nhận `supported` hoặc `unsupported`. Unsupported claim phải có
+failure reason; supported claim phải có evidence ID và không có error.
+`claim_coverage_score` là tỷ lệ claim vượt deterministic grounding checks,
+không phải semantic entailment probability.
+
+Milestone 22 thêm nested `SemanticVerificationResult` chỉ khi model semantic
+thực sự đã chạy:
+
+```json
+{
+  "is_valid": true,
+  "assessments": [
+    {
+      "claim_id": "C1",
+      "evidence_ids": ["E1"],
+      "label": "supported"
+    }
+  ],
+  "provider_name": "transformers",
+  "provider_version": "x.y.z",
+  "model_name": "pinned-model-name",
+  "model_revision": "pinned-revision",
+  "errors": [],
+  "warnings": []
+}
+```
+
+Untrusted model draft chỉ gồm `claim_id` và `label`. `evidence_ids` trong result
+được gắn lại từ `ClaimVerification`, không đọc từ model output. `label` chỉ nhận
+`supported`, `contradicted` hoặc `insufficient`; mọi claim phải xuất hiện đúng
+một lần và đúng thứ tự.
 
 ---
 

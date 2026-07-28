@@ -137,9 +137,9 @@ class CitationVerificationTool:
 
     @property
     def description(self) -> str:
-        """Describe exact referential citation checking."""
+        """Describe exact citation and bounded claim-grounding checks."""
         return (
-            "Verify answer citations against the exact supplied legal evidence."
+            "Verify citation identity and claim grounding against supplied evidence."
         )
 
     @property

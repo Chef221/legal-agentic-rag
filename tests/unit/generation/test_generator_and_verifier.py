@@ -54,6 +54,10 @@ def test_extractive_generator_uses_verbatim_evidence_and_exact_citation() -> Non
     assert response.insufficient_evidence is False
     assert verification.is_valid is True
     assert verification.valid_citations == response.citations
+    assert verification.claim_level_verification_performed is False
+    assert "claim_verification_not_applicable_extractive" in (
+        verification.warnings
+    )
     assert "semantic_claim_verification_not_performed" in verification.warnings
     assert isinstance(ExtractiveAnswerGenerator(), AnswerGenerator)
     assert isinstance(RuleBasedCitationVerifier(), CitationVerifier)
@@ -97,4 +101,5 @@ def test_rule_verifier_rejects_wrong_identity_and_uncited_grounded_answer() -> N
     assert wrong_result.is_valid is False
     assert wrong_result.invalid_citations == [wrong_citation]
     assert missing_result.is_valid is False
-    assert missing_result.errors == ["grounded_answer_requires_citation"]
+    assert "grounded_answer_requires_citation" in missing_result.errors
+    assert "unsupported_claim:C1" in missing_result.errors

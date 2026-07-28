@@ -1418,3 +1418,64 @@ adds a deterministic selection layer without claiming semantic legal judgment:
 This policy improves evidence precision and debuggability but does not verify
 current legal validity, resolve conflicts between instruments, infer exceptions
 or prove claim-level support.
+
+---
+
+## D064 — Synthesized Legal Claims Require Inline Grounding
+
+**Status:** Accepted
+
+Exact citation identity does not prove that the sentence beside a citation is
+supported by that evidence. Version `0.23.0` adds a fail-closed deterministic
+claim-grounding layer:
+
+- only synthesized answers are split into bounded claims;
+- every legal claim requires an inline evidence marker by default;
+- each marker must exist in both response citations and selected evidence;
+- response citations unused by any claim are rejected;
+- lexical support is measured against only the evidence linked to that claim;
+- quantities in a claim must occur in linked evidence;
+- negation terms introduced by a claim must occur in linked evidence;
+- one marker on a later sentence cannot silently cover earlier sentences;
+- any unsupported claim invalidates the whole answer and triggers abstention;
+- per-claim results and coverage are persisted in verification metadata;
+- extractive answers skip claim grounding because their legal text is verbatim,
+  but exact identity verification remains mandatory;
+- checks are bounded by typed configuration and add no model dependency.
+
+This is deterministic claim grounding, not semantic entailment, contradiction
+detection or complete legal reasoning. A learned verifier may later implement
+the existing `CitationVerifier` boundary after labeled evaluation is available.
+
+---
+
+## D065 — Semantic Verification Is Optional, Two-stage and Fail-closed
+
+**Status:** Accepted
+
+Version `0.24.0` adds an optional model-backed semantic verifier behind the
+existing `CitationVerifier` contract:
+
+- deterministic M21 identity, marker, lexical, numeric and negation checks
+  always run first;
+- the model runs only when all hard checks pass on a synthesized answer;
+- the model receives only each claim and its already-linked evidence;
+- untrusted output contains only `claim_id` and a three-way support label;
+- trusted evidence IDs and citation metadata are never accepted from the model;
+- every expected claim must appear exactly once and in deterministic order;
+- `contradicted`, `insufficient`, malformed output, provider failure and
+  incomplete assessment all fail closed;
+- provider, provider version, model name and pinned model revision are persisted;
+- `disabled` is the default backend, preserving GPU/network-independent local
+  behavior;
+- OpenAI-compatible and local Transformers providers remain replaceable behind
+  `ChatModelProvider`;
+- generator and semantic verifier share one local Transformers weight set only
+  when model, revision, device, dtype and local-files policy match exactly;
+- shared consumers retain independent input/output bounds and serialize access
+  through one reentrant inference lock;
+- no corpus artifact is rebuilt and no new dependency is added.
+
+This verifier improves claim-level semantic screening but is not a proof of
+legal correctness. Threshold/model selection still requires a labeled
+competition benchmark or a reviewed legal evaluation set.

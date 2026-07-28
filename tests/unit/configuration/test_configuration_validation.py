@@ -9,6 +9,7 @@ from legal_agentic_rag.configuration import (
     BM25IndexConfig,
     BM25RuntimeConfig,
     BuildValidationConfig,
+    ClaimVerificationConfig,
     ChunkingConfig,
     ContextGradingConfig,
     DatasetAuditConfig,
@@ -27,6 +28,7 @@ from legal_agentic_rag.configuration import (
     RetrievalConfig,
     RelationshipNormalizationConfig,
     RerankerConfig,
+    SemanticVerificationConfig,
     StartupValidationConfig,
     VectorIndexConfig,
     VectorRuntimeConfig,
@@ -241,6 +243,61 @@ def test_evidence_selection_defaults_are_bounded_and_optional() -> None:
         EvidenceSelectionConfig(lexical_overlap_weight=11)
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(inactive_penalty=float("inf"))
+
+
+def test_claim_verification_defaults_are_fail_closed_and_bounded() -> None:
+    """Claim grounding requires inline markers, quantities, and negations."""
+    config = ClaimVerificationConfig()
+
+    assert config.enabled is True
+    assert config.require_inline_citations is True
+    assert config.minimum_lexical_support == 0.25
+    assert config.require_numeric_match is True
+    assert config.require_negation_match is True
+    assert config.max_claims == 20
+    with pytest.raises(ValidationError):
+        ClaimVerificationConfig(minimum_lexical_support=1.1)
+    with pytest.raises(ValidationError):
+        ClaimVerificationConfig(minimum_claim_tokens=0)
+    with pytest.raises(ValidationError):
+        ClaimVerificationConfig(max_claims=101)
+
+
+def test_semantic_verification_is_disabled_and_pinned_when_enabled() -> None:
+    """Semantic checking is opt-in and requires complete model provenance."""
+    disabled = SemanticVerificationConfig()
+
+    assert disabled.backend == "disabled"
+    assert disabled.model_name is None
+    assert disabled.max_structured_output_retries == 1
+    with pytest.raises(ValidationError, match="pinned model identity"):
+        SemanticVerificationConfig(backend="transformers")
+    with pytest.raises(ValidationError, match="must not contain"):
+        SemanticVerificationConfig(
+            model_name="unexpected",
+            model_revision="unexpected-revision",
+        )
+    with pytest.raises(ValidationError, match="endpoint_url"):
+        SemanticVerificationConfig(
+            backend="openai_compatible",
+            model_name="fixture",
+            model_revision="revision",
+        )
+    enabled = SemanticVerificationConfig(
+        backend="transformers",
+        model_name="fixture",
+        model_revision="revision",
+        device="cuda",
+        torch_dtype="float16",
+    )
+
+    provider_config = enabled.as_generation_config()
+
+    assert provider_config.backend == "transformers"
+    assert provider_config.temperature == 0.0
+    assert provider_config.max_output_tokens == 512
+    with pytest.raises(ValueError, match="disabled"):
+        disabled.as_generation_config()
 
 
 def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:

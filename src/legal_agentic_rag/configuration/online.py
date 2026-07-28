@@ -109,6 +109,137 @@ class EvidenceSelectionConfig(BaseModel):
     inactive_penalty: float = Field(default=2.0, ge=0, le=10)
 
 
+class ClaimVerificationConfig(BaseModel):
+    """Bound deterministic claim-to-evidence grounding checks."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    enabled: bool = True
+    require_inline_citations: bool = True
+    minimum_lexical_support: float = Field(default=0.25, ge=0, le=1)
+    minimum_claim_tokens: int = Field(default=2, ge=1, le=100)
+    require_numeric_match: bool = True
+    require_negation_match: bool = True
+    max_claims: int = Field(default=20, ge=1, le=100)
+
+
+class SemanticVerificationConfig(BaseModel):
+    """Optional model-backed semantic claim verification policy."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    backend: Literal[
+        "disabled",
+        "openai_compatible",
+        "transformers",
+    ] = "disabled"
+    endpoint_url: str | None = Field(default=None, min_length=1)
+    api_key_env: str | None = Field(default=None, min_length=1)
+    model_name: str | None = Field(default=None, min_length=1)
+    model_revision: str | None = Field(default=None, min_length=1)
+    device: str = Field(default="cpu", min_length=1)
+    torch_dtype: Literal["float16", "bfloat16", "float32"] = "float32"
+    local_files_only: bool = False
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    max_input_tokens: int = Field(default=8192, gt=0, le=131072)
+    max_output_tokens: int = Field(default=512, gt=0, le=4096)
+    max_structured_output_retries: int = Field(default=1, ge=0, le=1)
+
+    @field_validator("endpoint_url")
+    @classmethod
+    def validate_endpoint_url(cls, value: str | None) -> str | None:
+        """Accept only an explicit HTTP(S) semantic-verifier endpoint."""
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(
+                "semantic verifier endpoint_url must be an HTTP(S) URL"
+            )
+        return value.rstrip("/")
+
+    @field_validator("api_key_env")
+    @classmethod
+    def validate_api_key_environment_name(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        """Store an environment-variable name rather than a secret value."""
+        if value is None:
+            return None
+        if not value.replace("_", "").isalnum() or value[0].isdigit():
+            raise ValueError("api_key_env must be an environment-variable name")
+        return value
+
+    @model_validator(mode="after")
+    def validate_model_identity(self) -> "SemanticVerificationConfig":
+        """Require a pinned model only when semantic verification is enabled."""
+        if (self.model_name is None) != (self.model_revision is None):
+            raise ValueError(
+                "semantic verifier model name and revision must be set together"
+            )
+        if self.backend == "openai_compatible":
+            if self.endpoint_url is None:
+                raise ValueError(
+                    "openai_compatible semantic verifier requires endpoint_url"
+                )
+            if self.model_name is None or self.model_revision is None:
+                raise ValueError(
+                    "openai_compatible semantic verifier requires pinned model identity"
+                )
+        elif self.backend == "transformers":
+            if self.model_name is None or self.model_revision is None:
+                raise ValueError(
+                    "transformers semantic verifier requires pinned model identity"
+                )
+            if self.endpoint_url is not None or self.api_key_env is not None:
+                raise ValueError(
+                    "transformers semantic verifier must not contain endpoint settings"
+                )
+            if (
+                self.device.casefold().startswith("cpu")
+                and self.torch_dtype != "float32"
+            ):
+                raise ValueError(
+                    "CPU transformers semantic verification requires float32"
+                )
+        elif any(
+            value is not None
+            for value in (
+                self.endpoint_url,
+                self.api_key_env,
+                self.model_name,
+                self.model_revision,
+            )
+        ):
+            raise ValueError(
+                "disabled semantic verifier must not contain model backend settings"
+            )
+        return self
+
+    def as_generation_config(self) -> "GenerationConfig":
+        """Translate an enabled verifier model into the shared provider config."""
+        if self.backend == "disabled":
+            raise ValueError(
+                "disabled semantic verifier has no chat-model configuration"
+            )
+        return GenerationConfig(
+            backend=self.backend,
+            endpoint_url=self.endpoint_url,
+            api_key_env=self.api_key_env,
+            model_name=self.model_name,
+            model_revision=self.model_revision,
+            device=self.device,
+            torch_dtype=self.torch_dtype,
+            local_files_only=self.local_files_only,
+            timeout_seconds=self.timeout_seconds,
+            max_input_tokens=self.max_input_tokens,
+            temperature=0.0,
+            max_output_tokens=self.max_output_tokens,
+            max_structured_output_retries=self.max_structured_output_retries,
+        )
+
+
 class RerankerConfig(BaseModel):
     """Pinned multilingual cross-encoder and bounded inference policy."""
 
@@ -300,6 +431,12 @@ class OnlineConfig(BaseModel):
     )
     evidence_selection: EvidenceSelectionConfig = Field(
         default_factory=EvidenceSelectionConfig
+    )
+    claim_verification: ClaimVerificationConfig = Field(
+        default_factory=ClaimVerificationConfig
+    )
+    semantic_verification: SemanticVerificationConfig = Field(
+        default_factory=SemanticVerificationConfig
     )
     reranker: RerankerConfig = Field(default_factory=RerankerConfig)
     generation: GenerationConfig = Field(default_factory=GenerationConfig)

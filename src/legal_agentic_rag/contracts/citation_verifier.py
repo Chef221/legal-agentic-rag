@@ -12,10 +12,10 @@ from legal_agentic_rag.schemas.answering import (
 
 @runtime_checkable
 class CitationVerifier(Protocol):
-    """Verify answer citations against the exact supplied evidence set."""
+    """Verify citation identity and answer grounding against supplied evidence."""
 
     def verify(
         self, response: AnswerResponse, evidence: Sequence[Evidence]
     ) -> CitationVerificationResult:
-        """Return structural and referential citation verification results."""
+        """Return citation and claim-grounding verification results."""
         ...

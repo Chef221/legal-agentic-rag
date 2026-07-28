@@ -23,9 +23,10 @@ from legal_agentic_rag.contracts import (
 from legal_agentic_rag.embeddings import SentenceTransformerEmbeddingProvider
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.generation import (
-    RuleBasedCitationVerifier,
     RuleBasedContextGrader,
     build_answer_generator,
+    build_citation_verifier,
+    build_generation_components,
 )
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
@@ -152,12 +153,27 @@ class OnlineRuntimeFactory:
         self._context_grader = context_grader or RuleBasedContextGrader(
             config.online.context_grading
         )
-        self._answer_generator = answer_generator or build_answer_generator(
-            config.online.generation
-        )
-        self._citation_verifier = (
-            citation_verifier or RuleBasedCitationVerifier()
-        )
+        if answer_generator is None and citation_verifier is None:
+            (
+                self._answer_generator,
+                self._citation_verifier,
+            ) = build_generation_components(
+                config.online.generation,
+                config.online.claim_verification,
+                config.online.semantic_verification,
+            )
+        else:
+            self._answer_generator = (
+                answer_generator
+                or build_answer_generator(config.online.generation)
+            )
+            self._citation_verifier = (
+                citation_verifier
+                or build_citation_verifier(
+                    config.online.claim_verification,
+                    config.online.semantic_verification,
+                )
+            )
 
     def build(self) -> OnlineRuntime:
         """Load, validate, and compose all online capabilities without mutation."""
@@ -282,6 +298,14 @@ class OnlineRuntimeFactory:
             ),
             generation_timeout_seconds=(
                 self._config.online.generation.timeout_seconds
+            ),
+            verification_timeout_seconds=(
+                self._config.online.semantic_verification.timeout_seconds
+                if (
+                    self._config.online.semantic_verification.backend
+                    != "disabled"
+                )
+                else self._config.online.generation.timeout_seconds
             ),
         )
         workflow = DeterministicAgentWorkflow(
