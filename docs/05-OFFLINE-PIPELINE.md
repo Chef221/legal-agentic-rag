@@ -118,7 +118,7 @@ Output:
 
 Milestone 2 triển khai audit theo các nguyên tắc:
 
-- raw AIO field names chỉ xuất hiện trong dataset adapter và audit;
+- raw source field names chỉ xuất hiện trong competition adapter và audit;
 - audit chỉ đọc, thống kê và phân loại issue, không sửa raw record;
 - relationship label và effect status không bị tự canonicalize;
 - unknown-value check chỉ bật khi có accepted set trong configuration;
@@ -601,7 +601,7 @@ Không được map relationship type bằng phỏng đoán không kiểm chứn
 
 ### 11.1 Milestone 11 Implementation Policy
 
-- raw field AIO chỉ được đọc qua `AioRecordAdapter`;
+- raw relationship fields chỉ được đọc qua dataset-specific adapter;
 - chỉ canonicalize label khi có mapping cấu hình rõ ràng;
 - label chưa map vẫn được giữ ở `raw_relationship` và canonical type là null;
 - orphan endpoint, self-loop, endpoint/label thiếu và exact duplicate bị loại
@@ -732,13 +732,15 @@ Offline pipeline phải:
 
 ## 16. Runtime Assembly
 
-`OfflineBuildRuntime` là composition root cho baseline:
+M26 đã có official ZIP/directory loader, context adapter, audit và ingestion
+manifests nhưng chưa có full offline composition root. Pipeline mục tiêu sau
+khi audit corpus BTC thật là:
 
 ```text
-AIO metadata/content/relationships snapshot
+Official competition context snapshot
 → audit
 → normalize documents
-→ clean HTML
+→ plain-text pass-through (không sửa passage)
 → parse legal blocks
 → legal chunks
 → normalize relationships
@@ -750,22 +752,19 @@ Processed payloads `normalized_documents`, `cleaned_documents`,
 `legal_blocks` và `legal_chunks` dùng deterministic JSONL kèm manifest và
 SHA-256. Relationship/BM25/vector/graph tiếp tục dùng artifact store riêng của
 từng module. Tất cả directory nằm dưới configured `ArtifactConfig.root_path`;
-runtime preflight và từ chối overwrite trước khi load dataset.
+future runtime preflight phải từ chối overwrite trước khi load dataset.
 
-Default fixture/sample mode có thể materialize raw streams. Full-corpus profile
-dùng nhiều pass trên cùng pinned revision: count-only, audit, normalization và
-relationship processing. Cách này đổi thêm disk/cache reads để không giữ raw
-content list và raw relationship list cùng các processed stages trong memory.
+Execution strategy, streaming, relationship handling và checkpoint policy chưa
+được chốt cho corpus mới; chúng phải dựa trên inventory và đo memory thật.
 
-Mỗi processed stage được persist/checksum ngay sau khi tạo. Runtime giải phóng
-stage không còn consumer; persisted cleaned artifact vẫn giữ `content_html`, còn
-processing view sau đó bỏ reference HTML trước parser/chunker.
+Mỗi processed stage phải được persist/checksum ngay sau khi tạo. Runtime tương
+lai phải giải phóng stage không còn consumer và không giữ toàn corpus trong RAM.
 
 ---
 
 ## 17. Full-Corpus Profile and Post-Build Validation
 
-Full AIO profile phải:
+Full competition corpus profile phải:
 
 - pin dataset revision;
 - đặt `sample_limit = null`;
@@ -842,7 +841,27 @@ Build `0.19.x` không được resume bằng code `0.20.0` vì build state khóa
 code/config identity. Phải giữ artifact cũ để chẩn đoán và dùng artifact root
 mới; không sửa tay `build_state.json`.
 
-### 17.3 Resumable Vector Batches
+### 17.3 Official Competition Build (M27)
+
+`legal-rag-build-competition` composes the UIT DSC adapter with the reusable
+offline modules. The fixed stage order is:
+
+```text
+corpus -> document_processing -> bm25 -> vector -> validation
+```
+
+`competition_build_state.json` pins the canonical source revision,
+application-config SHA-256, code version, timestamps, and completed stage
+prefix. Resume validates already-published payloads before reuse.
+
+The corpus stage persists provenance, audit, normalized and plain-text
+pass-through documents, a zero-record relationship artifact, and a zero-edge
+graph. Empty relationships are truthful because the documented official fields
+contain no relationship information. Document processing remains streaming,
+BM25 remains disk-backed, and vector build retains `.vector.partial` batch
+checkpoints. Final validation still requires all eight artifact types.
+
+### 17.4 Resumable Vector Batches
 
 Compatibility note: version `0.20.2` only changes online vector loading/search,
 not offline output, canonical config hash, or artifact lineage. Partial build

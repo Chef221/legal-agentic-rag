@@ -57,13 +57,4 @@ class BuildValidationConfig(BaseModel):
             raise ValueError("full-corpus validation requires a pinned revision")
         if self.require_full_corpus and not self.expected_record_counts:
             raise ValueError("full-corpus validation requires expected record counts")
-        required_components = {"metadata", "content", "relationships"}
-        if (
-            self.require_full_corpus
-            and set(self.expected_record_counts) != required_components
-        ):
-            raise ValueError(
-                "full-corpus validation requires metadata, content, "
-                "and relationships counts"
-            )
         return self

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from legal_agentic_rag.configuration.competition import CompetitionConfig
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.schemas import (
     ArtifactManifest,
@@ -23,6 +24,29 @@ _REQUIRED_CHECKS: dict[ArtifactType, frozenset[str]] = {
     ),
     ArtifactType.GRAPH_INDEX: frozenset({"payload_checksum", "record_count"}),
 }
+
+
+def validate_competition_artifact_lineage(
+    manifests: tuple[ArtifactManifest, ...],
+    policy: CompetitionConfig,
+) -> None:
+    """Reject artifacts that do not originate from the approved BTC corpus."""
+    identities = {
+        (manifest.dataset_name, manifest.dataset_revision)
+        for manifest in manifests
+    }
+    if len(identities) != 1:
+        raise ArtifactCompatibilityError(
+            "Runtime artifacts originate from different datasets"
+        )
+    if any(
+        manifest.dataset_name != policy.corpus_dataset_name
+        for manifest in manifests
+    ):
+        raise ArtifactCompatibilityError(
+            "Runtime artifacts do not originate from the approved "
+            "competition corpus"
+        )
 
 
 def validate_startup_report(

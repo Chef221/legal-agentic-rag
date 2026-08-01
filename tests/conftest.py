@@ -19,19 +19,6 @@ def load_schema_sample() -> Any:
 
 
 @pytest.fixture
-def load_raw_aio_fixture() -> Any:
-    """Return a loader for small, local raw AIO component fixtures."""
-    fixture_root = Path(__file__).parent / "fixtures" / "raw_aio"
-
-    def load(component: str) -> list[dict[str, object]]:
-        return json.loads(
-            (fixture_root / f"{component}.json").read_text(encoding="utf-8")
-        )
-
-    return load
-
-
-@pytest.fixture
 def load_html_fixture() -> Any:
     """Return a loader for small legal HTML cleaning fixtures."""
     fixture_root = Path(__file__).parent / "fixtures" / "html_samples"

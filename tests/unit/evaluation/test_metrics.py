@@ -4,6 +4,7 @@ from legal_agentic_rag.evaluation import (
     StandardGenerationEvaluator,
     StandardRetrievalEvaluator,
 )
+from legal_agentic_rag.competition.uit_dsc_2026 import render_competition_answer
 from legal_agentic_rag.schemas import (
     AnswerResponse,
     Citation,
@@ -130,6 +131,8 @@ def test_generation_metrics_only_score_available_labels() -> None:
     metrics = StandardGenerationEvaluator().evaluate(case, response)
 
     assert metrics.exact_match == 1.0
+    assert metrics.meteor is not None and metrics.meteor > 0.99
+    assert metrics.rouge_l == 1.0
     assert metrics.abstention_accuracy == 1.0
     assert metrics.citation_precision == 0.5
     assert metrics.citation_recall == 0.5
@@ -154,3 +157,57 @@ def test_generation_metrics_are_null_without_generation_labels() -> None:
     metrics = StandardGenerationEvaluator().evaluate(case, response)
 
     assert all(value is None for value in metrics.model_dump().values())
+
+
+def test_competition_text_metrics_measure_order_and_fragmentation() -> None:
+    case = EvaluationCase(
+        case_id="competition-text",
+        question="Câu hỏi",
+        target_granularity="chunk",
+        relevance_grades={"chunk-a": 1},
+        reference_answer="một hai ba",
+    )
+    response = AnswerResponse(
+        question="Câu hỏi",
+        answer="một ba hai",
+        insufficient_evidence=True,
+        retrieval_strategy=RetrievalStrategy.BM25,
+        trace_id="trace-order",
+    )
+
+    metrics = StandardGenerationEvaluator().evaluate(case, response)
+
+    assert metrics.exact_match == 0.0
+    assert metrics.meteor == 0.5
+    assert metrics.rouge_l == 2 / 3
+
+
+def test_competition_metrics_score_the_marker_free_submitted_answer() -> None:
+    case = EvaluationCase(
+        case_id="submitted-answer",
+        question="Câu hỏi",
+        target_granularity="chunk",
+        relevance_grades={"chunk-a": 1},
+        reference_answer="Người lao động được nghỉ 12 ngày.",
+    )
+    response = AnswerResponse(
+        question="Câu hỏi",
+        answer="Người lao động được nghỉ 12 ngày. [E1]",
+        citations=[
+            Citation(
+                evidence_id="E1",
+                chunk_id="chunk-a",
+                document_id="document-a",
+            )
+        ],
+        insufficient_evidence=False,
+        retrieval_strategy=RetrievalStrategy.HYBRID,
+        trace_id="trace-submission-render",
+    )
+
+    metrics = StandardGenerationEvaluator(
+        answer_renderer=render_competition_answer,
+    ).evaluate(case, response)
+
+    assert metrics.exact_match == 1.0
+    assert metrics.rouge_l == 1.0

@@ -12,9 +12,6 @@ from legal_agentic_rag.configuration import (
     ClaimVerificationConfig,
     ChunkingConfig,
     ContextGradingConfig,
-    DatasetAuditConfig,
-    DatasetSourceConfig,
-    DocumentNormalizationConfig,
     EmbeddingConfig,
     EvidenceSelectionConfig,
     GenerationConfig,
@@ -23,10 +20,8 @@ from legal_agentic_rag.configuration import (
     LegalStructureParserConfig,
     LoggingConfig,
     OfflineConfig,
-    OfflineExecutionConfig,
     QueryUnderstandingConfig,
     RetrievalConfig,
-    RelationshipNormalizationConfig,
     RerankerConfig,
     SemanticVerificationConfig,
     StartupValidationConfig,
@@ -145,18 +140,9 @@ def test_query_understanding_config_is_enabled_and_bounded() -> None:
         QueryUnderstandingConfig(max_variants=6)
 
 
-def test_relationship_and_graph_index_configuration_is_explicit() -> None:
-    """Graph labels are never guessed and the reference backend is typed."""
-    relationship = RelationshipNormalizationConfig(
-        relationship_type_mapping={" Sửa đổi ": " amends "}
-    )
-    assert relationship.relationship_type_mapping == {"Sửa đổi": "amends"}
-    assert relationship.reject_self_loops is True
+def test_graph_index_configuration_is_explicit() -> None:
+    """The reference graph backend remains typed without raw label policy."""
     assert GraphIndexConfig().backend_name == "adjacency_json"
-    with pytest.raises(ValidationError):
-        RelationshipNormalizationConfig(
-            relationship_type_mapping={"Liên quan": " "}
-        )
 
 
 def test_generation_and_context_grading_defaults_are_bounded() -> None:
@@ -388,16 +374,6 @@ def test_logging_level_uses_standard_library_names() -> None:
         LoggingConfig(level="verbose")
 
 
-def test_dataset_source_requires_distinct_component_configs() -> None:
-    """Two logical streams cannot silently point at the same HF config."""
-    with pytest.raises(ValidationError):
-        DatasetSourceConfig(
-            dataset_name="th1nhng0/vietnamese-legal-documents",
-            metadata_config="metadata",
-            content_config="metadata",
-        )
-
-
 def test_full_corpus_validation_requires_pinned_expected_counts() -> None:
     """A build cannot claim full-corpus coverage without measurable provenance."""
     with pytest.raises(ValidationError, match="pinned revision"):
@@ -417,35 +393,14 @@ def test_full_corpus_validation_requires_pinned_expected_counts() -> None:
         },
     )
     assert policy.expected_record_counts["metadata"] == 153_420
-    with pytest.raises(ValidationError, match="metadata, content"):
-        BuildValidationConfig(
-            require_full_corpus=True,
-            require_pinned_dataset_revision=True,
-            expected_record_counts={"metadata": 153_420},
-        )
+    single_component = BuildValidationConfig(
+        require_full_corpus=True,
+        require_pinned_dataset_revision=True,
+        expected_record_counts={"contexts": 8_500},
+    )
+    assert single_component.expected_record_counts == {"contexts": 8_500}
     with pytest.raises(ValidationError):
         BuildValidationConfig(report_filename="../validation.json")
-
-
-def test_offline_execution_only_resumes_when_explicitly_enabled() -> None:
-    """Partial reuse is opt-in while stage-memory release remains mandatory."""
-    assert OfflineExecutionConfig().resume_partial_build is False
-    assert OfflineExecutionConfig(
-        resume_partial_build=True
-    ).release_stage_memory is True
-    assert (
-        OfflineExecutionConfig().document_processing_progress_interval
-        == 1_000
-    )
-    with pytest.raises(ValidationError):
-        OfflineExecutionConfig(release_stage_memory=False)
-    with pytest.raises(ValidationError):
-        OfflineExecutionConfig(document_processing_progress_interval=0)
-    with pytest.raises(ValidationError, match="pinned revision"):
-        OfflineConfig(
-            dataset=DatasetSourceConfig(dataset_name="fixture"),
-            execution=OfflineExecutionConfig(bounded_source_passes=True),
-        )
 
 
 def test_vector_checkpoint_interval_is_positive_execution_tuning() -> None:
@@ -458,25 +413,6 @@ def test_vector_checkpoint_interval_is_positive_execution_tuning() -> None:
     assert canonical_sha256(frequent) == canonical_sha256(sparse)
     with pytest.raises(ValidationError):
         VectorIndexConfig(checkpoint_interval_batches=0)
-
-
-def test_audit_config_validates_content_thresholds() -> None:
-    """Raw content classification thresholds must be internally consistent."""
-    with pytest.raises(ValidationError):
-        DatasetAuditConfig(
-            minimum_content_characters=100,
-            maximum_content_characters=10,
-        )
-
-
-def test_normalization_config_strips_and_validates_explicit_mappings() -> None:
-    """Canonical mappings cannot contain blank source or target labels."""
-    config = DocumentNormalizationConfig(
-        effect_status_mapping={" Còn hiệu lực ": " effective "}
-    )
-    assert config.effect_status_mapping == {"Còn hiệu lực": "effective"}
-    with pytest.raises(ValidationError):
-        DocumentNormalizationConfig(document_type_mapping={"Luật": " "})
 
 
 def test_html_cleaning_config_normalizes_exact_noise_tokens() -> None:

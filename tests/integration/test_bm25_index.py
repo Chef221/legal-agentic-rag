@@ -31,7 +31,7 @@ def test_legal_chunk_artifact_builds_persists_and_queries_bm25(
         legal_field="Giao thông",
         clean_text="fixture",
         has_content=True,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
     )
     structure = LegalStructure(
         article_number="5",

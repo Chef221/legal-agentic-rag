@@ -92,7 +92,7 @@ def test_fixed_graph_strategy_reloads_graph_and_reranks_related_chunk(
         LegalDocument(
             document_id=document_id,
             has_content=True,
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         )
         for document_id in ("doc-seed", "doc-related")
     ]
@@ -102,7 +102,7 @@ def test_fixed_graph_strategy_reloads_graph_and_reranks_related_chunk(
             target_document_id="doc-related",
             relationship_type="amends",
             raw_relationship="Sửa đổi",
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         )
     ]
     graph = AdjacencyGraphBackend()

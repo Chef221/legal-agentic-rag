@@ -40,7 +40,7 @@ def test_artifact_manifest_uses_expanded_contract(load_schema_sample: object) ->
     manifest = ArtifactManifest.model_validate(data)
 
     assert manifest.artifact_type.value == "legal_chunks"
-    assert manifest.dataset_name == "th1nhng0/vietnamese-legal-documents"
+    assert manifest.dataset_name == "fixture-corpus"
 
 
 def test_artifact_revision_requires_model_name(load_schema_sample: object) -> None:

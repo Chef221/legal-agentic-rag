@@ -56,34 +56,35 @@ Hệ thống phải có khả năng:
 
 ## 3. Current Competition Context
 
-Tại thời điểm hiện tại, Ban tổ chức chưa công bố đầy đủ:
+BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview và
+`warmup.json`. Các thông tin đã xác nhận:
 
-- quy chế chính thức;
-- train data;
-- development data;
-- test data;
-- corpus pháp luật;
-- ground-truth granularity;
-- metric đánh giá;
-- input format;
-- output format;
-- submission format;
-- giới hạn tài nguyên;
-- quy định external data;
-- quy định pretrained model;
-- quy định Internet;
-- quy định commercial LLM API;
-- yêu cầu Docker hoặc API deployment.
+- input là câu hỏi pháp luật tiếng Việt;
+- output là câu trả lời văn xuôi tiếng Việt;
+- corpus chính thức dự kiến nằm trong `selected-contexts.zip`;
+- các context có các trường raw `id`, `name`, `link`, `passage`;
+- dữ liệu theo giai đoạn gồm warm-up, public test và private test;
+- METEOR là metric xếp hạng chính, ROUGE-L là metric phụ.
+- Codabench nhận `submission.zip` chứa duy nhất UTF-8 `submission.json`;
+- scorer Codabench thực tế yêu cầu `submission.json` là object ánh xạ mỗi
+  question ID sang đúng `{"answer": string}`; hướng dẫn dạng mảng đã bị scorer
+  thực tế bác bỏ.
+- model mã nguồn mở không có danh sách cố định nhưng phải đăng ký tên và URL qua
+  Google Form BTC sẽ cung cấp;
+- preprocessing, indexing, retrieval và fine-tuning được phép nếu chỉ dùng dữ
+  liệu chính thức;
+- synthetic data bị cấm kể cả khi sinh từ dữ liệu BTC;
+- Codabench là nền tảng nộp chính thức của Task 2.
 
-Do đó:
+Các nội dung vẫn chưa được xác nhận đầy đủ:
 
-- không được thiết kế core system gắn cứng với dataset hiện tại;
-- không được mặc định BTC sẽ cung cấp train data;
-- không được mặc định BTC chỉ cung cấp test data;
-- không được mặc định output là answer text;
-- không được mặc định output là article IDs;
-- không được mặc định ground truth ở cấp Điều;
-- không được tối ưu theo một metric chưa được công bố.
+- scorer parameters/aggregation chính xác và scoring image đã sửa WordNet;
+- giới hạn tài nguyên và Internet;
+- quy định model pretraining và external API;
+- toàn bộ train data và corpus chính thức.
+
+Core không được gắn cứng với raw schema của BTC. Mọi dữ liệu competition phải
+đi qua adapter, evaluator và output boundary.
 
 Mọi thành phần liên quan tới competition phải được thiết kế thông qua:
 
@@ -98,32 +99,23 @@ Mọi thành phần liên quan tới competition phải được thiết kế th
 
 ## 4. Current Data Scope
 
-Trong giai đoạn hiện tại, nguồn dữ liệu duy nhất được sử dụng là:
+Kể từ Milestone 25, phạm vi active của dự án là dữ liệu chính thức do BTC UIT
+Data Science Challenge 2026 Task 2 cung cấp.
 
-`th1nhng0/vietnamese-legal-documents`
+Chính sách mặc định là competition-only và fail-closed:
 
-Dataset này được dùng làm:
+- không dùng corpus AIO trong build, runtime, evaluation hoặc submission;
+- không load artifact có lineage từ corpus ngoài BTC;
+- không trộn external corpus;
+- không dùng synthetic QA làm gold benchmark;
+- không tạo bất kỳ synthetic QA, answer, evidence, hard negative hoặc training
+  example nào, kể cả từ dữ liệu BTC;
+- `warmup.json` chỉ là answer-level supervision/evaluation data;
+- chưa tạo corpus/index mới trước khi kiểm tra `selected-contexts.zip` thật.
 
-- corpus văn bản pháp luật;
-- nguồn metadata pháp lý;
-- nguồn nội dung toàn văn;
-- nguồn quan hệ giữa các văn bản;
-- nguồn xây BM25 index;
-- nguồn xây vector index;
-- nguồn xây legal graph;
-- nguồn evidence cho answer generation;
-- nguồn metadata cho citation.
-
-Không tích hợp bất kỳ dataset QA hoặc corpus pháp luật nào khác trong
-baseline hiện tại.
-
-Đặc biệt:
-
-- không tích hợp bộ dữ liệu GitHub đã thảo luận trước đây;
-- không trộn hai corpus;
-- không xây mapping sang corpus khác;
-- không thêm VLQA vào pipeline;
-- không tạo synthetic QA làm ground truth chính thức.
+Code, config, fixture và test dành riêng cho AIO được loại khỏi active tree.
+Git history có thể giữ dấu vết lịch sử nhưng không được runtime import hoặc sử
+dụng.
 
 Nếu phạm vi dữ liệu thay đổi, phải:
 
@@ -136,43 +128,16 @@ Nếu phạm vi dữ liệu thay đổi, phải:
 
 ## 5. Dataset Logical Structure
 
-Dataset hiện tại được hiểu theo ba thành phần logic:
-
-### 5.1 Metadata
-
-Chứa metadata của văn bản pháp luật.
-
-Khóa định danh logic:
+Hai contract raw đã được BTC mô tả:
 
 ```text
-metadata.id
+QA mapping: question_id → {question, answer?}
+context file: {id, name, link, passage}
 ```
 
-### 5.2 Content
-
-Chứa nội dung toàn văn, có thể ở dạng HTML.
-
-Khóa nối logic:
-
-```text
-content.id → metadata.id
-```
-
-### 5.3 Relationships
-
-Chứa quan hệ có hướng giữa các văn bản.
-
-Khóa nối logic:
-
-```text
-relationships.doc_id → metadata.id
-relationships.other_doc_id → metadata.id
-```
-
-Tên config, tên cột và data type thực tế phải được xác minh bằng loader
-và audit.
-
-Không được hard-code dựa hoàn toàn vào mô tả tài liệu.
+Raw field names chỉ được tồn tại trong package adapter UIT DSC 2026. Cấu trúc
+thật của corpus, số file, encoding, duplicate policy và record counts phải được
+audit lại khi `selected-contexts.zip` được cung cấp; không suy đoán từ overview.
 
 ---
 
@@ -591,12 +556,12 @@ Baseline đầu tiên không fine-tune:
 - generator;
 - context grader.
 
-Lý do:
+Lý do hiện tại:
 
-- chưa có gold competition data;
-- dataset hiện tại chủ yếu là corpus;
-- chưa có benchmark chính thức;
-- chưa có metric chính thức.
+- chưa có đầy đủ official train/corpus data;
+- chưa audit train schema và supervision granularity;
+- chưa có train/dev split và experiment plan đáng tin cậy;
+- cấm tạo synthetic supervision để bù nhãn còn thiếu.
 
 Fine-tuning chỉ được thêm khi có:
 
@@ -1061,7 +1026,7 @@ Nếu hai nguồn ở cùng mức mâu thuẫn:
 Phải đọc:
 
 - `AGENTS.md`;
-- `docs/03-DATASET-AIO.md`;
+- `docs/10-COMPETITION-ADAPTATION.md`;
 - `docs/05-OFFLINE-PIPELINE.md`;
 - `docs/07-UNIFIED-SCHEMA.md`;
 - `docs/08-DESIGN-DECISIONS.md`.
@@ -1173,10 +1138,12 @@ Nếu phát hiện việc ngoài scope cần thiết:
 
 Cho đến khi có quyết định mới, không được:
 
-- tích hợp dataset ngoài AIO;
+- tích hợp dataset ngoài dữ liệu chính thức của BTC;
+- tải hoặc dùng lại AIO corpus/artifacts;
 - tích hợp dữ liệu GitHub QA;
 - tích hợp VLQA;
-- fine-tune model;
+- fine-tune model trước khi có official supervision, split, evaluator, experiment
+  plan và model registration phù hợp;
 - xây autonomous Agent;
 - xây multi-agent;
 - bật web search;
@@ -1185,7 +1152,7 @@ Cho đến khi có quyết định mới, không được:
 - parse PDF scan;
 - gọi external legal API;
 - tự cập nhật hiệu lực pháp lý;
-- dùng synthetic QA làm gold benchmark;
+- tạo hoặc dùng synthetic QA, answer, evidence, hard negative hay training data;
 - chọn production backend;
 - triển khai cloud infrastructure;
 - thêm authentication phức tạp;
@@ -1223,10 +1190,11 @@ Sau đó cập nhật:
 - evaluator;
 - output formatter.
 
-Nếu corpus BTC khác:
+Khi corpus BTC được cung cấp:
 
-- rebuild indexes;
-- không tái sử dụng index AIO một cách im lặng.
+- audit raw schema trước khi map sang unified schema;
+- rebuild toàn bộ indexes từ corpus BTC;
+- từ chối mọi artifact không có đúng BTC lineage.
 
 ---
 
@@ -1329,8 +1297,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 22 — Model-backed Semantic Claim Verification
-(Implementation Completed; Official Quality Benchmark Pending)
+Milestone 33 — Team Onboarding and Confirmed Competition Rules
+(Documentation Completed; Official Corpus and Model Form Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1664,6 +1632,42 @@ Milestone 22 chưa benchmark model trên labeled legal claims, chưa giải quy�
 đủ temporal validity, exception scope, conflict of laws hoặc multi-hop legal
 reasoning và không thay thế legal expert review.
 
+Milestone 23 đã tạo:
+
+- sanitized runtime configuration hash và component/model/package provenance
+  trong evaluation summary;
+- pinned dataset name/revision cho từng evaluation run mới;
+- typed multi-run candidate, objective, direction, threshold và selection mode;
+- strict comparability cho benchmark SHA-256, case count, cutoffs, dataset
+  lineage và labeled metric case counts;
+- namespaced quality, latency, failure và resource metrics;
+- optional accelerator identity và peak allocated-memory observation;
+- explicit eligibility/exclusion reason cho từng candidate;
+- deterministic Pareto frontier, mặc định không chọn một winner;
+- optional lexicographic selection chỉ khi policy khai báo rõ;
+- immutable comparison report và `legal-rag-compare` CLI;
+- unit/integration tests không network, GPU, model hoặc dataset thật.
+
+Milestone 23 chưa kèm official/reviewed labeled benchmark, chưa chốt model cuối
+cùng, không fine-tune và không tuyên bố competition quality.
+
+Milestone 24 đã tạo:
+
+- typed benchmark manifest với exact benchmark SHA-256, case count, target
+  granularity và pinned dataset lineage;
+- label status rõ ràng: `diagnostic`, `human_reviewed` hoặc
+  `competition_official`;
+- timestamped provenance bắt buộc cho trusted label status;
+- validation benchmark bytes/manifest/runtime corpus trước evaluation;
+- benchmark manifest identity trong evaluation và comparison reports;
+- chặn winner selection khi benchmark chỉ là diagnostic;
+- optional maximum regression theo từng objective so với explicit baseline;
+- required `--benchmark-manifest` cho evaluation CLI;
+- unit/integration tests không network, GPU, model hoặc dataset thật.
+
+Milestone 24 chưa kèm reviewed/official benchmark, chưa tự xác minh chất lượng
+nhãn, chưa chọn model cuối cùng và không giả định metric của BTC.
+
 Competition adaptation chỉ bắt đầu sau khi người dùng yêu cầu và có thông tin
 BTC:
 
@@ -1737,6 +1741,146 @@ Full-corpus CUDA validation đã pass trên 1.278.201 x 384 vectors:
 - warm reranker 398 ms;
 - warm Agent workflow khoảng 2,04 giây;
 - cold query khoảng 31,47 giây do lazy model initialization.
+
+Milestone 25 đã tạo:
+
+- active data policy `competition_only` cho UIT DSC 2026 Task 2;
+- fail-closed online artifact lineage theo official corpus identity;
+- typed `CompetitionQuestion` và `CompetitionContext` schemas;
+- strict local UIT DSC JSON loader với duplicate-key, unknown-field,
+  missing-field và duplicate-context checks;
+- question-only và question-with-answer support mà không phát minh labels;
+- loại AIO source/adapter/audit/normalizer/relationship normalizer, raw fixtures,
+  tests, build profile và offline composition root khỏi active tree;
+- loại runtime dependency `datasets` và legacy build CLI;
+- dataset-neutral core fixtures và generic build-count validation;
+- cập nhật competition, schema, architecture và implementation documents;
+- validation loader trên `warmup.json` thật: 500 records;
+- local suite: 350 passed, 1 skipped; compileall pass.
+
+Milestone 25 chưa ingest `selected-contexts.zip`, chưa build official indexes,
+chưa triển khai official-equivalent METEOR/ROUGE-L và không xóa external
+artifacts ngoài repository. Submission formatter được hoàn thành sau đó ở M28.
+
+Milestone 26 đã tạo:
+
+- official `context_*.json` loader cho ZIP hoặc thư mục đã giải nén;
+- strict one-object-per-file, exact-field, duplicate-key, duplicate-member và
+  duplicate-context checks;
+- canonical corpus SHA-256 giống nhau cho ZIP và directory có cùng bytes;
+- one-to-one context adapter sang unified `LegalDocument`;
+- không suy diễn document number, dates, effect status hoặc relevance labels;
+- deterministic corpus audit, dataset manifest, normalized manifest và
+  plain-text pass-through cleaned manifest;
+- local integration từ official-format context qua parser tới legal chunks;
+- local suite: 356 passed, 1 skipped.
+
+Milestone 26 chưa chạy trên `selected-contexts.zip` thật, chưa persist full
+official corpus, chưa build official BM25/vector/graph, chưa đo memory/latency
+toàn corpus và chưa tạo build CLI mới.
+
+Milestone 27 đã tạo:
+
+- official offline build CLI với stage state atomic và strict source/config/code
+  recovery identity;
+- persistence cho corpus audit, normalized/cleaned pass-through documents và
+  complete artifact lineage;
+- explicit zero-record relationship artifact và zero-edge graph vì raw schema
+  BTC không có relationship fields;
+- streaming parser/chunker, disk-backed BM25 và resumable vector checkpoint
+  trong composition root mới;
+- submission-neutral batch inference JSONL với per-question checkpoint,
+  ordered completeness validation và final checksum manifest;
+- không dùng warm-up gold answer làm prediction;
+- local suite: 361 passed, 1 skipped.
+
+Milestone 27 chưa chạy full corpus thật, chưa xác nhận official counts/resource
+usage và chưa implement official-equivalent METEOR/ROUGE-L.
+
+Milestone 28 đã tạo:
+
+- exact `CompetitionSubmissionItem` chỉ gồm string `id` và `answer`;
+- fail-closed validation cho question source, batch checksum, count, ID và order;
+- deterministic UTF-8 `submission.json` trong ZIP chỉ có một member;
+- output bắt buộc tên `submission.zip` và không overwrite;
+- `legal-rag-submit` CLI;
+- unit tests cho exact contract, Unicode, tampering và reproducibility;
+- local suite: 366 passed, 1 skipped; compileall và CLI help pass.
+
+Milestone 28 chưa upload Codabench thật, chưa chạy official full corpus và chưa
+tuyên bố evaluator local tương đương scorer METEOR/ROUGE-L của BTC.
+
+Milestone 29 đã tạo:
+
+- nullable local diagnostic `meteor` và `rouge_l` cho labeled answer cases;
+- NFC/casefold Vietnamese letter/number tokens, không bỏ dấu;
+- exact-token METEOR với precision/recall và fragmentation penalty;
+- token-level ROUGE-L F1 bằng longest common subsequence;
+- report warning rằng metric local chưa official-equivalent;
+- submission rendering loại verified `[E<number>]` markers nhưng giữ citation
+  đầy đủ trong internal batch;
+- unknown evidence marker fail closed;
+- version `0.31.0`, không thêm dependency;
+- local suite: 369 passed, 1 skipped; compileall pass.
+
+Milestone 29 chưa biết official tokenizer, stemming/synonym policy, scorer
+package/version, METEOR parameters hoặc aggregation details của Codabench.
+
+Milestone 30 đã tạo:
+
+- strict loader cho `submission.zip` chỉ có `submission.json`;
+- duplicate JSON field, duplicate ID, missing/extra/reordered ID rejection;
+- direct warm-up reference scoring không cần retrieval labels;
+- per-ID và aggregate exact match, diagnostic METEOR, diagnostic ROUGE-L;
+- checksum cho exact reference, archive và submission JSON bytes;
+- immutable content-free `warmup_score.json`;
+- `legal-rag-score-warmup` CLI;
+- version `0.32.0`, không thêm dependency;
+- local suite: 372 passed, 1 skipped; compileall và CLI help pass.
+
+Milestone 30 chưa chạy trên submission/warm-up thật và vẫn không tuyên bố local
+scorer tương đương tuyệt đối với Codabench.
+
+Milestone 31 đã tạo:
+
+- compliance source of truth từ thể lệ BTC được cung cấp ngày 2026-08-01;
+- official-only data gate, model/license approval register (E5 MIT, reranker
+  Apache-2.0, Qwen 3B custom `qwen-research`) và unresolved-rule register;
+- MIT source license;
+- Data Statement, Model Card, private submission checklist và quota ledger
+  templates;
+- non-root CPU Docker reproducibility scaffold không chứa data/model/artifact,
+  secret hoặc submission;
+- direct dependency constraints cho Docker scaffold;
+- lightweight `legal-rag-submit` và `legal-rag-score-warmup` entry points không
+  import FastAPI/Uvicorn;
+- version `0.33.0`, không thêm dependency.
+
+Milestone 31 chưa phê duyệt model nào, chưa hoàn tất transitive license review,
+chưa tạo final GPU image, chưa có full transitive dependency lock và chưa build
+artifact official vì còn chờ dữ liệu/hạ tầng/xác nhận của BTC.
+
+Milestone 32 đã sửa contract theo bằng chứng từ scorer Codabench thực tế:
+
+- root `submission.json` là object keyed by official question ID;
+- mỗi value chỉ có string field `answer`;
+- formatter và warm-up scorer từ chối array contract cũ;
+- regression test thực thi đúng phép chiếu `.items()` của scorer;
+- version `0.34.0`, không thêm dependency.
+
+Milestone 32 đã được xác nhận về output shape: Codabench đọc object keyed by ID
+và bắt đầu scoring. Scoring artifact vẫn rỗng vì image BTC thiếu NLTK WordNet,
+không phải vì submission contract.
+
+Milestone 33 đã tạo/cập nhật:
+
+- `docs/12-TEAM-ONBOARDING.md` giải thích end-to-end pipeline, package map,
+  artifact, CLI, evaluation, submission và workflow cho thành viên;
+- phản hồi BTC về model registration, official-only data, fine-tuning và cấm
+  synthetic data;
+- bằng chứng warm-up scorer dùng PyVi/NLTK/rouge-score và lỗi WordNet phía BTC;
+- README onboarding entry point;
+- version `0.35.0`, không thêm dependency hoặc business logic.
 
 ---
 

@@ -116,9 +116,9 @@ business logic.
 
 **Status:** Completed
 
-Milestone đã được xác nhận bằng unit/integration tests không dùng network
-và live smoke test sample 1 record cho cả ba config. Schema thực tế và
-revision kiểm tra được ghi trong `docs/03-DATASET-AIO.md`.
+Milestone này là lịch sử của baseline cũ và đã bị D068/M25 supersede. Source,
+fixture, dependency và tài liệu dataset-specific tương ứng không còn trong
+active tree.
 
 ### Objectives
 
@@ -1182,7 +1182,220 @@ marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
 
 ---
 
-## 25. Future — Competition Adaptation
+## 25. Milestone 23 — Reproducible Quality Benchmark Comparison
+
+**Status:** Completed; official benchmark execution pending competition data
+
+### Objectives
+
+- compare multiple retrieval/generation/verifier candidates without assuming an
+  unpublished competition metric;
+- preserve exact benchmark, dataset, runtime, model, package, artifact, latency,
+  and resource provenance;
+- reject non-comparable runs instead of producing misleading rankings;
+- expose quality/latency trade-offs as a Pareto frontier;
+- select one candidate only under an explicit user-declared policy.
+
+### Implemented Baseline
+
+- sanitized evaluation runtime fingerprint and component provenance;
+- pinned dataset name/revision in every new evaluation summary;
+- typed candidate, objective, direction, threshold, and selection-mode config;
+- strict benchmark SHA-256, case-count, cutoff, dataset-lineage, and label-count
+  comparability checks;
+- namespaced retrieval, generation, latency, failure, and resource metrics;
+- optional accelerator name and peak allocated-memory observation without
+  requiring GPU in the default test path;
+- explicit candidate eligibility and exclusion reasons;
+- deterministic Pareto dominance;
+- optional ordered lexicographic selection, disabled by default;
+- immutable `comparison.json` persistence;
+- `legal-rag-compare` CLI and portable example config;
+- deterministic unit/integration tests without network, GPU, model, or corpus.
+
+### Limitations
+
+- no official or reviewed labeled benchmark is included;
+- benchmark label provenance still requires external review;
+- Pareto membership does not prove legal correctness;
+- no model is declared final;
+- no hyperparameter search, fine-tuning, dataset download, or artifact rebuild.
+
+### Done When
+
+- different benchmark bytes or dataset revisions fail before comparison;
+- unavailable labels never become zero-valued quality metrics;
+- every excluded candidate has a reason;
+- default comparison produces no artificial winner;
+- explicit lexicographic policy is deterministic;
+- full local test suite passes.
+
+---
+
+## 26. Milestone 24 — Benchmark Governance and Regression Gates
+
+**Status:** Completed; trusted benchmark population pending reviewed/BTC data
+
+### Objectives
+
+- pin benchmark labels and corpus lineage before evaluation;
+- distinguish diagnostic labels from reviewed or competition-official labels;
+- prevent model-winner claims from untrusted labels;
+- enforce bounded regressions against an explicit baseline candidate.
+
+### Implemented Baseline
+
+- typed benchmark manifest and label-status enum;
+- exact benchmark SHA-256, case-count, and granularity validation;
+- runtime artifact-lineage compatibility before case execution;
+- manifest identity persisted in evaluation and comparison reports;
+- diagnostic selection block with Pareto comparison still available;
+- per-objective absolute regression tolerance against a named baseline;
+- required `--benchmark-manifest` evaluation CLI input;
+- portable diagnostic manifest and comparison examples;
+- deterministic unit/integration tests without network, GPU, model, or corpus.
+
+### Limitations
+
+- no reviewed or competition-official benchmark is bundled;
+- manifest trust is declared provenance, not independent legal review;
+- no official competition metric or final model is selected.
+
+### Done When
+
+- altered benchmark bytes or manifest mismatch fail before evaluation;
+- corpus revision mismatch fails before evaluation;
+- diagnostic labels cannot produce a selected winner;
+- trusted labels plus explicit policy may select deterministically;
+- excessive objective regression makes a candidate ineligible;
+- full local test suite passes.
+
+---
+
+## 27. Milestone 25 — Competition Data Reset
+
+**Status:** Completed; official corpus ingestion moved to Milestone 26
+
+### Objectives
+
+- remove every active AIO-only source, config, fixture, test and dependency;
+- make the runnable core reject legacy/external artifact lineage;
+- preserve dataset-independent cleaning, parsing, chunking, indexing,
+  retrieval, generation, verification, Agent, API and evaluation modules;
+- add only the official QA/context boundary that current BTC documentation can
+  support without guessing submission or corpus details.
+
+### Implementation Scope
+
+- competition-only provenance configuration;
+- typed answer-record and context-record schemas;
+- strict local JSON loaders with duplicate-key detection;
+- removal of the AIO package, raw audit service and AIO offline composition
+  root;
+- removal of the AIO build CLI/profile and Hugging Face `datasets` dependency;
+- neutral core fixtures and updated documentation;
+- unit tests without official data, network or model download.
+
+### Deferred
+
+- selected-context normalization and official index build;
+- official METEOR/ROUGE-L equivalence;
+- final submission formatter (completed later in M28);
+- fine-tuning and model selection;
+- external-data policy claims beyond the fail-closed project decision.
+
+### Done When
+
+- active source/config/tests contain no AIO import or dataset identity;
+- legacy artifacts fail competition provenance validation;
+- official-format sample records load into typed competition schemas;
+- no official data or artifact is committed;
+- full local test suite passes.
+
+---
+
+## 28. Milestone 26 — Official Corpus Ingestion
+
+**Status:** Implementation completed with fixtures; full corpus validation
+awaits `selected-contexts.zip`
+
+### Objectives
+
+- read official `context_*.json` records directly from ZIP or a directory;
+- validate the exact documented root shape and raw fields;
+- produce dataset-neutral `LegalDocument` records without inferred metadata;
+- pin corpus lineage by exact canonical source bytes;
+- expose deterministic corpus audit and normalized-document manifests;
+- connect official documents to the existing parser/chunker boundary.
+
+### Implementation Scope
+
+- direct ZIP/directory context source inspection;
+- duplicate JSON-key, member-name and context-ID checks;
+- deterministic source revision shared by equivalent ZIP/directory inputs;
+- strict context adapter and corpus audit report;
+- normalized and plain-text pass-through ingestion manifests;
+- unit and local integration tests with small official-format fixtures.
+
+### Deferred
+
+- full corpus counts and quality findings until the archive is available;
+- persistence/build CLI and complete artifact build orchestration;
+- BM25/vector/graph rebuild;
+- official metric equivalence and submission formatting;
+- training or model selection.
+
+### Done When
+
+- official-format ZIP and directory fixtures produce identical lineage;
+- raw field names do not enter unified documents or downstream modules;
+- malformed, duplicate or incomplete context input fails closed;
+- normalized manifests carry official dataset identity and source revision;
+- a context can flow into the existing legal parser/chunker in a local test;
+- the full local test suite passes.
+
+---
+
+## 29. Milestone 27 — Official Offline Assembly and Batch Execution
+
+**Status:** Implementation completed with fixtures; full-corpus execution
+pending official data
+
+### Objectives
+
+- persist audited official documents and complete retrieval artifacts;
+- resume long offline builds without silently accepting incompatible output;
+- run question-only or warm-up batches with per-question checkpoints;
+- prove batch completeness without guessing the Codabench submission format.
+
+### Implementation Scope
+
+- official build CLI and atomic build-state transitions;
+- normalized/cleaned, empty relationship/graph, legal block/chunk, BM25, vector,
+  and validation stages;
+- existing vector batch checkpoint integration;
+- internal answer-result JSONL, batch state, and immutable completion manifest;
+- unit and integration tests using small organizer-shaped fixtures and fake
+  model providers.
+
+### Deferred
+
+- organizer full-corpus counts and production artifact build;
+- exact Codabench submission formatter;
+- official METEOR/ROUGE-L scorer equivalence;
+- training, fine-tuning, and final model selection.
+
+### Done When
+
+- interrupted compatible builds and batches resume only missing work;
+- incompatible source/config/code identity fails closed;
+- every completed batch has exactly one output per input question ID in order;
+- no reference answer is used as a prediction;
+- full local tests pass without network or model downloads.
+
+---
+
+## 30. Future — Competition Evaluation and Submission
 
 ### Objectives
 
@@ -1209,7 +1422,218 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 26. Milestone Execution Rules
+## 31. Milestone 28 — Exact Codabench Submission Packaging
+
+**Status:** Completed with local fixtures; official upload pending
+
+### Objectives
+
+- convert a complete internal batch into the organizer's exact answer-only ZIP;
+- reject missing, duplicate, reordered, stale, or tampered predictions;
+- make the final archive reproducible without adding data or model logic.
+
+### Implementation Scope
+
+- typed `id`/`answer` submission item;
+- exact question-source and batch-manifest compatibility checks;
+- UTF-8 `submission.json` output (the original array contract is superseded by
+  D077 after live scorer verification);
+- deterministic `submission.zip` containing no other member;
+- no-overwrite publication and final archive self-validation;
+- `legal-rag-submit` CLI and local tests.
+
+### Deferred
+
+- organizer-equivalent METEOR/ROUGE-L implementation until scorer details or
+  official scoring behavior can be verified;
+- official full-corpus execution, model selection, and Codabench upload.
+
+### Done When
+
+- output is named `submission.zip` and contains only `submission.json`;
+- every official ID occurs exactly once with one string answer;
+- changed question or result bytes fail before publication;
+- archive bytes are reproducible and existing output is not overwritten;
+- full local test suite passes.
+
+---
+
+## 32. Milestone 29 — Competition Text Metrics and Answer Rendering
+
+**Status:** Completed with local fixtures; official scorer parity pending
+
+### Objectives
+
+- measure answer/reference overlap in the same optimization direction as BTC;
+- keep local scores explicitly diagnostic while scorer details are unknown;
+- remove verified internal citation markers from score-facing answer text.
+
+### Implementation Scope
+
+- exact-token Vietnamese METEOR diagnostic;
+- token-level ROUGE-L F1 diagnostic;
+- nullable per-case metrics and aggregate report values;
+- explicit non-equivalence warning in evaluation reports;
+- citation-marker-free Codabench answer rendering with unknown-marker rejection;
+- deterministic unit and integration tests.
+
+### Deferred
+
+- official tokenizer, stemming/synonym rules, package version, parameters, and
+  aggregation parity until BTC scorer implementation can be verified;
+- metric-guided model selection until a pinned reviewed/official split exists.
+
+### Done When
+
+- labeled answers produce bounded METEOR/ROUGE-L diagnostics;
+- unlabeled questions do not receive invented scores;
+- fragmented/reordered text scores lower in deterministic regression tests;
+- submission answers contain no verified internal `[E<number>]` markers;
+- full local suite passes.
+
+---
+
+## 33. Milestone 30 — Answer-only Warm-up Scoring CLI
+
+**Status:** Completed with local fixtures; official warm-up run pending
+
+### Objectives
+
+- score the exact Codabench archive directly against official warm-up answers;
+- require complete ordered ID equality before computing any aggregate;
+- persist reproducible diagnostics without copying legal answer content.
+
+### Implementation Scope
+
+- strict one-member submission ZIP loader with duplicate-field/ID rejection;
+- official reference loader with required answers;
+- per-question and mean exact match, METEOR, and ROUGE-L;
+- three exact input checksums and code-version provenance;
+- immutable content-free `warmup_score.json` report;
+- `legal-rag-score-warmup` CLI;
+- local tests requiring no runtime, corpus, model, network, or GPU.
+
+### Deferred
+
+- exact Codabench parity under D073;
+- official warm-up score until a real generated submission is supplied;
+- model selection policy based on reviewed train/dev splits.
+
+### Done When
+
+- valid official-shaped input produces bounded aggregate and per-ID scores;
+- missing, extra, duplicate, or reordered IDs fail closed;
+- malformed or multi-member ZIP fails closed;
+- reports contain no question, gold, or prediction content;
+- existing report destinations are not overwritten;
+- full local suite passes.
+
+---
+
+## 34. Milestone 31 — Competition Compliance and Reproducibility
+
+**Status:** Implementation completed; organizer corpus/model approvals pending
+
+### Objectives
+
+- turn the supplied organizer rules into fail-closed engineering gates;
+- prepare mandatory Data Statement and Model Card evidence;
+- provide a private-submission checklist and quota ledger;
+- create a data-free, secret-free Docker reproduction scaffold;
+- keep answer packaging/scoring usable without the serving stack.
+
+### Implementation Scope
+
+- organizer-rules checksum and compliance document;
+- candidate model/license/approval register: E5 MIT, reranker Apache-2.0,
+  Qwen 3B custom `qwen-research`; all candidates remain blocked until BTC
+  approval;
+- MIT source license;
+- Data Statement, Model Card, private checklist and CSV ledger templates;
+- non-root Python 3.11 CPU Dockerfile, `.dockerignore` and direct dependency
+  constraints;
+- lightweight competition CLI entry points for submission and warm-up scoring;
+- import regression proving FastAPI is not loaded by lightweight tooling;
+- version `0.33.0`, no new runtime dependency.
+
+### Deferred
+
+- corpus audit and all official indexes until `selected-contexts.zip` exists;
+- organizer approval evidence, full transitive license review and final model
+  selection;
+- final GPU image, image digest and complete package freeze until organizer
+  runtime constraints are known;
+- exact Codabench scorer parity and portal-name clarification;
+- completed release-specific Data Statement/Model Card until a real candidate
+  and official artifacts exist.
+
+### Done When
+
+- compliance requirements and unresolved questions are explicit;
+- no candidate with unknown approval is represented as competition-ready;
+- Docker build context cannot include local data/model/artifact/secret paths;
+- lightweight competition CLI import does not initialize FastAPI;
+- compliance templates contain every organizer-required evidence category;
+- full local test suite passes.
+
+---
+
+## 35. Milestone 32 — Live Codabench Submission Contract Correction
+
+**Status:** Output shape verified; official scoring blocked by BTC WordNet issue
+
+### Objectives
+
+- correct the documented-array mismatch exposed by the executable scorer;
+- make local validation reproduce the scorer's `.items()` access pattern;
+- preserve all existing completeness, ordering and archive safety gates.
+
+### Implementation Scope
+
+- serialize an ID-keyed root object with exact `{"answer": string}` values;
+- reject the formerly documented list root and malformed answer objects;
+- regression-test the exact scorer projection;
+- update competition contract documentation and version to `0.34.0`.
+
+### Done When
+
+- targeted and full local test suites pass;
+- a corrected archive passes local formatter/scorer validation;
+- Codabench accepts the corrected root shape and reaches metric execution;
+- a non-empty official score remains an external BTC infrastructure check, not
+  a formatter implementation gate.
+
+---
+
+## 36. Milestone 33 — Team Onboarding and Confirmed Competition Rules
+
+**Status:** Completed
+
+### Objectives
+
+- give all team members one practical end-to-end map of the repository;
+- record the organizer's confirmed model/data/training/platform rules;
+- distinguish implemented pipeline code from pending official artifacts;
+- make contribution, testing and submission workflows reproducible.
+
+### Implementation Scope
+
+- detailed Vietnamese team onboarding guide;
+- README entry point and package/CLI navigation;
+- D078 official-only fine-tuning and synthetic-data decision;
+- observed Codabench PyVi/NLTK/WordNet infrastructure limitation;
+- version `0.35.0`, no dependency or business-logic change.
+
+### Done When
+
+- a new member can trace offline, online and submission data flows;
+- model registration and prohibited-data rules are unambiguous;
+- source/docs/tests are consistent and full local validation passes;
+- repository changes are committed and pushed for team access.
+
+---
+
+## 37. Milestone Execution Rules
 
 Mỗi milestone phải:
 

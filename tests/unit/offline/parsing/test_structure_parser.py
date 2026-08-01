@@ -25,7 +25,7 @@ def _document(document_id: str, clean_text: str | None) -> LegalDocument:
         content_html="<p>fixture</p>" if clean_text is not None else None,
         clean_text=clean_text,
         has_content=clean_text is not None,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
     )
 
 
@@ -37,7 +37,7 @@ def _manifest(
         schema_version="1.0",
         artifact_type=artifact_type,
         artifact_version="1.0",
-        dataset_name="th1nhng0/vietnamese-legal-documents",
+        dataset_name="fixture-corpus",
         dataset_revision="fixture-revision",
         created_at=datetime(2026, 7, 18, tzinfo=UTC),
         record_count=record_count,

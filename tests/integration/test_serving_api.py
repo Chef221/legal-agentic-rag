@@ -9,7 +9,6 @@ import pytest
 from legal_agentic_rag.configuration import (
     ApplicationConfig,
     ArtifactConfig,
-    DatasetSourceConfig,
     OfflineConfig,
     OnlineConfig,
     ServingConfig,
@@ -40,9 +39,7 @@ def _config(
 ) -> ApplicationConfig:
     return ApplicationConfig(
         artifacts=ArtifactConfig(root_path=tmp_path / "artifacts"),
-        offline=OfflineConfig(
-            dataset=DatasetSourceConfig(dataset_name="fixture-corpus")
-        ),
+        offline=OfflineConfig(),
         online=OnlineConfig(),
         serving=ServingConfig(
             ui_enabled=ui_enabled,

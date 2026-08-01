@@ -16,7 +16,7 @@ def test_validator_reports_token_metadata_and_coverage_errors() -> None:
         document_id="doc-1",
         title="Luật đúng",
         has_content=True,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
     )
     block = LegalBlock(
         block_id="block-1",
@@ -33,7 +33,7 @@ def test_validator_reports_token_metadata_and_coverage_errors() -> None:
         search_text="Nội dung pháp lý",
         token_count=99,
         document_title="Sai tiêu đề",
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
         metadata={
             "chunk_strategy": "standalone_block",
             "source_block_ids": [],

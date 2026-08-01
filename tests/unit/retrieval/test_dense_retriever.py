@@ -30,7 +30,7 @@ def _chunks() -> list[LegalChunk]:
                 search_text=text,
                 token_count=2,
                 structure=LegalStructure(article_number=str(index)),
-                source_dataset="aio",
+                source_dataset="fixture-corpus",
                 metadata={"source_block_ids": [f"block-{index}"]},
             )
         )

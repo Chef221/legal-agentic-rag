@@ -1,4 +1,4 @@
-"""Offline build and online application composition roots."""
+"""Artifact validation and online application composition roots."""
 
 from legal_agentic_rag.runtime.artifact_store import (
     ModelArtifactWriter,
@@ -13,10 +13,12 @@ from legal_agentic_rag.runtime.build_validation import (
     ArtifactSetValidator,
     persist_build_validation_report,
 )
-from legal_agentic_rag.runtime.offline import OfflineBuildRuntime
 from legal_agentic_rag.runtime.online import (
     OnlineRuntime,
     OnlineRuntimeFactory,
+)
+from legal_agentic_rag.runtime.competition_offline import (
+    CompetitionOfflineBuildRuntime,
 )
 
 __all__ = [
@@ -25,7 +27,7 @@ __all__ = [
     "load_model_artifact",
     "ModelArtifactWriter",
     "ArtifactSetValidator",
-    "OfflineBuildRuntime",
+    "CompetitionOfflineBuildRuntime",
     "OnlineRuntime",
     "OnlineRuntimeFactory",
     "persist_dataset_manifest",

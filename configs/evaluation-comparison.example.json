@@ -1,0 +1,35 @@
+{
+  "comparison_name": "reviewed-legal-model-candidates",
+  "candidates": [
+    {
+      "candidate_id": "candidate-a",
+      "report_directory": "../reports/candidate-a"
+    },
+    {
+      "candidate_id": "candidate-b",
+      "report_directory": "../reports/candidate-b"
+    }
+  ],
+  "objectives": [
+    {
+      "metric": "retrieval.ndcg@10",
+      "direction": "maximize",
+      "maximum_regression": 0.01
+    },
+    {
+      "metric": "generation.citation_recall",
+      "direction": "maximize"
+    },
+    {
+      "metric": "latency.generation.p95_ms",
+      "direction": "minimize"
+    },
+    {
+      "metric": "resources.accelerator_peak_memory_bytes",
+      "direction": "minimize"
+    }
+  ],
+  "selection_mode": "pareto_only",
+  "baseline_candidate_id": "candidate-a",
+  "require_zero_failures": true
+}

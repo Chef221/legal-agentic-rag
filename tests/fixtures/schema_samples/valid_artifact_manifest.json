@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "artifact_type": "legal_chunks",
   "artifact_version": "chunks-fixture-v1",
-  "dataset_name": "th1nhng0/vietnamese-legal-documents",
+  "dataset_name": "fixture-corpus",
   "dataset_revision": "fixture-revision",
   "created_at": "2026-07-15T08:30:00+07:00",
   "record_count": 1,

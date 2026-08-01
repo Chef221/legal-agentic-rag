@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "benchmark_name": "uit-dsc-2026-task2-diagnostic-evaluation",
+  "benchmark_version": "replace-with-version",
+  "label_status": "diagnostic",
+  "dataset_name": "uit-dsc-2026-task2-selected-contexts",
+  "dataset_revision": "0a39ad7eae8e6c188cb225c4b1443c3b346461d8",
+  "case_count": 1,
+  "benchmark_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "target_granularities": [
+    "chunk"
+  ],
+  "verified_at": null,
+  "label_provenance_reference": null,
+  "warnings": []
+}

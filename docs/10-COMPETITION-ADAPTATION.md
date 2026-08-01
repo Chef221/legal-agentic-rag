@@ -1,448 +1,265 @@
 # 10. Competition Adaptation
 
-## 1. Purpose
+## 1. Confirmed Task Contract
 
-Hệ thống được xây trước khi Ban tổ chức công bố dữ liệu và quy chế đầy đủ.
+UIT Data Science Challenge 2026 Task 2 nhận câu hỏi pháp luật tiếng Việt và
+yêu cầu câu trả lời văn xuôi tiếng Việt. Reference answers do chuyên gia pháp
+lý cung cấp.
 
-File này mô tả những phần phải thay đổi trong từng kịch bản.
+BTC công bố các tên tài nguyên:
 
-Mục tiêu:
+- `warmup.json`;
+- `train.json`;
+- `public-official.json`;
+- `private-official.json`;
+- `selected-contexts.zip` với `context_*.json`.
 
-- không viết lại toàn bộ hệ thống;
-- chỉ thay adapter hoặc backend cần thiết;
-- giữ unified schema;
-- giữ retrieval interfaces;
-- giữ Agent workflow khi có thể.
+Context raw schema được mô tả bằng `id`, `name`, `link`, `passage`.
 
----
+Phản hồi chính thức của BTC ngày 2026-08-01 xác nhận thêm:
 
-## 2. Scenario A — BTC Provides a New Corpus
+- chỉ được dùng dữ liệu chính thức của cuộc thi;
+- preprocessing, pipeline, indexing, retrieval và fine-tuning được phép nếu chỉ
+  dùng dữ liệu chính thức;
+- synthetic data bị cấm kể cả khi sinh từ dữ liệu BTC;
+- model mã nguồn mở phải đăng ký tên và URL qua Google Form BTC sẽ cung cấp;
+- Codabench là nền tảng chính thức của Task 2;
+- runtime/Docker/GPU/RAM/network/private-test rules sẽ công bố sau.
 
-Ví dụ BTC cung cấp:
+## 2. Metric
 
-- văn bản pháp luật;
-- điều luật;
-- passage corpus;
-- metadata riêng;
-- document IDs riêng.
+- METEOR: metric xếp hạng chính;
+- ROUGE-L: metric phụ;
+- higher is better.
 
-### Required Changes
+Chưa được coi local implementation nào là tương đương official scorer cho tới
+khi có scorer code hoặc đối chiếu kết quả Codabench. Cần xác minh tokenizer,
+normalization, library/version và cách aggregate.
 
-- thêm `CompetitionCorpusAdapter`;
-- map raw schema về `LegalDocument`;
-- map cấu trúc về `LegalChunk`;
-- điều chỉnh cleaner nếu format khác HTML;
-- điều chỉnh parser nếu dữ liệu đã tách sẵn Điều/Khoản;
-- rebuild BM25 index;
-- re-embed corpus;
-- rebuild vector index;
-- rebuild graph nếu có relationships;
-- tạo artifact manifest mới.
+Warm-up logs đã quan sát scorer dùng PyVi tokenization, NLTK `meteor_score` và
+`rouge-score`. Scoring image hiện thiếu NLTK `wordnet`, làm METEOR crash và trả
+`scoring_result.zip` rỗng. Đây là bằng chứng một phần về implementation và lỗi
+hạ tầng đã báo BTC, chưa đủ để tuyên bố local scorer parity.
 
-### Components Preserved
+## 3. Active Data Policy
 
-- unified schema;
-- BM25 interface;
-- vector interface;
-- RRF;
-- reranker interface;
-- context builder;
-- answer generator interface;
-- verifier interface;
-- Agent state;
-- API contracts.
+Repository dùng policy `competition_only`:
 
----
+- chỉ ingest corpus và QA data chính thức của BTC;
+- không trộn external corpus;
+- không tạo synthetic QA, synthetic evidence, synthetic hard negative hoặc dữ
+  liệu huấn luyện tổng hợp;
+- không load legacy/external artifacts;
+- mọi artifact phải ghi đúng competition dataset identity và revision;
+- raw data không được đi trực tiếp vào core.
 
-## 3. Scenario B — BTC Provides Training Questions and Relevant Evidence
+Đây là quyết định fail-closed của dự án và hiện cũng phù hợp Điều 4, Điều 9 của
+thể lệ BTC được cung cấp ngày 2026-08-01: chỉ dùng dữ liệu BTC, không manual
+label, external collection hoặc external augmentation.
 
-Ví dụ:
+## 4. Current Adapter Boundary
 
-```json
-{
-  "qid": "Q001",
-  "question": "...",
-  "relevant_document_ids": ["D10"],
-  "relevant_article_ids": ["D10-A15"]
-}
+```text
+Official JSON
+→ UitDsc2026DataLoader
+→ CompetitionQuestion / CompetitionContext
+→ corpus/training adapter
+→ unified schema
 ```
 
-### Required Additions
+Loader hiện kiểm tra duplicate JSON keys, unknown fields, missing fields,
+duplicate context IDs và blank values. Loader giữ nguyên legal text hợp lệ.
 
-- `CompetitionQALoader`;
-- supervision schema;
-- train/dev split;
-- retrieval evaluator;
-- hard-negative mining;
-- retriever fine-tuning;
-- reranker fine-tuning;
-- experiment tracking.
+M26 map một `CompetitionContext` sang một `LegalDocument` theo D069. Legal
+structure và chunks chỉ được tạo bởi parser/chunker reusable; adapter không tự
+suy diễn Điều, Khoản hoặc metadata pháp lý còn thiếu.
 
-### Required Checks
+## 5. Warm-up Adaptation
 
-- ground truth ở cấp văn bản hay chunk;
-- một câu có nhiều evidence hay không;
-- ID có ánh xạ tới corpus không;
-- duplicate question;
-- leakage giữa train và dev;
-- metric chính thức.
-
-### After Retriever Fine-Tuning
-
-- re-embed corpus;
-- rebuild vector index;
-- cập nhật model manifest;
-- benchmark lại toàn bộ retrieval pipeline.
-
----
-
-## 4. Scenario C — BTC Provides Questions, Evidence and Gold Answers
-
-Ví dụ:
+`warmup.json` là mapping từ question ID đến:
 
 ```json
 {
-  "qid": "Q001",
   "question": "...",
-  "relevant_articles": ["..."],
   "answer": "..."
 }
 ```
 
-### Required Additions
+Có thể dùng ngay để:
 
-- answer loader;
-- generator evaluator;
-- citation evaluator;
-- groundedness evaluator;
-- answer correctness evaluator;
-- prompt optimization;
-- optional generator fine-tuning;
-- evidence grader training nếu phù hợp.
+- kiểm tra question/answer loader;
+- xây answer-level dev/holdout split deterministic;
+- đánh giá generation ở mức diagnostic;
+- phân tích độ dài và phong cách gold answer;
+- kiểm tra batch runner/checkpoint sau này.
 
-### Additional Metrics
+Không được dùng warm-up answer để giả lập relevant document/chunk IDs.
 
-- answer correctness;
-- semantic similarity;
-- groundedness;
-- citation precision;
-- citation recall;
-- unsupported claim rate;
-- refusal correctness.
+## 6. Corpus Adaptation When Released
 
----
+Sau khi nhận `selected-contexts.zip`:
 
-## 5. Scenario D — BTC Provides Test Questions Only
+1. checksum và inventory archive;
+2. audit encoding, JSON root shape, field types, nulls, duplicates và counts;
+3. xác định một context là document, passage hay retrieval unit;
+4. chốt deterministic ID mapping;
+5. map sang unified schema;
+6. quyết định có cần cleaner/parser/chunker hay không;
+7. build mới BM25/vector và graph rỗng nếu không có relationships;
+8. persist manifests với official lineage;
+9. validate artifact set;
+10. benchmark end-to-end.
 
-Ví dụ:
+Không tái sử dụng index từ corpus khác.
+
+The accepted M26 mapping is one context file to one unified document:
 
 ```text
-qid,question
+id      -> document_id
+name    -> title
+link    -> source_url
+passage -> clean_text
 ```
 
-### Required Additions
+No document number, legal dates, authority, effect status, or relevance label
+is inferred from the four raw fields. The direct context loader accepts the
+official ZIP or an equivalent extracted directory and computes one canonical
+content revision over the ordered filenames and bytes.
 
-- `CompetitionTestLoader`;
-- batch inference runner;
-- output formatter;
-- submission writer;
-- validation script.
+## 7. Training Adaptation When Released
 
-### Core Changes
+Trước fine-tuning phải kiểm tra:
 
-Không cần thay core architecture nếu corpus và model được phép sử dụng.
+- train schema;
+- duplicate/leakage giữa splits;
+- có evidence labels hay chỉ answer labels;
+- metric và evaluator;
+- model/license/resource policy;
+- experiment plan và baseline comparison.
 
----
+BTC đã xác nhận fine-tuning được phép nếu chỉ sử dụng dữ liệu chính thức. Quyền
+này không tự tạo ra supervision: chỉ fine-tune khi train schema thật cung cấp
+nhãn phù hợp, có split/leakage control và không sinh synthetic examples.
 
-## 6. Scenario E — BTC Provides a Corpus but No Training Labels
+Không fine-tune retriever nếu chỉ có answer text mà không có supervision phù
+hợp. Thay embedding model yêu cầu re-embed và rebuild vector index.
 
-### Strategy
+## 8. Submission Adaptation
 
-- dùng corpus BTC làm nguồn retrieval;
-- dùng pretrained BM25, dense và reranker;
-- rebuild toàn bộ indexes;
-- tự xây internal validation nếu quy chế cho phép;
-- không fine-tune nếu không có supervision phù hợp.
+Các mục sau đã được BTC/Codabench xác nhận cho formatter M28:
 
-AIO corpus có thể được giữ cho nghiên cứu riêng nhưng không dùng trong
-competition run nếu quy chế cấm external data.
+- JSON/JSONL/CSV/ZIP;
+- field names;
+- ordering;
+- encoding;
+- filename;
+- missing/duplicate ID policy;
+- có cần citation hay chỉ answer text.
 
----
+Batch inference phải deterministic, có resume/checkpoint, completeness check và
+final checksum.
 
-## 7. Scenario F — BTC Forbids External Data
+## 9. Implemented M27 Execution Boundary
 
-### Required Changes
-
-- disable AIO corpus trong competition configuration;
-- ingest corpus BTC;
-- rebuild all indexes;
-- không dùng artifact tạo từ AIO;
-- kiểm tra model pretrained có được phép không;
-- ghi rõ provenance của mọi artifact.
-
-Core interfaces được giữ nguyên.
-
----
-
-## 8. Scenario G — BTC Allows External Data
-
-### Possible Strategy
-
-- dùng corpus BTC làm nguồn ưu tiên;
-- dùng AIO làm nguồn bổ sung nếu hợp lệ;
-- gắn `source_dataset`;
-- ưu tiên source chính thức;
-- tránh duplicate documents;
-- xây mapping giữa document IDs;
-- đánh giá riêng tác động của external data.
-
-Không trộn corpus nếu chưa xử lý deduplication và provenance.
-
----
-
-## 9. Scenario H — BTC Forbids External LLM APIs
-
-### Required Changes
-
-Thay backend cho:
-
-- answer generator;
-- query rewriter;
-- context grader;
-- citation semantic verifier.
-
-Interfaces được giữ nguyên.
-
-Cần kiểm tra:
-
-- model local;
-- VRAM;
-- quantization;
-- latency;
-- context length;
-- licensing;
-- offline availability.
-
----
-
-## 10. Scenario I — BTC Forbids Internet Access
-
-### Required Changes
-
-- preload model;
-- preload tokenizer;
-- preload all artifacts;
-- không gọi Hugging Face Hub khi runtime;
-- không gọi external API;
-- không web search;
-- không remote database;
-- đóng gói dependency đầy đủ.
-
----
-
-## 11. Scenario J — BTC Requires File Submission
-
-### Required Additions
-
-- deterministic batch inference;
-- submission formatter;
-- schema validator;
-- ordering validator;
-- duplicate qid check;
-- missing qid check;
-- final checksum;
-- reproducible config.
-
-Output có thể là:
-
-- CSV;
-- JSON;
-- JSONL;
-- Parquet.
-
-Format cụ thể phải theo quy chế.
-
----
-
-## 12. Scenario K — BTC Requires Docker Submission
-
-### Required Additions
-
-- Dockerfile;
-- dependency lock;
-- local model paths;
-- artifact packaging;
-- entrypoint;
-- health check;
-- memory limits;
-- CPU/GPU configuration;
-- timeout handling;
-- deterministic startup;
-- no-network mode nếu cần.
-
----
-
-## 13. Scenario L — BTC Requires API Submission
-
-### Required Additions
-
-- request schema;
-- response schema;
-- health endpoint;
-- readiness endpoint;
-- concurrency control;
-- timeout;
-- error contract;
-- model preload;
-- logging;
-- trace ID;
-- resource monitoring.
-
----
-
-## 14. Scenario M — BTC Provides a Training Environment
-
-Nếu BTC cung cấp notebook hoặc server:
-
-- thêm environment-specific config;
-- không hard-code local path;
-- hỗ trợ download hoặc mount dataset;
-- ghi dependency versions;
-- hỗ trợ resume;
-- giữ artifacts trong output directory quy định.
-
----
-
-## 15. Ground-Truth Granularity
-
-Khi quy chế được công bố, phải xác định ground truth ở cấp:
-
-- văn bản;
-- Chương;
-- Mục;
-- Điều;
-- Khoản;
-- passage;
-- answer span;
-- long-form answer.
-
-Điều này ảnh hưởng trực tiếp tới:
-
-- chunking;
-- retrieval output;
-- evaluation;
-- submission format;
-- citation format.
-
-Không được mặc định ground truth ở cấp Điều.
-
----
-
-## 16. Official Metric Impact
-
-### Nếu metric là Recall@k
-
-Ưu tiên:
-
-- candidate recall;
-- multi-evidence coverage;
-- top-k selection.
-
-### Nếu metric là MRR hoặc NDCG
-
-Ưu tiên:
-
-- ranking;
-- reranking;
-- score calibration;
-- position của first relevant result.
-
-### Nếu metric là answer accuracy
-
-Ưu tiên:
-
-- context quality;
-- generation;
-- answer formatting.
-
-### Nếu metric là exact match
-
-Cần tuân thủ chặt:
-
-- output normalization;
-- answer format;
-- punctuation;
-- label mapping.
-
-### Nếu metric kết hợp retrieval và generation
-
-Phải tối ưu end-to-end nhưng vẫn đánh giá từng module riêng.
-
----
-
-## 17. Required Questions When Rules Are Released
-
-1. BTC có cung cấp train data không?
-2. BTC có cung cấp development set không?
-3. BTC có cung cấp corpus riêng không?
-4. Test có public và private split không?
-5. Ground truth ở cấp nào?
-6. Một câu hỏi có thể có nhiều evidence không?
-7. Output là article IDs hay answer text?
-8. Có yêu cầu citation không?
-9. Metric chính thức là gì?
-10. Có cho dùng external data không?
-11. Có cho dùng pretrained model không?
-12. Có cho fine-tune bằng dữ liệu ngoài không?
-13. Có cho dùng Internet khi inference không?
-14. Có cho dùng commercial LLM API không?
-15. Có giới hạn model size không?
-16. Có giới hạn GPU, RAM, disk không?
-17. Có giới hạn latency không?
-18. Nộp CSV, code, Docker hay API?
-19. Có cần public source code không?
-20. Có cần giải thích hoặc retrieval trace không?
-
----
-
-## 18. Adaptation Principle
-
-Kiến trúc thích ứng:
+Official build and internal batch commands are now available:
 
 ```text
-Raw Competition Data
-→ Competition Adapter
-→ Unified Schema
-→ Existing Core Pipeline
-→ Output Adapter
-→ Official Submission
+legal-rag-build-competition --config <config.json> --source <zip-or-directory>
+legal-rag-batch --config <config.json> --questions <questions.json> --output <directory>
 ```
 
-Nếu corpus thay đổi:
+Batch output contains `results.jsonl`, `batch_state.json`, and, only after every
+question is present exactly once in source order, `manifest.json`. Each record
+keeps the official question ID and full typed `AnswerResponse`. Warm-up gold
+answers are never passed to the answerer.
+
+This remains recovery/diagnostic output, not the submission itself. M28 converts
+only a completed compatible batch with:
 
 ```text
-Competition Corpus
-→ Cleaner and Chunker
-→ Rebuild Indexes
-→ Existing Retrieval Interfaces
+legal-rag-submit --questions <questions.json> --batch <batch-directory> --output <path>/submission.zip
 ```
 
-Nếu có supervision:
+The generated ZIP contains only UTF-8 `submission.json`. Its root object maps
+each official question ID to exactly `{"answer": string}` in source order.
+Retrieval trace, citations, warnings, manifests, and warm-up reference answers
+are not added as separate submission fields.
+
+## 10. Verified Codabench Output Contract
+
+The earlier deferral in Section 8 is resolved by live scorer behavior. The
+organizer prose described an array, but the executable scorer calls `.items()`
+on the root and therefore requires:
+
+- archive filename: `submission.zip`;
+- only archive member: `submission.json`;
+- root: JSON object keyed by string question ID;
+- each value: an object containing only string `answer`;
+- every question ID exactly once, with no missing question;
+- UTF-8 Vietnamese text is preserved.
+
+M28 validates exact question and batch bytes before atomically publishing a
+deterministic, no-overwrite archive. Official METEOR/ROUGE-L implementation
+equivalence remains unresolved until scorer code or verified scoring behavior
+is available.
+
+## 11. Implemented Diagnostic Metrics
+
+M29 computes local METEOR and ROUGE-L whenever `reference_answer` exists. The
+implementation uses deterministic NFC/casefold Vietnamese word/number tokens,
+exact-token METEOR matching with a fragmentation penalty, and token-level
+ROUGE-L F1. It deliberately does not invent stemming, synonyms, tokenizer
+details, or hidden Codabench parameters.
+
+Evaluation reports carry
+`competition_text_metrics_are_diagnostic_not_official_equivalent`. These scores
+are suitable for comparing candidates on the same pinned warm-up/dev split,
+not for claiming an exact leaderboard score. The submission renderer removes
+verified `[E<number>]` markers because the organizer grades answer prose only;
+the internal result retains citations for grounding and audit.
+
+## 12. Implemented Warm-up Scoring CLI
+
+M30 can score a finished archive without loading corpus artifacts or models:
 
 ```text
-Competition Train Data
-→ Training Adapter
-→ Fine-Tune
-→ Rebuild Relevant Artifacts
-→ Evaluate
+legal-rag-score-warmup \
+  --references <warmup.json> \
+  --submission <submission.zip> \
+  --output <new-report-directory>
 ```
 
-Phần cần thay đổi chủ yếu nằm ở:
+The scorer requires exact ordered ID equality and writes only checksums,
+per-question numeric scores, aggregate exact match/METEOR/ROUGE-L, code version,
+timestamp, and the D073 diagnostic warning. It does not persist question, gold,
+or prediction text.
 
-- input adapter;
-- corpus processing;
-- model backend;
-- evaluator;
-- output adapter.
+## 13. Remaining Questions
 
-Agentic RAG core không được viết gắn cứng với dataset AIO.
+1. Khi nào `selected-contexts.zip` và `train.json` được mở?
+2. Official METEOR/ROUGE-L implementation là gì?
+3. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt, và model
+   pretraining/external API có giới hạn nào?
+4. Inference có Internet không?
+5. Có giới hạn GPU, RAM, disk, thời gian hoặc số submission không?
+6. Public/private question files có answer field hay không?
+7. Context IDs có xuất hiện trong supervision không?
+8. Data Statement và Model Card được nộp ở đâu và theo format nào?
+9. Warm-up scoring image được bổ sung NLTK WordNet khi nào?
+
+## 14. Competition Compliance Boundary
+
+M31 thêm compliance source of truth tại
+`docs/11-COMPETITION-COMPLIANCE.md`. Những gate bắt buộc trước official run:
+
+- exact official-only data lineage;
+- verified third-party license;
+- organizer model registration evidence khi áp dụng;
+- complete Data Statement và Model Card snapshot;
+- immutable config/code/model/artifact identities;
+- private submission preflight và ledger dưới giới hạn 3 lần/ngày;
+- Docker image digest cùng reproduction evidence.
+
+`legal-rag-submit` và `legal-rag-score-warmup` được tách khỏi serving CLI để
+không yêu cầu FastAPI/Uvicorn khi chỉ đóng gói hoặc chấm file local. Docker M31
+không chứa dữ liệu/model và chưa phải final GPU image.

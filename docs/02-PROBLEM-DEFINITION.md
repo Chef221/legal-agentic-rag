@@ -235,9 +235,10 @@ Fixed baseline phải chạy được mà không cần Agent.
 
 ## 8. Current Evaluation Limitation
 
-Dataset AIO là corpus văn bản pháp luật và quan hệ văn bản.
+Dữ liệu BTC hiện xác nhận answer-level references nhưng chưa cung cấp
+retrieval relevance labels trong warm-up.
 
-Dataset hiện tại không phải gold QA benchmark hoàn chỉnh dạng:
+Warm-up hiện tại không phải gold retrieval benchmark hoàn chỉnh dạng:
 
 ```text
 question

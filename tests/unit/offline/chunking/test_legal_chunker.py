@@ -35,7 +35,7 @@ def _document(document_id: str = "doc-1") -> LegalDocument:
         source_url="https://example.test/doc-1",
         clean_text="fixture",
         has_content=True,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
     )
 
 
@@ -94,7 +94,7 @@ def _manifest(
         schema_version="1.0",
         artifact_type=artifact_type,
         artifact_version="1.0",
-        dataset_name="th1nhng0/vietnamese-legal-documents",
+        dataset_name="fixture-corpus",
         dataset_revision="fixture-revision",
         created_at=datetime(2026, 7, 18, tzinfo=UTC),
         record_count=record_count,
@@ -161,7 +161,7 @@ def test_article_within_limit_becomes_one_chunk_with_document_metadata() -> None
     assert chunk.document_title == "Luật mẫu"
     assert chunk.document_number == "01/2026/QH"
     assert chunk.effect_status == "Còn hiệu lực"
-    assert chunk.source_dataset == "aio"
+    assert chunk.source_dataset == "fixture-corpus"
     assert "Văn bản: Luật mẫu" in chunk.search_text
     assert "Số ký hiệu: 01/2026/QH" in chunk.search_text
     assert "Điều 1: Phạm vi áp dụng" in chunk.search_text

@@ -8,7 +8,6 @@ from pydantic import ValidationError
 from legal_agentic_rag.configuration import (
     ApplicationConfig,
     ArtifactConfig,
-    DatasetSourceConfig,
     OfflineConfig,
     OnlineConfig,
     RetrievalConfig,
@@ -33,9 +32,7 @@ def _application_config(
 ) -> ApplicationConfig:
     return ApplicationConfig(
         artifacts=ArtifactConfig(root_path=Path("artifacts")),
-        offline=OfflineConfig(
-            dataset=DatasetSourceConfig(dataset_name="fixture")
-        ),
+        offline=OfflineConfig(),
         online=OnlineConfig(
             retrieval=retrieval or RetrievalConfig(),
             reranker=reranker or RerankerConfig(),

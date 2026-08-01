@@ -47,7 +47,10 @@ from legal_agentic_rag.schemas import (
 )
 from legal_agentic_rag.tools import ToolRegistry, build_fixed_tool_registry
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
-from legal_agentic_rag.runtime.startup_validation import validate_startup_report
+from legal_agentic_rag.runtime.startup_validation import (
+    validate_competition_artifact_lineage,
+    validate_startup_report,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -368,21 +371,17 @@ class OnlineRuntimeFactory:
                 "Configured embedding provider is incompatible with vector artifact"
             )
 
-    @staticmethod
     def _validate_manifests(
+        self,
         chunks: ArtifactManifest,
         bm25: ArtifactManifest,
         vector: ArtifactManifest,
         graph: ArtifactManifest,
     ) -> None:
-        dataset_identities = {
-            (manifest.dataset_name, manifest.dataset_revision)
-            for manifest in (chunks, bm25, vector, graph)
-        }
-        if len(dataset_identities) != 1:
-            raise ArtifactCompatibilityError(
-                "Runtime artifacts originate from different datasets"
-            )
+        validate_competition_artifact_lineage(
+            (chunks, bm25, vector, graph),
+            self._config.competition,
+        )
         expected_source = (
             chunks.artifact_type.value,
             chunks.artifact_version,

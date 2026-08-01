@@ -1,18 +1,17 @@
 {
   "artifacts": {
-    "root_path": "artifacts"
+    "root_path": "artifacts/uit-dsc-2026-task2"
   },
-  "offline": {
-    "dataset": {
-      "dataset_name": "th1nhng0/vietnamese-legal-documents",
-      "dataset_revision": null,
-      "sample_limit": 100,
-      "streaming": false
-    },
-    "relationship_normalization": {
-      "relationship_type_mapping": {}
-    }
+  "competition": {
+    "competition_id": "uit-dsc-2026-task2",
+    "corpus_dataset_name": "uit-dsc-2026-task2-selected-contexts",
+    "qa_dataset_name": "uit-dsc-2026-task2-legalqa",
+    "data_policy": "competition_only",
+    "allow_external_data": false,
+    "require_official_artifact_lineage": true,
+    "source_authority": "UIT Data Science Challenge 2026 Task 2 organizers"
   },
+  "offline": {},
   "online": {
     "query_understanding": {
       "enabled": true,

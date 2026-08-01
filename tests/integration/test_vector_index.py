@@ -60,7 +60,7 @@ def _chunk(
         document_type="Luật",
         effect_status="Còn hiệu lực",
         legal_field=legal_field,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
         metadata={"source_block_ids": [f"block-{chunk_id}"]},
     )
 

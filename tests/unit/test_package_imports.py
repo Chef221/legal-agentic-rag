@@ -16,7 +16,7 @@ def test_package_imports_without_backend_side_effects() -> None:
     import legal_agentic_rag.observability
     import legal_agentic_rag.offline.chunking
     import legal_agentic_rag.offline.cleaning
-    import legal_agentic_rag.offline.datasets.aio
+    import legal_agentic_rag.competition.uit_dsc_2026
     import legal_agentic_rag.offline.parsing
     import legal_agentic_rag.offline.relationships
     import legal_agentic_rag.reranking
@@ -26,4 +26,4 @@ def test_package_imports_without_backend_side_effects() -> None:
     import legal_agentic_rag.serving
     import legal_agentic_rag.tools
 
-    assert legal_agentic_rag.__version__ == "0.24.0"
+    assert legal_agentic_rag.__version__ == "0.35.0"

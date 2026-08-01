@@ -6,7 +6,7 @@ from legal_agentic_rag.contracts.bm25_backend import BM25Backend
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.contracts.citation_verifier import CitationVerifier
 from legal_agentic_rag.contracts.context_grader import ContextGrader
-from legal_agentic_rag.contracts.dataset_source import DatasetComponent, DatasetSource
+from legal_agentic_rag.contracts.dataset_source import DatasetSource
 from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
 from legal_agentic_rag.contracts.evaluators import (
     GenerationEvaluator,
@@ -26,7 +26,6 @@ __all__ = [
     "ChatModelProvider",
     "CitationVerifier",
     "ContextGrader",
-    "DatasetComponent",
     "DatasetSource",
     "EmbeddingProvider",
     "GenerationEvaluator",

@@ -1,286 +1,174 @@
 # Vietnamese Legal Agentic RAG
 
-Hệ thống Agentic RAG cho bài toán trả lời câu hỏi pháp luật Việt Nam.
+Hệ thống Retrieval-Augmented Generation cho UIT Data Science Challenge 2026,
+Task 2 — Legal Question Answering.
 
-## Current Status
+## Trạng thái
 
-Dự án đã hoàn thành implementation cho:
+Milestone hiện tại là **M33 — Team Onboarding and Confirmed Competition Rules**.
+Pipeline, compliance scaffold, submission tooling và tài liệu onboarding đã
+hoàn thành; full-corpus build vẫn chờ file `selected-contexts.zip` thật.
 
-`Milestone 22 — Model-backed Semantic Claim Verification`
+Thành viên mới nên bắt đầu tại
+[`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md). Tài liệu này giải
+thích toàn bộ offline/online pipeline, package map, CLI, artifact, evaluation và
+quy trình nộp Codabench bằng ngôn ngữ thực hành.
 
-Full-corpus AIO execution đã tạo `build_validation.json` thật với
-`is_full_corpus = true`, `is_valid = true` và online smoke đã load được toàn bộ
-artifact set. Đây là bằng chứng vận hành baseline, không phải benchmark chất
-lượng chính thức của cuộc thi.
+Repository giữ lại core độc lập dữ liệu:
 
-M18 bổ sung model-backed grounded generation qua endpoint OpenAI-compatible
-hoặc Hugging Face Transformers chạy local. `extractive` vẫn là backend mặc
-định để local UI chạy không cần model. Model, revision, device, endpoint và
-secret đều đi qua configuration; core không khóa vào một model hoặc nhà cung
-cấp cụ thể.
+- unified legal schemas;
+- cleaning, legal structure parsing và chunking;
+- BM25, dense retrieval, RRF, reranking và bounded graph retrieval;
+- context selection, grounded answer generation và citation verification;
+- deterministic Agent workflow;
+- FastAPI/UI;
+- evaluation, reproducibility và regression gates.
 
-Hệ thống có composition root để build toàn bộ AIO artifacts, online factory để
-reload BM25, vector, graph, reranker, tools và Agent, cùng FastAPI/UI để
-chạy thử baseline. Startup kiểm tra checksum, dataset lineage và embedding
-identity trước khi nhận query.
+Active data policy là `competition_only`. Runtime chỉ chấp nhận artifact có
+lineage `uit-dsc-2026-task2-selected-contexts`. Corpus, index và config cũ từ
+nguồn ngoài BTC không còn được hỗ trợ.
 
-Evaluation framework hỗ trợ labeled JSONL benchmark, Recall/Precision/MRR/NDCG,
-available generation metrics, latency/resource summary và error analysis.
+## Dữ liệu BTC đã biết
 
-## Local Baseline
+Data overview hiện mô tả:
 
-```powershell
+- `warmup.json`, `train.json`, `public-official.json`,
+  `private-official.json`;
+- `selected-contexts.zip` chứa các file `context_*.json`;
+- mỗi context có raw fields `id`, `name`, `link`, `passage`;
+- input là câu hỏi pháp luật tiếng Việt;
+- output là câu trả lời văn xuôi tiếng Việt;
+- METEOR là metric chính và ROUGE-L là metric phụ.
+
+Raw field names của BTC chỉ nằm trong
+`legal_agentic_rag.competition.uit_dsc_2026`.
+
+BTC xác nhận chỉ được dùng dữ liệu chính thức, cấm synthetic data kể cả sinh từ
+dữ liệu BTC, cho phép preprocessing/indexing/retrieval/fine-tuning trên dữ liệu
+chính thức, và yêu cầu đăng ký tên + URL model mã nguồn mở qua Form sắp công bố.
+Private test tối đa 3 submission/ngày, và Top 7
+phải cung cấp Docker image cùng mã nguồn MIT. Quy trình chi tiết, model approval
+register và các điểm cần BTC làm rõ nằm trong
+`docs/11-COMPETITION-COMPLIANCE.md`.
+
+## Cài đặt phát triển
+
+```bash
 python -m pip install -e ".[dev]"
-Copy-Item configs/baseline.example.json configs/baseline.local.json
-# Chỉnh configs/baseline.local.json nếu cần.
-legal-rag-build --config configs/baseline.local.json
-legal-rag-validate --config configs/baseline.local.json
-legal-rag-serve --config configs/baseline.local.json
+python -m pytest
 ```
 
-Để bật model-backed generation, sửa `online.generation` trong config local:
+Python tối thiểu: 3.11.
 
-```json
-{
-  "backend": "openai_compatible",
-  "endpoint_url": "http://127.0.0.1:8001/v1/chat/completions",
-  "api_key_env": null,
-  "model_name": "<model-name>",
-  "model_revision": "<pinned-revision>",
-  "temperature": 0.0,
-  "max_output_tokens": 1024
-}
-```
+## Configuration
 
-Nếu endpoint cần secret, chỉ đặt tên biến môi trường vào `api_key_env`; không
-đặt API key trực tiếp trong file config.
-
-Để chạy model local trên GPU, dùng backend `transformers`:
-
-```json
-{
-  "backend": "transformers",
-  "endpoint_url": null,
-  "api_key_env": null,
-  "model_name": "Qwen/Qwen2.5-3B-Instruct",
-  "model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8",
-  "device": "cuda",
-  "torch_dtype": "float16",
-  "local_files_only": false,
-  "max_context_tokens": 3072,
-  "max_evidence": 3,
-  "max_input_tokens": 8192,
-  "temperature": 0.0,
-  "max_output_tokens": 512,
-  "max_structured_output_retries": 1,
-  "timeout_seconds": 180.0
-}
-```
-
-Đây là candidate tham chiếu vừa bộ nhớ GPU 16 GiB, không phải model production
-đã được chốt. Provider lazy-load weights ở câu hỏi đầu tiên, không log prompt
-hoặc nội dung evidence và không cắt ngầm legal text khi prompt vượt giới hạn.
-
-Profile build toàn bộ AIO dành cho máy GPU/RAM phù hợp:
-
-```powershell
-Copy-Item configs/full-corpus.example.json configs/full-corpus.local.json
-# Chọn artifact root mới và kiểm tra device trước khi chạy.
-legal-rag-build --config configs/full-corpus.local.json
-legal-rag-validate --config configs/full-corpus.local.json
-```
-
-Không commit corpus, model output hoặc artifact sinh ra.
-
-Full profile dùng pinned multi-pass loading, giải phóng memory giữa các stage và
-resume partial build sau normalized checkpoint. Resume chỉ hoạt động khi config
-và code version tương thích; runtime không tự xóa artifact lỗi.
-
-Từ phiên bản `0.19.1`, config hash được canonical hóa để ổn định giữa các
-process Python. Partial state schema `1.0` từ bản cũ phải giữ nguyên để chẩn
-đoán và chạy lại trong một artifact root mới; không sửa hoặc xóa state cũ.
-
-Từ phiên bản `0.20.0`, parser/chunker xử lý từng document; block/chunk artifact
-được ghi incremental, BM25 dùng disk-backed batched inserts và vector embedding
-ghi theo batch vào NumPy memmap. Bản này sửa OOM đã đo ở legacy parser trên
-runtime 12 GiB. Build `0.19.x` phải dùng artifact root khác khi chạy `0.20.0`.
-
-Từ phiên bản `0.20.1`, vector build ghi checkpoint bền vững vào
-`.vector.partial` theo batch và chỉ embedding phần chưa commit khi Colab
-disconnect. Build state `0.20.0` được nâng có kiểm soát lên `0.20.1`; các
-transition code/config khác vẫn bị từ chối.
-
-Từ phiên bản `0.20.2`, online vector loader không còn giữ 1.278.201
-`LegalChunk` objects trong RAM. Loader giữ compact byte offsets/filter postings,
-validate vector và score exact cosine theo batch, rồi chỉ đọc full metadata cho
-top-k hits. Artifact vector `0.20.1` hiện có được dùng lại, không cần rebuild.
-Tiến độ startup xuất hiện trong log; các giới hạn nằm ở
-`online.vector_runtime`.
-
-Từ phiên bản `0.20.3`, full-corpus BM25 dùng bounded corpus-aware query planning
-và FTS5 `rank`. Artifact đã có không cần rebuild. Sau khi
-`legal-rag-validate` trả `is_valid = true`, cấu hình sau cho phép server tái sử
-dụng validation report thay vì hash/integrity-scan lại hàng GB mỗi lần:
-
-```json
-{
-  "online": {
-    "startup_validation": {"mode": "validated_report"},
-    "bm25_runtime": {
-      "max_query_terms": 8,
-      "max_document_frequency_ratio": 0.25
-    }
-  }
-}
-```
-
-Model embedding chỉ lazy-load khi dense retrieval được gọi; BM25 startup không
-phải chờ tải model weights.
-
-Từ version `0.20.4`, chuẩn bị vector serving metadata đúng một lần:
-
-```powershell
-legal-rag-prepare-serving --config configs/full-corpus.local.json
-```
-
-Lệnh này chỉ scan `vector/chunks.jsonl` hiện có để tạo
-`vector_serving/metadata.sqlite3`. Nó không đọc raw dataset, không embedding lại
-và không sửa `vectors.npy`. Khi `online.vector_runtime.require_serving_metadata`
-là `true`, server từ chối fallback về JSONL scan chậm.
-
-Từ version `0.20.5`, `/ui` là diagnostic HTML dùng same-origin HTTP tới
-`/api/v1/answer`. UI không còn dùng Gradio queue/SSE nên hoạt động qua Colab
-port proxy mà không tạo runtime thứ hai.
-
-Từ version `0.20.6`, full-corpus GPU profile có thể đặt
-`online.vector_runtime.search_device = "cuda"`. Runtime chuyển matrix float32
-hiện có lên GPU đúng một lần và giữ exact cosine search; không re-embed hoặc đổi
-vector artifact. `cpu` vẫn là mặc định và CUDA được yêu cầu sẽ fail closed nếu
-không khả dụng.
-
-Full-corpus Colab validation trên 1.278.201 vector x 384 ghi nhận query ấm:
-22,2 ms exact vector search, 35,6 ms dense retrieval, 398 ms reranking và khoảng
-2,16 giây end-to-end. Query đầu tiên mất khoảng 31,47 giây do lazy-load embedding
-và cross-encoder model.
-
-Từ version `0.20.7`, generator local dùng Transformers qua cùng
-`ChatModelProvider` với backend endpoint. Dependency `transformers` được khai báo
-trực tiếp vì source code gọi API này; không thêm LLM SDK, LangChain hoặc
-LangGraph.
-
-Từ version `0.20.8`, model output có thể chứa một preamble/code fence vô hại
-trước JSON. Parser chỉ lấy JSON object rồi vẫn áp dụng strict schema,
-evidence-ID allowlist và marker verification. Nếu draft đầu tiên sai format,
-generator được phép yêu cầu model sửa đúng một lần; raw completion và legal
-content không được ghi vào log.
-
-Từ version `0.20.9`, marker `[E#]` hiển thị sát nhận định là thứ tự citation
-chuẩn. Danh sách `cited_evidence_ids` dư thừa của model được chuẩn hóa theo các
-marker đã kiểm tra allowlist. Marker hoặc declared ID không tồn tại trong
-selected evidence vẫn bị từ chối.
-
-Từ version `0.20.10`, khi model trả valid declared evidence IDs nhưng bỏ marker
-inline, hệ thống hiển thị deterministic các marker đã kiểm tra ở cuối answer.
-Combined form như `[E1, E2]` cũng được nhận diện. Hệ thống không tự suy ra hoặc
-tạo evidence ID mới.
-
-Từ version `0.20.11`, cross-encoder mặc định dùng `input_mode =
-"legal_context"`: tên, số, loại văn bản, cơ quan ban hành, lĩnh vực, metadata
-hiệu lực và cấu trúc Điều được đặt trước chunk text. Nhờ vậy reranker có thể
-phân biệt quy định tổng quát với văn bản chỉ áp dụng cho một nhóm đối tượng.
-`text_only` vẫn có thể chọn bằng config để A/B benchmark; artifact hiện có
-không cần rebuild.
-
-Từ version `0.21.0`, runtime phân tích các tín hiệu xuất hiện trực tiếp trong
-câu hỏi: số hiệu văn bản, Điều/Khoản/Điểm, năm, phạm vi, quan hệ văn bản và
-intent bảo thủ. Hệ thống tạo tối đa ba query variants chỉ bằng cách bỏ framing
-hoặc ghép lại reference đã có trong câu hỏi; không tự thêm thuật ngữ pháp lý.
-Hybrid retrieval chạy BM25/dense cho các variants rồi RRF toàn bộ branch ranks,
-giữ từng contribution trong trace. Agent ưu tiên graph cho câu hỏi quan hệ văn
-bản và dùng variants còn lại khi retry. Cấu hình nằm tại
-`online.query_understanding`; artifact hiện có không cần rebuild.
-
-Từ version `0.22.0`, context builder không còn chỉ lấy lần lượt theo retrieval
-rank. Mỗi hit được đánh giá bảo thủ bằng reference người dùng đã nêu, lexical
-overlap, effect-status label đã cấu hình và source rank. Kết quả giữ typed
-selection trace cho cả hit được chọn và bị bỏ. Context grader fail closed nếu
-câu hỏi nêu rõ số hiệu văn bản hoặc Điều nhưng không có selected evidence khớp.
-Đây là deterministic applicability screening, không phải kết luận pháp lý về
-hiệu lực hay phạm vi áp dụng. Cấu hình nằm tại `online.evidence_selection`;
-artifact hiện có không cần rebuild.
-
-Từ version `0.23.0`, synthesized answer được tách thành từng claim trước khi
-được trả ra ngoài. Mỗi claim pháp lý phải có inline marker `[E#]`; marker phải
-khớp response citation và selected evidence. Baseline kiểm tra lexical support,
-số liệu và từ phủ định theo từng claim, rồi fail closed nếu có claim không được
-ground. Kết quả từng claim nằm trong `citation_verification` metadata. Đây là
-deterministic grounding, chưa phải semantic entailment model. Extractive backend
-được miễn bước này vì nó trình bày nguyên văn evidence. Cấu hình nằm tại
-`online.claim_verification`; không cần rebuild artifact.
-
-Từ version `0.24.0`, citation verifier có thể chạy thêm một tầng semantic
-model-backed sau toàn bộ hard checks của M21. Model chỉ phân loại từng
-`claim_id` thành `supported`, `contradicted` hoặc `insufficient`; evidence ID,
-citation và provenance luôn được hệ thống gắn lại từ dữ liệu đã xác minh. Output
-thiếu/thừa claim, sai schema, lỗi model hoặc nhãn khác `supported` đều fail
-closed. Backend mặc định là `disabled`, nên local test/UI không cần GPU hay API.
-Cấu hình nằm tại `online.semantic_verification`; không cần rebuild artifact.
-Khi generator và semantic verifier cùng dùng đúng một Transformers
-model/revision/device/dtype, composition root chia sẻ một bộ weights nhưng vẫn
-giữ giới hạn input/output riêng cho từng consumer.
-
-Chạy benchmark có nhãn:
-
-```powershell
-legal-rag-evaluate `
-  --config configs/baseline.local.json `
-  --benchmark path/to/benchmark.jsonl `
-  --output reports/evaluation-run
-```
-
-Sau khi server sẵn sàng:
-
-- UI: `http://127.0.0.1:8000/ui`
-- API docs: `http://127.0.0.1:8000/docs`
-- health: `http://127.0.0.1:8000/api/v1/health`
-- retrieval: `POST /api/v1/retrieve`
-- answer: `POST /api/v1/answer`
-
-UI hiện là giao diện chẩn đoán local, chưa có authentication hoặc cấu hình
-deployment production.
-
-## Current Dataset
-
-Hugging Face:
-
-`th1nhng0/vietnamese-legal-documents`
-
-Dataset được dùng cho:
-
-- legal corpus;
-- legal metadata;
-- document relationships;
-- BM25 retrieval;
-- dense retrieval;
-- legal graph retrieval.
-
-## High-Level Architecture
+File mẫu:
 
 ```text
-Offline phase
-Dataset
-→ Audit
-→ Normalize
-→ Clean HTML
-→ Parse legal structure
-→ Chunk
-→ Build indexes
+configs/baseline.example.json
+```
 
-Online phase
-Question
-→ Retrieval
-→ Fusion
-→ Rerank
-→ Context grading
-→ Answer generation
-→ Citation verification
+File này không chứa đường dẫn dataset hay artifact thật. Để chạy online, cần
+một config local trỏ tới artifact BTC đã build và validated. Không commit
+config chứa secret hoặc đường dẫn nhạy cảm.
+
+## CLI hiện có
+
+```text
+legal-rag-build-competition
+legal-rag-batch
+legal-rag-submit
+legal-rag-score-warmup
+legal-rag-validate
+legal-rag-prepare-serving
+legal-rag-serve
+legal-rag-evaluate
+legal-rag-compare
+```
+
+Build CLI mới chỉ nhận ZIP/thư mục context chính thức, persist theo stage và
+resume khi source/config/code identity khớp. Batch CLI ghi output nội bộ có
+checkpoint và completeness manifest. Tạo file nộp sau khi batch hoàn tất bằng:
+
+```text
+legal-rag-submit --questions <questions.json> --batch <batch-directory> --output <path>/submission.zip
+```
+
+Lệnh này không chạy model. Nó xác minh checksum, số lượng và thứ tự ID rồi tạo
+ZIP tái tạo được, chứa duy nhất UTF-8 `submission.json`. Root là object ánh xạ
+`id` sang `{"answer": string}` theo đúng scorer Codabench thực tế. Các marker
+citation nội bộ đã được xác minh như `[E1]` bị loại khỏi answer nộp, nhưng vẫn
+được giữ trong batch nội bộ.
+
+Khi benchmark có `reference_answer`, evaluator báo local diagnostic `meteor` và
+`rouge_l`. Warm-up log cho thấy Codabench dùng PyVi, NLTK METEOR và
+`rouge-score`, nhưng parameters/aggregation chưa được xác nhận và scoring image
+hiện thiếu NLTK WordNet. Local score chưa được tuyên bố tương đương official.
+
+Chấm trực tiếp một bài nộp trên warm-up có đáp án:
+
+```text
+legal-rag-score-warmup \
+  --references <warmup.json> \
+  --submission <submission.zip> \
+  --output <new-report-directory>
+```
+
+Lệnh không cần GPU, model hay index. Report không lưu nội dung câu hỏi, gold
+answer hoặc prediction.
+
+`legal-rag-submit` và `legal-rag-score-warmup` dùng entry point competition nhẹ,
+không import FastAPI/Uvicorn hoặc khởi tạo serving runtime.
+
+## Compliance và Docker
+
+- `LICENSE`: source license MIT theo yêu cầu công khai mã nguồn;
+- `Dockerfile`: CPU reproducibility scaffold chạy non-root và không chứa data,
+  model, artifact hoặc secret;
+- `.dockerignore`: chặn các file competition/local lớn khỏi build context;
+- `constraints/competition-direct.txt`: pin direct Python dependencies cho
+  image M31, chưa phải transitive lock;
+- `docs/templates/`: Data Statement, Model Card, private-submission checklist
+  và submission ledger.
+
+GPU image, model weights và final reproduction command chỉ được chốt sau khi
+BTC xác nhận hạ tầng và model được phép sử dụng.
+
+## Ranh giới competition
+
+```text
+Official BTC JSON
+→ UIT DSC 2026 adapter
+→ typed competition records
+→ unified legal schema
+→ reusable core pipeline
+→ competition answer/output adapter
+```
+
+`UitDsc2026DataLoader` hiện hỗ trợ:
+
+- question mapping có hoặc không có reference answer;
+- `context_*.json` theo fields BTC đã mô tả;
+- duplicate JSON key detection;
+- unknown/missing field rejection;
+- duplicate context ID rejection;
+- đọc trực tiếp ZIP hoặc thư mục đã giải nén;
+- canonical corpus SHA-256 không phụ thuộc ZIP packaging;
+- mapping context sang unified `LegalDocument`;
+- audit cùng normalized/plain-text manifests;
+- giữ nguyên question, answer và passage hợp lệ.
+
+Loader không tự tải dữ liệu, không tạo index và không suy đoán submission
+format.
+
+## Việc còn chờ dữ liệu/quy định BTC
+
+- audit `selected-contexts.zip` thật;
+- chạy adapter/parser/chunker trên toàn corpus và đo memory;
+- official corpus build và artifact manifests;
+- scorer METEOR/ROUGE-L tương thích Codabench;
+- train/dev strategy và fine-tuning;
+- model benchmark cuối cùng.
+
+Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
+cache hoặc token.

@@ -25,25 +25,43 @@ from legal_agentic_rag.schemas.answering import (
     SemanticVerificationDraft,
     SemanticVerificationResult,
 )
-from legal_agentic_rag.schemas.auditing import (
-    AuditFieldProfile,
-    AuditIssue,
-    AuditSeverity,
-    ComponentAuditSummary,
-    DatasetAuditReport,
-    JoinAuditSummary,
-)
+from legal_agentic_rag.schemas.auditing import AuditIssue, AuditSeverity
 from legal_agentic_rag.schemas.build_validation import (
     BuildValidationReport,
     OfflineBuildState,
     VectorBuildCheckpoint,
 )
 from legal_agentic_rag.schemas.cleaning import HtmlCleaningResult
+from legal_agentic_rag.schemas.competition import (
+    CompetitionCorpusAuditReport,
+    CompetitionCorpusIngestionResult,
+    CompetitionContext,
+    CompetitionQuestion,
+)
+from legal_agentic_rag.schemas.competition_execution import (
+    CompetitionBatchManifest,
+    CompetitionBatchRecord,
+    CompetitionBatchState,
+    CompetitionBuildStage,
+    CompetitionBuildState,
+    CompetitionOfflineBuildResult,
+    CompetitionSubmissionItem,
+    CompetitionSubmissionResult,
+    CompetitionWarmupCaseScore,
+    CompetitionWarmupScoreReport,
+)
 from legal_agentic_rag.schemas.evaluation import (
+    EvaluationBenchmarkLabelStatus,
+    EvaluationBenchmarkManifest,
+    EvaluationCandidateResult,
     EvaluationCase,
     EvaluationCaseResult,
+    EvaluationComparisonReport,
+    EvaluationMetricDirection,
+    EvaluationObjective,
     EvaluationResourceUsage,
     EvaluationRunResult,
+    EvaluationSelectionMode,
     EvaluationSummary,
     EvaluationTargetGranularity,
     GenerationCaseMetrics,
@@ -68,7 +86,6 @@ from legal_agentic_rag.schemas.manifests import (
     ArtifactValidationResult,
     DatasetManifest,
 )
-from legal_agentic_rag.schemas.normalization import DocumentNormalizationResult
 from legal_agentic_rag.schemas.parsing import (
     DocumentParsingDiagnostic,
     LegalStructureParsingResult,
@@ -87,10 +104,6 @@ from legal_agentic_rag.schemas.retrieval import (
     RetrievalStrategy,
     RetrievalTrace,
 )
-from legal_agentic_rag.schemas.relationship_processing import (
-    RelationshipNormalizationResult,
-)
-from legal_agentic_rag.schemas.runtime import OfflineBuildResult
 from legal_agentic_rag.schemas.serving import (
     ApiErrorDetail,
     ApiErrorResponse,
@@ -123,7 +136,6 @@ __all__ = [
     "ArtifactType",
     "ArtifactValidationResult",
     "ArtifactHealth",
-    "AuditFieldProfile",
     "AuditIssue",
     "AuditSeverity",
     "BuildValidationReport",
@@ -137,10 +149,21 @@ __all__ = [
     "ContextBuildResult",
     "ContextGrade",
     "ContextGradingInput",
-    "ComponentAuditSummary",
-    "DatasetAuditReport",
+    "CompetitionContext",
+    "CompetitionCorpusAuditReport",
+    "CompetitionCorpusIngestionResult",
+    "CompetitionQuestion",
+    "CompetitionBatchManifest",
+    "CompetitionBatchRecord",
+    "CompetitionBatchState",
+    "CompetitionBuildStage",
+    "CompetitionBuildState",
+    "CompetitionOfflineBuildResult",
+    "CompetitionSubmissionItem",
+    "CompetitionSubmissionResult",
+    "CompetitionWarmupCaseScore",
+    "CompetitionWarmupScoreReport",
     "DatasetManifest",
-    "DocumentNormalizationResult",
     "DocumentParsingDiagnostic",
     "DocumentChunkingDiagnostic",
     "Evidence",
@@ -148,9 +171,16 @@ __all__ = [
     "EvidenceSelectionReason",
     "EvidenceSelectionTrace",
     "EvaluationCase",
+    "EvaluationBenchmarkLabelStatus",
+    "EvaluationBenchmarkManifest",
     "EvaluationCaseResult",
+    "EvaluationCandidateResult",
+    "EvaluationComparisonReport",
+    "EvaluationMetricDirection",
+    "EvaluationObjective",
     "EvaluationResourceUsage",
     "EvaluationRunResult",
+    "EvaluationSelectionMode",
     "EvaluationSummary",
     "EvaluationTargetGranularity",
     "GenerationCaseMetrics",
@@ -178,14 +208,11 @@ __all__ = [
     "SemanticSupportLabel",
     "SemanticVerificationDraft",
     "SemanticVerificationResult",
-    "OfflineBuildResult",
-    "JoinAuditSummary",
     "RetrievalFilters",
     "RetrievalCaseMetrics",
     "RetrievalHistoryItem",
     "RetrievalHit",
     "RetrievalQuery",
-    "RelationshipNormalizationResult",
     "ServiceStatus",
     "RetrievalResponse",
     "RetrievalStrategy",

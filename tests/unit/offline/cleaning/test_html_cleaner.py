@@ -23,7 +23,7 @@ def _document(
         content_html=content_html,
         clean_text=None,
         has_content=content_html is not None,
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
     )
 
 
@@ -35,7 +35,7 @@ def _manifest(
         schema_version="1.0",
         artifact_type=artifact_type,
         artifact_version="1.0",
-        dataset_name="th1nhng0/vietnamese-legal-documents",
+        dataset_name="fixture-corpus",
         dataset_revision="fixture-revision",
         created_at=datetime(2026, 7, 18, tzinfo=UTC),
         record_count=record_count,

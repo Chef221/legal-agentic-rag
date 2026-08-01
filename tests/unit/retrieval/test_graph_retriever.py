@@ -47,7 +47,7 @@ def _graph() -> AdjacencyGraphBackend:
         LegalDocument(
             document_id=f"doc-{index}",
             has_content=True,
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         )
         for index in range(1, 4)
     ]
@@ -57,14 +57,14 @@ def _graph() -> AdjacencyGraphBackend:
             target_document_id="doc-2",
             relationship_type="amends",
             raw_relationship="Sửa đổi",
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         ),
         LegalRelationship(
             source_document_id="doc-2",
             target_document_id="doc-3",
             relationship_type="guides",
             raw_relationship="Hướng dẫn",
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         ),
     ]
     backend = AdjacencyGraphBackend()

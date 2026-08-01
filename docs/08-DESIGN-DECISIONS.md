@@ -28,7 +28,7 @@ Mọi thay đổi phải:
 
 ## D001 — Primary Dataset
 
-**Status:** Accepted
+**Status:** Superseded by D068
 
 Trong giai đoạn hiện tại, chỉ sử dụng dataset:
 
@@ -409,7 +409,7 @@ khi được triển khai ở milestone phù hợp.
 
 ## D029 — Milestone 2 Dataset Loader and Audit Boundary
 
-**Status:** Accepted
+**Status:** Superseded by D068
 
 Milestone 2 dùng `datasets>=5,<6` là concrete dependency duy nhất để đọc
 dataset Hugging Face đã phê duyệt. Implementation:
@@ -1479,3 +1479,336 @@ existing `CitationVerifier` contract:
 This verifier improves claim-level semantic screening but is not a proof of
 legal correctness. Threshold/model selection still requires a labeled
 competition benchmark or a reviewed legal evaluation set.
+
+---
+
+## D066 — Model Comparison Requires Reproducible Like-for-like Reports
+
+**Status:** Accepted
+
+Version `0.25.0` adds a generic comparison layer over immutable M16 evaluation
+reports:
+
+- every new evaluation report records pinned dataset lineage, a sanitized
+  runtime-configuration hash, component/model identities, and relevant package
+  versions;
+- comparison requires exact benchmark bytes, equal case counts, equal cutoffs,
+  equal dataset/revision, and equal labeled-case counts for quality objectives;
+- failed runs, missing objective metrics, missing runtime provenance, and
+  threshold failures remain explicit ineligible candidates;
+- quality, latency, failures, and resource observations use namespaced metrics;
+- accelerator identity and peak allocated memory are recorded when available
+  but remain null on CPU or runtimes without compatible telemetry;
+- the default result is a Pareto frontier and does not invent one winner;
+- a single candidate is selected only when the comparison configuration
+  explicitly requests ordered lexicographic objectives;
+- comparison output is immutable and never overwrites prior evidence;
+- no official metric, model winner, or benchmark quality is inferred.
+
+M23 does not add QA data, download a model, rebuild artifacts, fine-tune, or
+claim competition readiness. A winner can be trusted only after the same
+pipeline is run on official competition labels or a reviewed legal benchmark.
+
+---
+
+## D067 — Benchmark Trust Must Be Explicit Before Model Selection
+
+**Status:** Accepted
+
+Version `0.26.0` requires every new evaluation run to use a typed benchmark
+manifest:
+
+- exact benchmark SHA-256, case count, and target granularities are validated
+  before runtime evaluation;
+- benchmark dataset name/revision must equal the loaded artifact lineage;
+- label status is explicitly `diagnostic`, `human_reviewed`, or
+  `competition_official`;
+- trusted statuses require timestamped provenance, while this declaration is
+  never presented as independent legal certification;
+- diagnostic labels may support pipeline checks and Pareto analysis but cannot
+  select one winner;
+- optional per-objective maximum regression is measured against one explicit
+  baseline candidate;
+- reports with different benchmark manifest bytes cannot be compared.
+
+M24 adds no dataset, model, training, artifact rebuild, or competition metric.
+
+---
+
+## D068 — Active Data Scope Is UIT DSC 2026 Task 2 Only
+
+**Status:** Accepted
+
+Từ Milestone 25, active repository không còn hỗ trợ corpus AIO. Quyết định này
+supersede D001 và các phần AIO-specific của D015, D016, D017, D027, D028,
+D029, D033, D034, D035 và D036:
+
+- source, adapter, audit service, normalizer, relationship normalizer, build
+  runtime, config profile, raw fixture và tests chỉ dành cho AIO bị loại bỏ;
+- dependency `datasets` bị loại khi không còn consumer;
+- online runtime chỉ chấp nhận artifact có dataset identity chính thức được
+  competition config khai báo;
+- dữ liệu QA và context của BTC đi qua package adapter riêng trước khi vào
+  unified schema;
+- raw field names của BTC không được lan vào cleaner, parser, chunker, indexer,
+  retrieval, generation, Agent hoặc serving;
+- artifact AIO bên ngoài repository không bị tự động xóa, nhưng không còn được
+  runtime chấp nhận;
+- Git history không bị rewrite.
+
+BTC đã xác nhận answer-text task, context raw fields, METEOR primary và ROUGE-L
+secondary. Tuy nhiên scorer implementation, train corpus và
+selected-context bytes vẫn phải được kiểm tra trước khi triển khai phần phụ
+thuộc chúng. Warm-up answers không tạo ra retrieval relevance labels.
+
+---
+
+## D069 — Official Context Files Map One-to-one to Unified Documents
+
+**Status:** Accepted
+
+The organizer overview defines each `context_*.json` file as one selected legal
+document with exactly `id`, `name`, `link`, and `passage`. Milestone 26 applies
+the following fail-closed mapping:
+
+- `id` becomes the exact unified `document_id`;
+- `name` becomes `title`;
+- `link` becomes `source_url`;
+- `passage` becomes `clean_text` without rewriting legal text;
+- `source_dataset` is the official UIT DSC 2026 Task 2 corpus identity;
+- missing legal metadata is left null rather than inferred;
+- raw organizer field names remain inside the UIT DSC adapter boundary;
+- one file must contain exactly one JSON object; list roots are rejected;
+- ZIP members are read without extraction and duplicate member names or context
+  IDs are rejected;
+- corpus revision is a deterministic SHA-256 over ordered context filenames and
+  exact member bytes, so an archive and its equivalent extracted directory have
+  the same lineage;
+- `passage` is treated as organizer-provided plain legal text, so HTML cleaning
+  is not inserted before parsing;
+- ingestion emits an explicit cleaned-document pass-through manifest with
+  `text_modified = false` so the existing parser contract remains intact;
+- Warm-up answers remain answer-level references and are not converted into
+  document/chunk relevance labels.
+
+No BM25, vector, graph, or training artifact may be claimed as official until
+the released `selected-contexts.zip` bytes have passed the corpus audit.
+
+---
+
+## D070 — Official Builds Are Staged, Immutable, and Resumable
+
+**Status:** Accepted
+
+Milestone 27 composes the official corpus boundary into the existing offline
+pipeline under these recovery rules:
+
+- a build is identified by exact source revision, application-config hash, and
+  code version;
+- completed stages are recorded atomically and may be reused only after their
+  persisted payloads and manifests validate;
+- a mismatched source, config, code version, missing stage output, or broken
+  checksum fails closed instead of rebuilding over an existing destination;
+- vector embedding uses the existing durable batch checkpoint;
+- normalized and cleaned pass-through artifacts remain explicit so lineage is
+  auditable even though organizer passages are already plain text;
+- the documented corpus provides no relationship field, therefore the build
+  emits a truthful zero-record relationship artifact and a zero-edge graph over
+  the official documents; it never infers or fabricates legal relationships.
+
+The build can be exercised with fixtures now. Full-corpus counts and resource
+requirements remain unclaimed until the organizer archive is available.
+
+---
+
+## D071 — Batch Inference Checkpoints Are Not Submission Files
+
+**Status:** Accepted
+
+Competition batch execution persists one internal typed `AnswerResponse` per
+official question ID. It validates exact question-source bytes, preserves input
+order, rejects duplicate or unknown checkpoint IDs, and resumes only missing
+questions. A completed run requires exactly one result for every input ID.
+
+This internal JSONL plus manifest remains intentionally submission-neutral.
+D077 defines the separate Codabench formatter after executable scorer behavior
+was verified. Reference answers, when present in warm-up data, are never copied
+into predictions.
+
+---
+
+## D072 — Codabench Submission Is an Exact Answer-only ZIP Contract
+
+**Status:** Superseded by D077
+
+The organizer prose available at implementation time described a file named
+`submission.zip` whose only member is UTF-8 `submission.json`. It described the
+JSON root as an array in official question order with items containing:
+
+```text
+id: string
+answer: string
+```
+
+The formatter consumes only a completed M27 batch. Before publishing, it
+requires the exact question-source SHA-256, result JSONL SHA-256, record count,
+and ordered IDs to agree. Missing, duplicate, reordered, unknown, or tampered
+records fail closed. Existing output is never overwritten, ZIP member metadata
+is fixed for reproducibility, and reference answers are never read as
+predictions. Internal citations and other `AnswerResponse` metadata are not
+included as separate submission fields. D073 defines the score-facing removal
+of verified internal evidence markers from the answer string.
+
+The live Codabench scoring program later contradicted this prose by calling
+`.items()` on the submitted root. D077 records the executable contract that now
+governs packaging.
+
+---
+
+## D073 — Competition Text Metrics Are Diagnostic Until Scorer Equivalence
+
+**Status:** Accepted
+
+BTC has confirmed METEOR as the primary ranking metric and ROUGE-L as the
+secondary metric, both compared against expert reference answers and optimized
+upward. Version `0.31.0` therefore adds dependency-free local diagnostics:
+
+- NFC/casefold tokenization over Vietnamese letters and numbers;
+- exact-token METEOR precision/recall with standard weighted harmonic mean and
+  fragmentation penalty;
+- token-level ROUGE-L F1 using longest common subsequence;
+- null scores when no reference answer exists;
+- an explicit report warning that these values are not official-equivalent.
+
+No stemming, synonym resource, external language model, or organizer tokenizer
+is inferred. These local values may compare answer variants on one pinned
+benchmark, but cannot be represented as exact Codabench scores until scorer
+implementation or verified parity evidence is available.
+
+Because `[E<number>]` is internal grounding notation rather than expert answer
+text, the competition formatter removes only markers whose evidence IDs exist
+in the verified `AnswerResponse.citations`. Unknown markers fail closed. The
+internal batch keeps full citations and verification metadata.
+
+---
+
+## D074 — Warm-up Scoring Is Answer-only, Immutable, and Content-free
+
+**Status:** Accepted
+
+Version `0.32.0` adds a local scorer for the exact official warm-up answer
+contract. It accepts only `warmup.json` records with reference answers and an
+exact one-member `submission.zip`. Submission IDs must equal reference IDs once
+and in source order.
+
+The report records per-ID and mean exact match, diagnostic METEOR, and diagnostic
+ROUGE-L, together with SHA-256 identities for the reference file, archive, and
+submitted JSON bytes. It never persists questions, reference answers, or
+prediction text. Output is a new immutable directory and is not overwritten.
+
+This scorer requires no corpus, index, model, GPU, network, or external metric
+package. It is intended for fast local regression on organizer-provided
+references and retains the D073 non-equivalence warning.
+
+---
+
+## D075 — Organizer Compliance Is a Fail-closed Runtime Gate
+
+**Status:** Accepted
+
+The organizer rules supplied on 2026-08-01 are identified by SHA-256
+`c88b2eec6bccf2bc809e0b7982cbe113c56928671f99c7acb5e741fc310091be`.
+They confirm that competition work may use only organizer-provided data and may
+not add manual labels, external collection, or external data augmentation.
+
+M31 applies these rules as follows:
+
+- external/AIO data and artifacts remain rejected by active runtime lineage;
+- model candidates are not competition-approved models;
+- any model whose organizer approval or original license is unknown is blocked
+  from an official run;
+- a model proposal records immutable identity, purpose, license and approval
+  evidence before its status changes to approved;
+- private submissions require a human-reviewed preflight and a ledger enforcing
+  awareness of the three-per-day limit;
+- Data Statement and Model Card snapshots are required release evidence but are
+  not inserted into the exact answer-only ZIP unless the organizer changes its
+  output contract;
+- source owned by the team is MIT licensed, while third-party data, packages,
+  tokenizers and weights retain their own licenses;
+- platform naming, pretrained-model scope, Internet availability, final Docker
+  interface and scorer parity remain unresolved organizer questions.
+
+This decision records compliance controls only. It does not approve a model,
+model license, dataset byte sequence, Docker GPU image or official score.
+
+---
+
+## D076 — Competition Packaging Tools Must Not Require Serving Dependencies
+
+**Status:** Accepted
+
+Submission formatting and warm-up scoring operate only on local typed files.
+Their console entry points therefore live under the UIT DSC competition package
+and must not import FastAPI, Uvicorn, API routes, runtime artifacts or models.
+
+The M31 Docker context excludes data, artifacts, models, checkpoints, logs,
+reports, secrets and submission files. Its CPU image is a non-root compliance
+scaffold with a pinned Python base and direct dependency constraints. It is not
+the final private-test GPU image: the final base digest, complete package freeze,
+model acquisition policy and reproduction command require organizer runtime
+details and approved models.
+
+---
+
+## D077 — Executable Codabench Scorer Defines an ID-keyed Submission Object
+
+**Status:** Accepted
+
+The first real warm-up upload failed before scoring with:
+
+```text
+y_pred = {k: v['answer'] for k, v in y_pred.items()}
+AttributeError: 'list' object has no attribute 'items'
+```
+
+Therefore the executable scorer requires the UTF-8 `submission.json` root to
+be an object keyed by official question ID:
+
+```text
+{
+  "<question_id>": {"answer": "<answer text>"}
+}
+```
+
+The ZIP still contains only `submission.json`; each value contains only one
+string `answer`; and IDs must remain complete, unique and in official source
+order. The formatter and local scorer reject the formerly documented array.
+Executable scoring behavior takes precedence over contradictory prose until
+BTC publishes a corrected scorer or contract.
+
+---
+
+## D078 — Official-only Training Is Allowed but Synthetic Data Is Prohibited
+
+**Status:** Accepted
+
+BTC's written reply on 2026-08-01 confirms:
+
+- Task 2 submissions use Codabench;
+- there is no predeclared model allow-list;
+- each intended open-source model must be registered by name and official URL
+  through the organizer's forthcoming Google Form;
+- preprocessing, indexing, retrieval and fine-tuning are allowed when they use
+  only official competition data;
+- synthetic data is prohibited even when generated from official data.
+
+The active runtime therefore remains official-only and all current model
+candidates remain blocked from an official run until registration evidence is
+available. Fine-tuning may begin only after real official supervision, split,
+leakage control, evaluator and experiment plan exist. The project must not
+manufacture QA pairs, answers, evidence labels, hard negatives or other
+training examples to compensate for missing supervision.
+
+Runtime hardware, network, Docker, model pretraining/external API rules and
+Private Test reproduction details remain unresolved until later BTC notices.

@@ -20,7 +20,7 @@ def test_legal_document_parses_fixture_and_preserves_provenance(
     document = LegalDocument.model_validate(data)
 
     assert document.document_id == "doc-001"
-    assert document.source_dataset == "aio"
+    assert document.source_dataset == "fixture-corpus"
     assert document.effective_date.isoformat() == "2026-01-01"
 
 

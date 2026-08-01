@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-Unified schema tách core system khỏi schema thô của dataset AIO.
+Unified schema tách core system khỏi schema thô của dữ liệu competition.
 
 Raw field names chỉ được sử dụng trong dataset adapter.
 
@@ -30,7 +30,7 @@ package.
   `metadata` hoặc `raw_metadata`.
 - Field required không có implicit default.
 - Optional collection dùng default factory, không dùng mutable default.
-- `source_dataset` là required string và không mặc định thành `aio` để
+- `source_dataset` là required string và không có implicit default để
   giữ dataset independence.
 
 ---
@@ -59,7 +59,7 @@ package.
   "content_html": "string|null",
   "clean_text": "string|null",
   "has_content": true,
-  "source_dataset": "aio",
+  "source_dataset": "uit-dsc-2026-task2-selected-contexts",
   "raw_metadata": {}
 }
 ```
@@ -77,26 +77,6 @@ package.
 - document thiếu content vẫn có thể tồn tại trong graph.
 - `content_html` và `clean_text` không bị strip khi có nội dung; chỉ
   whitespace-only mới được normalize thành null.
-
-### DocumentNormalizationResult
-
-```json
-{
-  "documents": [],
-  "issues": [],
-  "manifest": {},
-  "input_metadata_count": 0,
-  "input_content_count": 0,
-  "rejected_metadata_count": 0,
-  "orphan_content_count": 0,
-  "ambiguous_content_count": 0
-}
-```
-
-`manifest.artifact_type` phải là `normalized_documents` và
-`manifest.record_count` phải bằng số document. Mọi metadata record phải
-hoặc tạo đúng một document, hoặc được tính trong `rejected_metadata_count`.
-Document IDs trong result phải unique.
 
 ### HtmlCleaningResult
 
@@ -237,7 +217,7 @@ che giấu text bị rơi.
   "issuing_authority": "string|null",
   "legal_field": "string|null",
   "source_url": "string|null",
-  "source_dataset": "aio",
+  "source_dataset": "uit-dsc-2026-task2-selected-contexts",
   "metadata": {}
 }
 ```
@@ -317,7 +297,7 @@ tục trong từng document.
   "relationship_type": "string|null",
   "raw_relationship": "string",
   "is_directed": true,
-  "source_dataset": "aio",
+  "source_dataset": "uit-dsc-2026-task2-selected-contexts",
   "metadata": {}
 }
 ```
@@ -1004,22 +984,7 @@ exception không bị đổi thành fake successful output.
 
 ---
 
-## 18.2 Runtime Build Result
-
-`schemas/runtime.py` chứa `OfflineBuildResult`, là summary có consumer trực tiếp
-là build command/API ở milestone serving:
-
-- `dataset_manifest`;
-- artifact manifest map keyed bằng `ArtifactType.value`;
-- configured output paths;
-- audit issue count;
-- processing issue count.
-
-Schema bắt buộc mọi artifact cùng dataset/revision và key khớp declared type.
-
----
-
-## 18.3 Milestone 15 Serving Schemas
+## 18.2 Milestone 15 Serving Schemas
 
 `schemas/serving.py` chứa các contract có consumer trực tiếp là FastAPI API và
 diagnostic UI:
@@ -1036,13 +1001,14 @@ không xuất hiện ở API boundary.
 
 ---
 
-## 18.4 Milestone 16 Evaluation Schemas
+## 18.3 Milestone 16 Evaluation Schemas
 
 `schemas/evaluation.py` chứa:
 
 - `EvaluationCase`: question, target granularity, graded stable IDs và optional
   generation labels;
-- `RetrievalCaseMetrics` và `GenerationCaseMetrics`;
+- `RetrievalCaseMetrics` và `GenerationCaseMetrics`; generation metrics include
+  nullable diagnostic `meteor` and `rouge_l` only when a reference answer exists;
 - `EvaluationCaseResult` với compact retrieved IDs và sanitized failure;
 - `LatencySummary`, `EvaluationResourceUsage`, `EvaluationSummary`;
 - `EvaluationRunResult` cho persistence.
@@ -1052,10 +1018,72 @@ thành điểm `0`.
 
 ---
 
-## 18.5 Milestone 17 Build Validation Schema
+### 18.4.1 Milestone 23 Evaluation Comparison Schemas
+
+M23 emits `EvaluationSummary` schema version `1.1` and extends it with pinned
+dataset lineage, a sanitized runtime
+configuration SHA-256, and component provenance for embedding, BM25, vector,
+reranker, generator, semantic verifier, retrieval policy, and package versions.
+Local artifact paths, endpoint URLs, API-key environment names, prompts, and
+legal content are not persisted in this provenance.
+
+The comparison contract adds:
+
+- `EvaluationMetricDirection`: `maximize` or `minimize`;
+- `EvaluationSelectionMode`: `pareto_only` or explicitly requested
+  `lexicographic`;
+- `EvaluationObjective`: one named metric, direction, and optional eligibility
+  threshold;
+- `EvaluationCandidateResult`: projected objective values, reproducibility
+  identity, eligibility reasons, and dominance relationships;
+- `EvaluationComparisonReport`: exact benchmark identity, candidate set,
+  Pareto frontier, optional selected candidate, and warnings.
+
+`EvaluationResourceUsage` retains portable CPU/Python observations and optional
+accelerator name/peak allocated bytes when an already-loaded runtime exposes a
+CUDA-compatible API. Missing accelerator telemetry remains `null`.
+
+Reports from different benchmark bytes, case counts, retrieval cutoffs, or
+dataset revisions are not comparable. Missing labels remain missing and cannot
+silently become zero or a model-selection score.
+
+---
+
+### 18.4.2 Milestone 24 Benchmark Governance Schemas
+
+M24 emits `EvaluationSummary` schema version `1.2` and adds:
+
+- `EvaluationBenchmarkLabelStatus`: `diagnostic`, `human_reviewed`, or
+  `competition_official`;
+- `EvaluationBenchmarkManifest`: benchmark/version identity, exact benchmark
+  SHA-256, pinned dataset name/revision, case count, target granularities, and
+  declared label provenance;
+- `benchmark_manifest_sha256`, `benchmark_version`,
+  `benchmark_label_status`, verification timestamp, and label-provenance
+  reference in each evaluation summary;
+- optional `maximum_regression` on each objective;
+- `baseline_candidate_id` and benchmark-manifest identity in each comparison
+  report.
+
+Trusted label statuses require a timezone-aware verification timestamp and a
+non-empty provenance reference. This is an auditable declaration, not an
+independent legal-quality certification. Diagnostic benchmarks may produce
+metrics and Pareto frontiers, but cannot produce a selected winner.
+
+### 18.4.3 Milestone 29 Competition Text Metrics
+
+M29 emits `EvaluationSummary` schema version `1.3`.
+`GenerationCaseMetrics` adds nullable `meteor` and `rouge_l`; they are populated
+only from an explicit reference answer. Reports include a warning that local
+tokenization and parameters are diagnostic rather than official Codabench
+equivalence.
+
+---
+
+## 18.4 Milestone 17 Build Validation Schema
 
 `schemas/build_validation.py` chứa `BuildValidationReport`, có consumer trực tiếp
-là offline runtime và validation CLI:
+là validation CLI và online startup validation:
 
 - dataset manifest đã đọc được, nếu tồn tại;
 - map `ArtifactValidationResult` theo `ArtifactType.value`;
@@ -1065,11 +1093,7 @@ là offline runtime và validation CLI:
 - `is_valid` phản ánh cả top-level completeness/lineage và từng artifact result;
 - passed checks, sanitized errors và warnings.
 
-`OfflineBuildResult` giữ thêm validation report để build caller không phải đọc
-lại file vừa tạo.
-
 `OfflineBuildState` là recovery identity có consumer trực tiếp là offline
-runtime:
 
 - schema version `1.1`;
 - canonical application config SHA-256;
@@ -1120,6 +1144,8 @@ Khi thay đổi schema:
 
 ```text
 schemas/
+├── competition.py
+├── competition_execution.py
 ├── legal_documents.py
 ├── legal_relationships.py
 ├── manifests.py
@@ -1127,15 +1153,12 @@ schemas/
 ├── answering.py
 ├── agent_state.py
 ├── auditing.py
-├── normalization.py
 ├── cleaning.py
 ├── parsing.py
 ├── chunking.py
-├── relationship_processing.py
 ├── build_validation.py
 ├── evaluation.py
 ├── tools.py
-├── runtime.py
 └── serving.py
 ```
 
@@ -1147,17 +1170,113 @@ Các schema bổ sung có consumer rõ ràng được đặt cùng domain:
 - `CitationVerificationResult` trong `answering.py`;
 - `RetrievalHistoryItem` trong `agent_state.py`.
 - `AgentRunResult` và `AgentStopReason` trong `agent_state.py`.
-- `DocumentNormalizationResult` trong `normalization.py`;
 - `HtmlCleaningResult` trong `cleaning.py`.
 - `DocumentParsingDiagnostic` và `LegalStructureParsingResult` trong
   `parsing.py`.
 - `DocumentChunkingDiagnostic` và `LegalChunkingResult` trong `chunking.py`.
-- `RelationshipNormalizationResult` trong `relationship_processing.py`.
 - `ContextBuildResult` trong `answering.py`.
 - tool input, descriptor, invocation và safe-error schemas trong `tools.py`.
-- `OfflineBuildResult` trong `runtime.py`.
 - public request, health và safe-error schemas trong `serving.py`.
 - benchmark, metric và report schemas trong `evaluation.py`.
 - complete artifact-set report trong `build_validation.py`.
 - typed partial-build recovery state trong `build_validation.py`.
 - typed resumable vector-build checkpoint trong `build_validation.py`.
+- official build, batch, and submission contracts trong
+  `competition_execution.py`.
+
+---
+
+## 21. Competition Boundary Records
+
+Các schema này là output ổn định của adapter, chưa phải submission schema.
+
+### 21.1 `CompetitionQuestion`
+
+```text
+question_id: str, required
+question: str, required
+reference_answer: str | null, default null
+```
+
+Text được giữ nguyên; validator chỉ từ chối chuỗi rỗng/whitespace-only.
+`reference_answer = null` hỗ trợ public/private question-only files mà không
+phát minh label.
+
+### 21.2 `CompetitionContext`
+
+```text
+context_id: str, required
+title: str, required
+source_url: str, required
+passage: str, required
+```
+
+Raw fields `id`, `name`, `link`, `passage` chỉ được map trong competition
+adapter. Schema này không tự suy diễn document number, Điều, Khoản, hiệu lực
+hoặc relationship. M26 map một context sang một `LegalDocument`, sau đó parser
+và chunker reusable mới tạo cấu trúc/chunk.
+
+### 21.3 `CompetitionCorpusAuditReport`
+
+Audit report giữ dataset/revision, source kind, member/record/unique counts,
+passage character bounds, duplicate title/URL counts, passed checks và warnings.
+Contract bắt buộc một member tạo đúng một unique context record.
+
+### 21.4 `CompetitionCorpusIngestionResult`
+
+```text
+documents: list[LegalDocument]
+dataset_manifest: DatasetManifest
+normalized_manifest: ArtifactManifest(normalized_documents)
+cleaned_manifest: ArtifactManifest(cleaned_documents)
+audit: CompetitionCorpusAuditReport
+```
+
+`cleaned_manifest` là plain-text pass-through contract với
+`text_modified = false`; nó không tuyên bố đã chạy HTML cleaning. Tất cả
+documents, manifests và audit phải cùng official dataset/revision.
+
+### 21.5 Competition execution records
+
+`CompetitionBuildState` records the exact official source revision,
+application-config hash, code version, timestamps, and an ordered prefix of
+`CompetitionBuildStage` values. `CompetitionOfflineBuildResult` returns that
+identity with the final `BuildValidationReport`.
+
+`CompetitionBatchRecord` maps one official `question_id` to one full
+`AnswerResponse`. `CompetitionBatchState` records the ordered completed IDs for
+resume. `CompetitionBatchManifest` is written only after exact completeness and
+pins the question bytes, config, code, record count, and result JSONL checksum.
+These are internal execution contracts and are not the Codabench submission
+schema.
+
+### 21.6 Official submission records
+
+`CompetitionSubmissionItem` is the exact item written to `submission.json`:
+
+```text
+id: str, required
+answer: str, required
+```
+
+Unknown fields are rejected. In the published JSON, `id` is the key of a
+non-empty root object and each value is exactly `{"answer": str}`. Root keys
+must match the official question source once and in source order. The internal
+item schema retains `id` so validation and batch comparison remain typed.
+`CompetitionSubmissionResult` is not placed in the ZIP; it only returns the
+output path, question count, payload SHA-256, and archive SHA-256 to the local
+caller. The official ZIP contains only `submission.json`.
+
+### 21.7 Warm-up score records
+
+`CompetitionWarmupCaseScore` contains only `question_id`, `exact_match`,
+`meteor`, and `rouge_l`. `CompetitionWarmupScoreReport` schema `1.0` contains:
+
+- timezone-aware creation time and code version;
+- reference-source, submission-archive, and submission-JSON SHA-256;
+- question count and mean exact match/METEOR/ROUGE-L;
+- ordered content-free case scores;
+- explicit diagnostic/non-equivalence warnings.
+
+The report does not contain question text, gold answer text, prediction text,
+citations, or model prompts.

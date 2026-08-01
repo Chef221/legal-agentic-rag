@@ -5,98 +5,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-class DatasetSourceConfig(BaseModel):
-    """Dataset identity and bounded loading options."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    dataset_name: str = Field(min_length=1)
-    dataset_revision: str | None = None
-    metadata_config: str = Field(default="metadata", min_length=1)
-    content_config: str = Field(default="content", min_length=1)
-    relationships_config: str = Field(default="relationships", min_length=1)
-    split: str = Field(default="data", min_length=1)
-    sample_limit: int | None = Field(default=None, gt=0)
-    streaming: bool = False
-
-    @field_validator("dataset_revision", mode="before")
-    @classmethod
-    def normalize_optional_revision(cls, value: object) -> object:
-        """Treat a blank revision as unpinned instead of passing it downstream."""
-        if isinstance(value, str):
-            normalized = value.strip()
-            return normalized or None
-        return value
-
-    @model_validator(mode="after")
-    def validate_component_configs(self) -> "DatasetSourceConfig":
-        """Require distinct names for the three logical dataset streams."""
-        values = (
-            self.metadata_config,
-            self.content_config,
-            self.relationships_config,
-        )
-        if len(set(values)) != len(values):
-            raise ValueError("dataset component config names must be distinct")
-        return self
-
-
-class DatasetAuditConfig(BaseModel):
-    """Policies used to classify raw dataset findings without changing data."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    minimum_content_characters: int = Field(default=50, ge=0)
-    maximum_content_characters: int = Field(default=2_000_000, gt=0)
-    known_effect_statuses: frozenset[str] = Field(default_factory=frozenset)
-    known_relationship_labels: frozenset[str] = Field(default_factory=frozenset)
-
-    @field_validator("known_effect_statuses", "known_relationship_labels")
-    @classmethod
-    def validate_known_values(cls, values: frozenset[str]) -> frozenset[str]:
-        """Normalize configured accepted values and reject empty labels."""
-        normalized = frozenset(value.strip() for value in values)
-        if "" in normalized:
-            raise ValueError("known values must not contain empty strings")
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_content_limits(self) -> "DatasetAuditConfig":
-        """Keep content length thresholds internally consistent."""
-        if self.minimum_content_characters > self.maximum_content_characters:
-            raise ValueError(
-                "minimum_content_characters must not exceed "
-                "maximum_content_characters"
-            )
-        return self
-
-
-class DocumentNormalizationConfig(BaseModel):
-    """Dataset-independent labels and explicit canonicalization mappings."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    source_dataset: str = Field(default="aio", min_length=1)
-    artifact_version: str = Field(default="1.0", min_length=1)
-    effect_status_mapping: dict[str, str] = Field(default_factory=dict)
-    document_type_mapping: dict[str, str] = Field(default_factory=dict)
-
-    @field_validator("effect_status_mapping", "document_type_mapping")
-    @classmethod
-    def validate_mapping(cls, values: dict[str, str]) -> dict[str, str]:
-        """Normalize mapping boundaries and reject empty or conflicting keys."""
-        normalized: dict[str, str] = {}
-        for raw_key, raw_value in values.items():
-            key = raw_key.strip()
-            value = raw_value.strip()
-            if not key or not value:
-                raise ValueError("normalization mappings must not contain empty text")
-            if key in normalized and normalized[key] != value:
-                raise ValueError("normalization mappings contain conflicting keys")
-            normalized[key] = value
-        return normalized
-
-
 class HtmlCleaningConfig(BaseModel):
     """Conservative HTML-to-text cleaning policy for legal documents."""
 
@@ -224,32 +132,6 @@ class VectorIndexConfig(BaseModel):
     checkpoint_interval_batches: int = Field(default=100, gt=0, exclude=True)
 
 
-class RelationshipNormalizationConfig(BaseModel):
-    """Explicit AIO relationship mapping and rejection policy."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    artifact_version: str = Field(default="1.0", min_length=1)
-    source_dataset: str = Field(default="aio", min_length=1)
-    relationship_type_mapping: dict[str, str] = Field(default_factory=dict)
-    reject_self_loops: Literal[True] = True
-
-    @field_validator("relationship_type_mapping")
-    @classmethod
-    def validate_relationship_mapping(cls, values: dict[str, str]) -> dict[str, str]:
-        """Require explicit non-empty raw-to-canonical relationship labels."""
-        normalized: dict[str, str] = {}
-        for raw_key, canonical_value in values.items():
-            key = raw_key.strip()
-            value = canonical_value.strip()
-            if not key or not value:
-                raise ValueError("relationship mappings must not contain empty text")
-            if key in normalized and normalized[key] != value:
-                raise ValueError("relationship mappings contain conflicting keys")
-            normalized[key] = value
-        return normalized
-
-
 class GraphIndexConfig(BaseModel):
     """Deterministic persisted adjacency graph identity."""
 
@@ -272,27 +154,11 @@ class IndexBuildConfig(BaseModel):
     device: str | None = None
 
 
-class OfflineExecutionConfig(BaseModel):
-    """Resource and recovery policy for the offline composition root."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    resume_partial_build: bool = False
-    bounded_source_passes: bool = False
-    release_stage_memory: Literal[True] = True
-    document_processing_progress_interval: int = Field(default=1_000, gt=0)
-
-
 class OfflineConfig(BaseModel):
-    """Top-level typed configuration for future offline consumers."""
+    """Dataset-independent processing and backend configuration."""
 
     model_config = ConfigDict(extra="forbid")
 
-    dataset: DatasetSourceConfig
-    audit: DatasetAuditConfig = Field(default_factory=DatasetAuditConfig)
-    normalization: DocumentNormalizationConfig = Field(
-        default_factory=DocumentNormalizationConfig
-    )
     html_cleaning: HtmlCleaningConfig = Field(default_factory=HtmlCleaningConfig)
     legal_structure_parser: LegalStructureParserConfig = Field(
         default_factory=LegalStructureParserConfig
@@ -301,21 +167,5 @@ class OfflineConfig(BaseModel):
     bm25: BM25IndexConfig = Field(default_factory=BM25IndexConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     vector_index: VectorIndexConfig = Field(default_factory=VectorIndexConfig)
-    relationship_normalization: RelationshipNormalizationConfig = Field(
-        default_factory=RelationshipNormalizationConfig
-    )
     graph_index: GraphIndexConfig = Field(default_factory=GraphIndexConfig)
     index_build: IndexBuildConfig = Field(default_factory=IndexBuildConfig)
-    execution: OfflineExecutionConfig = Field(
-        default_factory=OfflineExecutionConfig
-    )
-
-    @model_validator(mode="after")
-    def validate_execution_source_policy(self) -> "OfflineConfig":
-        """Multi-pass loading requires an immutable dataset revision."""
-        if (
-            self.execution.bounded_source_passes
-            and self.dataset.dataset_revision is None
-        ):
-            raise ValueError("bounded source passes require a pinned revision")
-        return self

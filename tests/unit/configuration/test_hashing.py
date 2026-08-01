@@ -32,7 +32,7 @@ def test_canonical_hash_sorts_unordered_values_but_preserves_lists() -> None:
 def test_full_application_config_hash_is_stable_across_hash_seeds() -> None:
     """Independent Python processes must agree on one full-profile identity."""
     root = Path(__file__).parents[3]
-    config_path = root / "configs" / "full-corpus.example.json"
+    config_path = root / "configs" / "baseline.example.json"
     script = """
 from pathlib import Path
 import sys

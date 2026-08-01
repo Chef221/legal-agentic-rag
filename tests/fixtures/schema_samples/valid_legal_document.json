@@ -7,7 +7,7 @@
   "content_html": "<p>Điều 1. Phạm vi áp dụng</p>",
   "clean_text": null,
   "has_content": true,
-  "source_dataset": "aio",
+  "source_dataset": "fixture-corpus",
   "raw_metadata": {
     "source_record": "metadata-001"
   }

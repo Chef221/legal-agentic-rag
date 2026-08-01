@@ -3,23 +3,28 @@
 from legal_agentic_rag.configuration.application import ApplicationConfig
 from legal_agentic_rag.configuration.artifacts import ArtifactConfig
 from legal_agentic_rag.configuration.build_validation import BuildValidationConfig
-from legal_agentic_rag.configuration.evaluation import EvaluationConfig
+from legal_agentic_rag.configuration.competition import (
+    CompetitionConfig,
+    OFFICIAL_CORPUS_DATASET_NAME,
+    OFFICIAL_QA_DATASET_NAME,
+)
+from legal_agentic_rag.configuration.evaluation import (
+    EvaluationCandidateConfig,
+    EvaluationComparisonConfig,
+    EvaluationConfig,
+    EvaluationObjectiveConfig,
+)
 from legal_agentic_rag.configuration.observability import LoggingConfig
 from legal_agentic_rag.configuration.serving import ServingConfig
 from legal_agentic_rag.configuration.offline import (
     BM25IndexConfig,
     ChunkingConfig,
-    DatasetAuditConfig,
-    DatasetSourceConfig,
-    DocumentNormalizationConfig,
     EmbeddingConfig,
     GraphIndexConfig,
     HtmlCleaningConfig,
     IndexBuildConfig,
     LegalStructureParserConfig,
-    OfflineExecutionConfig,
     OfflineConfig,
-    RelationshipNormalizationConfig,
     VectorIndexConfig,
 )
 from legal_agentic_rag.configuration.online import (
@@ -46,14 +51,15 @@ __all__ = [
     "BM25IndexConfig",
     "BuildValidationConfig",
     "ClaimVerificationConfig",
+    "CompetitionConfig",
     "ChunkingConfig",
     "ContextGradingConfig",
     "EvidenceSelectionConfig",
-    "DatasetAuditConfig",
-    "DatasetSourceConfig",
-    "DocumentNormalizationConfig",
     "EmbeddingConfig",
     "EvaluationConfig",
+    "EvaluationCandidateConfig",
+    "EvaluationComparisonConfig",
+    "EvaluationObjectiveConfig",
     "GenerationConfig",
     "GraphIndexConfig",
     "HtmlCleaningConfig",
@@ -61,14 +67,14 @@ __all__ = [
     "LegalStructureParserConfig",
     "LoggingConfig",
     "OfflineConfig",
-    "OfflineExecutionConfig",
     "OnlineConfig",
+    "OFFICIAL_CORPUS_DATASET_NAME",
+    "OFFICIAL_QA_DATASET_NAME",
     "QueryUnderstandingConfig",
     "RerankerConfig",
     "SemanticVerificationConfig",
     "ServingConfig",
     "StartupValidationConfig",
-    "RelationshipNormalizationConfig",
     "RetrievalConfig",
     "VectorIndexConfig",
     "VectorRuntimeConfig",

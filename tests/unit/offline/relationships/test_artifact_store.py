@@ -23,7 +23,7 @@ def _relationships() -> list[LegalRelationship]:
             target_document_id="doc-2",
             relationship_type="amends",
             raw_relationship="Sửa đổi",
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         )
     ]
 

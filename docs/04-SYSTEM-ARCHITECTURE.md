@@ -24,8 +24,8 @@ Hệ thống tuân thủ các nguyên tắc:
 ```mermaid
 flowchart TD
     subgraph OFFLINE["Offline Phase"]
-        A["AIO Hugging Face Dataset"]
-        B["Dataset Loader"]
+        A["Official BTC Competition Data"]
+        B["Competition Adapter"]
         C["Dataset Audit"]
         D["Document Normalizer"]
         E["HTML Cleaner"]
@@ -320,7 +320,7 @@ Agent không được dùng để che giấu việc retrieval strategy chưa ho�
 
 ### 7.1 Dataset Boundary
 
-Raw AIO fields chỉ xuất hiện trong:
+Raw competition fields chỉ xuất hiện trong:
 
 - dataset loader;
 - dataset adapter;
@@ -369,9 +369,10 @@ không công bố local path.
 ### 7.6 Runtime Assembly Boundary
 
 Runtime assembly là composition root duy nhất được biết concrete reference
-backend. `OfflineBuildRuntime` ghép các offline stage và persist immutable
-artifacts; `OnlineRuntimeFactory` chỉ load artifacts đã có, validate checksum,
-lineage, dataset/model/backend compatibility rồi tạo `OnlineRuntime`.
+backend. M25 đã tháo legacy offline composition root; M26 thêm official corpus
+ingestion boundary nhưng build root chỉ được tạo sau khi audit corpus BTC thật.
+`OnlineRuntimeFactory` chỉ load artifacts đã có, validate checksum, official dataset lineage,
+dataset/model/backend compatibility rồi tạo `OnlineRuntime`.
 
 Online runtime không được gọi dataset source, cleaner, parser, chunker hoặc
 method `build`/`persist` của backend.
@@ -385,9 +386,8 @@ float32 cosine, không đổi artifact, unified schema hoặc `VectorBackend` co
 ## 8. Data Flow
 
 ```text
-Raw Metadata
-Raw Content
-Raw Relationships
+Official Context JSON
+Official Question JSON
         ↓
 Dataset Adapter
         ↓

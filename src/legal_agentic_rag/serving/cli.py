@@ -1,4 +1,4 @@
-"""Command-line entry points for immutable build and local serving."""
+"""Command-line entry points for validation, evaluation, and local serving."""
 
 from __future__ import annotations
 
@@ -6,38 +6,75 @@ import argparse
 import logging
 from pathlib import Path
 
+from legal_agentic_rag.competition.uit_dsc_2026 import (
+    CompetitionBatchRunner,
+    render_competition_answer,
+)
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.observability import configure_logging
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.evaluation import (
+    EvaluationComparisonService,
     EvaluationRunner,
-    load_benchmark,
+    StandardGenerationEvaluator,
+    evaluation_runtime_provenance,
+    load_benchmark_bundle,
+    load_comparison_config,
+    load_evaluation_summary,
+    persist_comparison_report,
     persist_report,
 )
 from legal_agentic_rag.indexing.vector import prepare_vector_serving_metadata
 from legal_agentic_rag.runtime import (
     ArtifactSetValidator,
-    OfflineBuildRuntime,
     OnlineRuntimeFactory,
+)
+from legal_agentic_rag.runtime.competition_offline import (
+    CompetitionOfflineBuildRuntime,
 )
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
 from legal_agentic_rag.schemas import ArtifactType
 from legal_agentic_rag.serving.api import create_app
 from legal_agentic_rag.serving.config_loader import load_application_config
+from legal_agentic_rag.serving.query_service import ServingService
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def build_main() -> None:
-    """Build the configured immutable artifact set."""
-    arguments = _parser("Build legal RAG artifacts").parse_args()
+def competition_build_main() -> None:
+    """Build or resume official UIT DSC corpus artifacts."""
+    arguments = _competition_build_parser().parse_args()
     config = load_application_config(arguments.config)
     configure_logging(config.logging)
-    result = OfflineBuildRuntime(config).build()
+    result = CompetitionOfflineBuildRuntime(config, arguments.source).build()
     _LOGGER.info(
-        "build_command_completed",
+        "competition_build_command_completed",
         extra={
-            "artifact_count": len(result.artifact_manifests),
-            "error_type": "-",
+            "stage_count": len(result.completed_stages),
+            "resumed": result.resumed,
+            "is_valid": result.validation_report.is_valid,
+        },
+    )
+
+
+def competition_batch_main() -> None:
+    """Run or resume submission-neutral official question inference."""
+    arguments = _competition_batch_parser().parse_args()
+    config = load_application_config(arguments.config)
+    configure_logging(config.logging)
+    runtime = OnlineRuntimeFactory(config).build()
+    service = ServingService(runtime, config.serving, config.online)
+    manifest = CompetitionBatchRunner(
+        service,
+        application_config_hash=canonical_sha256(
+            config.model_dump(mode="json")
+        ),
+    ).run(arguments.questions, arguments.output)
+    _LOGGER.info(
+        "competition_batch_command_completed",
+        extra={
+            "question_count": manifest.record_count,
+            "output_path": str(arguments.output),
         },
     )
 
@@ -116,12 +153,26 @@ def evaluate_main() -> None:
     arguments = _evaluation_parser().parse_args()
     config = load_application_config(arguments.config)
     configure_logging(config.logging)
-    cases, benchmark_hash = load_benchmark(arguments.benchmark)
+    cases, benchmark_manifest, benchmark_manifest_hash = (
+        load_benchmark_bundle(
+            arguments.benchmark,
+            arguments.benchmark_manifest,
+        )
+    )
     runtime = OnlineRuntimeFactory(config).build()
-    result = EvaluationRunner(runtime, config.evaluation).run(
+    runtime_hash, provenance = evaluation_runtime_provenance(config)
+    result = EvaluationRunner(
+        runtime,
+        config.evaluation,
+        generation_evaluator=StandardGenerationEvaluator(
+            answer_renderer=render_competition_answer,
+        ),
+        runtime_config_sha256=runtime_hash,
+        component_provenance=provenance,
+    ).run(
         cases,
-        benchmark_name=arguments.benchmark.name,
-        benchmark_sha256=benchmark_hash,
+        benchmark_manifest=benchmark_manifest,
+        benchmark_manifest_sha256=benchmark_manifest_hash,
     )
     persist_report(result, arguments.output)
     _LOGGER.info(
@@ -129,6 +180,31 @@ def evaluate_main() -> None:
         extra={
             "case_count": result.summary.case_count,
             "failed_case_count": result.summary.failed_case_count,
+            "output_path": str(arguments.output),
+        },
+    )
+
+
+def compare_main() -> None:
+    """Compare immutable evaluation reports under one explicit policy."""
+    arguments = _comparison_parser().parse_args()
+    config = load_comparison_config(arguments.comparison)
+    summaries = {
+        candidate.candidate_id: load_evaluation_summary(
+            candidate.report_directory
+        )
+        for candidate in config.candidates
+    }
+    report = EvaluationComparisonService().compare(config, summaries)
+    persist_comparison_report(report, arguments.output)
+    _LOGGER.info(
+        "evaluation_comparison_completed",
+        extra={
+            "candidate_count": len(report.candidates),
+            "eligible_candidate_count": sum(
+                candidate.eligible for candidate in report.candidates
+            ),
+            "selected_candidate_id": report.selected_candidate_id or "-",
             "output_path": str(arguments.output),
         },
     )
@@ -154,9 +230,62 @@ def _evaluation_parser() -> argparse.ArgumentParser:
         help="Path to labeled EvaluationCase JSONL.",
     )
     parser.add_argument(
+        "--benchmark-manifest",
+        type=Path,
+        required=True,
+        help="Path to the benchmark identity and label-provenance manifest.",
+    )
+    parser.add_argument(
         "--output",
         type=Path,
         required=True,
         help="New directory for immutable evaluation reports.",
+    )
+    return parser
+
+
+def _competition_build_parser() -> argparse.ArgumentParser:
+    parser = _parser("Build official UIT DSC 2026 Task 2 corpus artifacts")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="Official selected-contexts ZIP or extracted directory.",
+    )
+    return parser
+
+
+def _competition_batch_parser() -> argparse.ArgumentParser:
+    parser = _parser("Run official UIT DSC 2026 Task 2 question batch")
+    parser.add_argument(
+        "--questions",
+        type=Path,
+        required=True,
+        help="Official warm-up, public-test, or private-test question JSON.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New or compatible resumable internal batch directory.",
+    )
+    return parser
+
+
+def _comparison_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Compare reproducible legal RAG evaluation reports"
+    )
+    parser.add_argument(
+        "--comparison",
+        type=Path,
+        required=True,
+        help="Path to typed EvaluationComparisonConfig JSON.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New directory for the immutable comparison report.",
     )
     return parser

@@ -48,7 +48,7 @@ def _documents() -> list[LegalDocument]:
                 "2. Không áp dụng trong trường hợp được miễn."
             ),
             has_content=True,
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         ),
         LegalDocument(
             document_id="doc-2",
@@ -60,7 +60,7 @@ def _documents() -> list[LegalDocument]:
                 "2. Trừ trường hợp pháp luật có quy định khác."
             ),
             has_content=True,
-            source_dataset="aio",
+            source_dataset="fixture-corpus",
         ),
     ]
 

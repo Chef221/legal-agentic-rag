@@ -1,18 +1,9 @@
 """Protocol for reading a dataset without exposing dataset-specific fields."""
 
 from collections.abc import Iterable, Mapping
-from enum import StrEnum
 from typing import Protocol, runtime_checkable
 
 from legal_agentic_rag.schemas.manifests import DatasetManifest
-
-
-class DatasetComponent(StrEnum):
-    """Logical dataset streams understood at the ingestion boundary."""
-
-    METADATA = "metadata"
-    CONTENT = "content"
-    RELATIONSHIPS = "relationships"
 
 
 @runtime_checkable
@@ -30,9 +21,9 @@ class DatasetSource(Protocol):
         ...
 
     def iter_records(
-        self, component: DatasetComponent, limit: int | None = None
+        self, limit: int | None = None
     ) -> Iterable[Mapping[str, object]]:
-        """Yield raw records from one logical component without modifying them."""
+        """Yield raw source records without modifying legal content."""
         ...
 
     def dataset_manifest(self) -> DatasetManifest:

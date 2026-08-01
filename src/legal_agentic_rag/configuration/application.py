@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from legal_agentic_rag.configuration.artifacts import ArtifactConfig
 from legal_agentic_rag.configuration.build_validation import BuildValidationConfig
+from legal_agentic_rag.configuration.competition import CompetitionConfig
 from legal_agentic_rag.configuration.evaluation import EvaluationConfig
 from legal_agentic_rag.configuration.observability import LoggingConfig
 from legal_agentic_rag.configuration.offline import OfflineConfig
@@ -17,8 +18,9 @@ class ApplicationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     artifacts: ArtifactConfig
-    offline: OfflineConfig
+    offline: OfflineConfig = Field(default_factory=OfflineConfig)
     online: OnlineConfig
+    competition: CompetitionConfig = Field(default_factory=CompetitionConfig)
     build_validation: BuildValidationConfig = Field(
         default_factory=BuildValidationConfig
     )
@@ -48,15 +50,4 @@ class ApplicationConfig(BaseModel):
             raise ValueError(
                 "evaluation candidate_k exceeds the reranker limit"
             )
-        return self
-
-    @model_validator(mode="after")
-    def validate_build_profile(self) -> "ApplicationConfig":
-        """Reject sample or unpinned inputs when a full-corpus build is required."""
-        policy = self.build_validation
-        dataset = self.offline.dataset
-        if policy.require_pinned_dataset_revision and dataset.dataset_revision is None:
-            raise ValueError("build validation requires a pinned dataset revision")
-        if policy.require_full_corpus and dataset.sample_limit is not None:
-            raise ValueError("full-corpus build cannot set sample_limit")
         return self

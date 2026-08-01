@@ -41,7 +41,7 @@ def make_chunk(
         effect_status=effect_status,
         legal_field=legal_field,
         source_url=f"https://example.test/{document_id}",
-        source_dataset="aio",
+        source_dataset="fixture-corpus",
         metadata={"source_block_ids": [f"block-{chunk_id}"]},
     )
 
@@ -79,7 +79,7 @@ def chunk_manifest(legal_chunks: list[LegalChunk]) -> ArtifactManifest:
         schema_version="1.0",
         artifact_type=ArtifactType.LEGAL_CHUNKS,
         artifact_version="1.0",
-        dataset_name="th1nhng0/vietnamese-legal-documents",
+        dataset_name="fixture-corpus",
         dataset_revision="fixture-revision",
         created_at=datetime(2026, 7, 22, tzinfo=UTC),
         record_count=len(legal_chunks),

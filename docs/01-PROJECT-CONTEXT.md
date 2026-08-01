@@ -1,189 +1,84 @@
 # 01. Project Context
 
-## 1. Project Overview
+## 1. Competition
 
-Dự án xây dựng một hệ thống Agentic Retrieval-Augmented Generation
-cho bài toán trả lời câu hỏi pháp luật Việt Nam.
+Dự án phục vụ UIT Data Science Challenge 2026, Task 2 — Legal Question
+Answering. Hệ thống nhận câu hỏi pháp luật tiếng Việt và sinh câu trả lời văn
+xuôi tiếng Việt dựa trên legal context.
 
-Mục tiêu dài hạn là phục vụ UIT Data Science Challenge 2026 với chủ đề:
+BTC đã mô tả:
 
-> Trả lời câu hỏi pháp luật Việt Nam.
+- khoảng 8.500 văn bản/context pháp luật;
+- khoảng 10.000 câu hỏi;
+- các phase warm-up, public test và private test;
+- METEOR là metric chính;
+- ROUGE-L là metric phụ.
 
-Tại thời điểm bắt đầu dự án, Ban tổ chức chưa công bố đầy đủ:
+Thể lệ được cung cấp ngày 2026-08-01 còn xác nhận:
 
-- quy chế cuộc thi;
-- dữ liệu huấn luyện;
-- dữ liệu kiểm thử;
-- corpus pháp luật chính thức;
-- tiêu chí đánh giá;
-- định dạng input;
-- định dạng output;
-- hình thức nộp bài;
-- giới hạn tài nguyên;
-- quy định sử dụng dữ liệu ngoài;
-- quy định sử dụng Internet;
-- quy định sử dụng API LLM thương mại.
+- chỉ dùng dữ liệu chính thức do BTC phát hành;
+- không gán nhãn thủ công, không external data augmentation;
+- model mã nguồn mở mới phải được đề xuất trước hạn private test ít nhất 10
+  ngày;
+- private test giới hạn 3 submission/ngày;
+- Top 7 phải cung cấp Docker image, source MIT và bằng chứng tái lập;
+- mỗi bài nộp phải có Data Statement và Model Card.
 
-Do đó, dự án không được thiết kế gắn cứng với một định dạng dữ liệu hoặc
-một hình thức đánh giá cụ thể.
+Chi tiết compliance và các điểm chưa rõ nằm trong
+`docs/11-COMPETITION-COMPLIANCE.md`.
 
----
+## 2. Active Data Scope
 
-## 2. Development Strategy
+Active repository chỉ dùng dữ liệu chính thức do BTC Task 2 cung cấp. Chính
+sách runtime là `competition_only` và không cho phép external corpus.
 
-Nhóm không chờ Ban tổ chức công bố dữ liệu mới bắt đầu xây dựng hệ thống.
-
-Trong giai đoạn hiện tại, nhóm xây dựng một hệ thống hoàn chỉnh dựa trên:
-
-- kiến trúc Agentic RAG trong tài liệu của nhóm AIO;
-- dataset `th1nhng0/vietnamese-legal-documents`;
-- các mô hình pretrained;
-- các chiến lược retrieval không cần fine-tune ban đầu.
-
-Khi dữ liệu chính thức của Ban tổ chức được công bố, hệ thống phải có
-khả năng thích ứng thông qua:
-
-- dataset adapter;
-- schema mapping;
-- corpus replacement;
-- index rebuilding;
-- training pipeline;
-- evaluation pipeline;
-- output adapter;
-- submission formatter.
-
-Core architecture không được phụ thuộc trực tiếp vào dataset AIO.
-
----
-
-## 3. Current Reference Architecture
-
-Nguồn tham khảo chính là tài liệu xây dựng Agentic RAG của nhóm AIO.
-
-Kiến trúc tham khảo gồm bốn lớp:
-
-1. Ingestion Layer.
-2. Retrieval Layer.
-3. Agent and Tools Layer.
-4. Serving Layer.
-
-Retrieval Layer bao gồm các chiến lược:
-
-- BM25 retrieval;
-- dense retrieval;
-- hybrid retrieval bằng Reciprocal Rank Fusion;
-- cross-encoder reranking;
-- graph retrieval.
-
-Agent có nhiệm vụ điều phối các công cụ trên, đánh giá ngữ cảnh và thực
-hiện truy xuất lại khi cần.
-
----
-
-## 4. Current Data Scope
-
-Trong giai đoạn hiện tại, chỉ sử dụng dataset:
-
-`th1nhng0/vietnamese-legal-documents`
-
-Dataset được dùng làm:
-
-- corpus văn bản pháp luật;
-- nguồn metadata pháp lý;
-- nguồn quan hệ giữa các văn bản;
-- nguồn xây BM25 index;
-- nguồn xây vector index;
-- nguồn xây legal graph;
-- nguồn evidence cho answer generation.
-
-Không tích hợp các corpus hoặc QA dataset khác trong baseline hiện tại.
-
----
-
-## 5. Current System Scope
-
-Phạm vi hiện tại gồm:
-
-- tải và audit dataset;
-- chuẩn hóa metadata;
-- làm sạch HTML;
-- nhận diện cấu trúc pháp lý;
-- chunk văn bản;
-- xây BM25 index;
-- xây vector index;
-- xây graph index;
-- xây các fixed retrieval baseline;
-- xây hybrid retrieval;
-- rerank candidate;
-- xây context;
-- sinh câu trả lời từ evidence;
-- kiểm tra citation;
-- đóng gói các chức năng thành tools;
-- xây Agentic workflow sau cùng;
-- cung cấp API và giao diện thử nghiệm.
-
----
-
-## 6. Out of Scope for Initial Baseline
-
-Những nội dung sau chưa thuộc baseline đầu tiên:
-
-- fine-tune dense retriever;
-- fine-tune cross-encoder reranker;
-- fine-tune answer generator;
-- web search fallback;
-- crawling dữ liệu pháp luật mới;
-- OCR tài liệu scan;
-- tự động cập nhật hiệu lực pháp lý theo thời gian thực;
-- autonomous agent không giới hạn vòng lặp;
-- multi-agent system;
-- tư vấn pháp lý chính thức;
-- production deployment quy mô lớn;
-- synthetic QA làm ground truth chính thức.
-
----
-
-## 7. Development Philosophy
-
-Hệ thống được xây theo nguyên tắc:
+Các raw contract hiện biết:
 
 ```text
-Data quality
-→ Data normalization
-→ Legal chunking
-→ Indexing
-→ Fixed retrieval
-→ Reranking
-→ Answer generation
-→ Verification
-→ Tools
-→ Agentic orchestration
-→ Serving
+question_id → {question, answer?}
+context → {id, name, link, passage}
 ```
 
-Không được xây Agent trước khi các tool phía dưới hoạt động ổn định.
+`warmup.json` cung cấp question và reference answer. Nó không cung cấp
+retrieval relevance ID, vì vậy không được tạo relevance label giả.
 
-Agent chỉ có giá trị khi các retrieval strategy đã được kiểm thử độc lập.
+## 3. Architecture Principle
 
----
+```text
+Official competition data
+→ competition adapter
+→ typed competition record
+→ unified legal schema
+→ offline/online core
+→ competition output adapter
+```
 
-## 8. Safety and Legal Position
+Core không biết raw field names của BTC và không hard-code dataset path,
+revision, backend hoặc model.
 
-Hệ thống là công cụ hỗ trợ:
+## 4. Preserved Core
 
-- truy xuất văn bản pháp luật;
-- tổng hợp evidence;
-- giải thích thông tin dựa trên corpus.
+- unified schemas and manifests;
+- legal cleaning, parsing and chunking;
+- lexical/dense/hybrid/graph retrieval;
+- reranking and evidence selection;
+- grounded generation and citation verification;
+- bounded deterministic Agent workflow;
+- API/UI and observability;
+- reproducible evaluation and regression gates.
 
-Hệ thống không thay thế:
+## 5. Current Reset Boundary
 
-- luật sư;
-- chuyên gia pháp lý;
-- cơ quan nhà nước;
-- nguồn văn bản pháp luật chính thức.
+M25 loại source, adapter, raw audit, normalizer, build runtime, fixtures,
+profiles và dependency chỉ phục vụ corpus cũ. External artifacts không bị xóa
+tự động nhưng bị competition runtime từ chối.
 
-Trạng thái hiệu lực trong dataset chỉ được xem là snapshot tại thời điểm
-thu thập dữ liệu.
+M26 đã tạo ZIP/directory loader, context adapter, corpus audit và unified
+ingestion manifests. Full offline corpus build vẫn trì hoãn cho tới khi có thể
+audit bytes thật của `selected-contexts.zip`.
 
-Hệ thống không được mặc định rằng metadata này luôn phản ánh tình trạng
-pháp lý mới nhất.
+## 6. Legal Safety
+
+Output chỉ hỗ trợ tra cứu, không thay thế tư vấn pháp lý chuyên nghiệp. Hệ
+thống phải giữ abstention, citation verification và provenance; không được tự
+khẳng định hiệu lực hiện hành nếu evidence không chứng minh điều đó.
