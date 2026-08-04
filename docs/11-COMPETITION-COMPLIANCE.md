@@ -18,6 +18,11 @@ registration, official-only data, synthetic-data prohibition, Codabench và ph�
 vi kỹ thuật được phép. Nội dung email phải được lưu cùng hồ sơ đội; tài liệu này
 ghi lại quyết định nhưng không thay thế email gốc.
 
+Thông báo chung tiếp theo của BTC xác nhận giới hạn tổng tham số dưới 4 tỷ, cấm
+mọi API, cho phép pretrained/distilled model phù hợp, xác định dữ liệu pretraining
+không phải external data trực tiếp, và cho phép nhiều hình thức đóng gói tái lập.
+Thông báo gốc vẫn phải được lưu trong hồ sơ đội.
+
 ## 2. Ràng buộc dữ liệu bắt buộc
 
 - Chỉ dùng dữ liệu chính thức do BTC phát hành.
@@ -45,7 +50,8 @@ fail-closed:
 2. không chạy official competition batch bằng model có trạng thái approval
    `pending` hoặc `unknown`;
 3. registration record phải ghi model ID, URL, immutable revision, license, mục
-   đích, dữ liệu huấn luyện công bố bởi model author và ngày gửi Form;
+   đích, parameter count có bằng chứng, dữ liệu huấn luyện công bố bởi model
+   author và ngày gửi Form;
 4. chỉ đổi trạng thái thành `registered`/`approved` khi có bằng chứng chính thức
    phù hợp hướng dẫn Form;
 5. đổi embedding model yêu cầu rebuild toàn bộ vector index.
@@ -69,12 +75,28 @@ license và kiểm tra dataset/base-model transitive obligations. Đặc biệt,
 `qwen-research` không được mặc định tương đương OSI open source hoặc tương
 thích yêu cầu BTC.
 
-Không dùng external/commercial LLM API cho competition run khi BTC chưa xác
-nhận rõ. Mọi model hoặc package mới phải được thêm vào register trước khi thử.
+Không dùng bất kỳ model API hoặc sản phẩm AI trung gian nào trong quá trình xây
+dựng phương pháp hoặc competition run, kể cả API miễn phí hay phi lợi nhuận.
+Mọi model phải được đội tải, chạy và kiểm soát trực tiếp. Mọi model hoặc package
+mới phải được thêm vào register trước khi thử.
 
 BTC đã cho phép fine-tuning, preprocessing, indexing và retrieval nếu chỉ dùng
 dữ liệu chính thức. Synthetic augmentation vẫn bị cấm và mọi model fine-tuned
 vẫn phải đi qua registration/license/reproducibility gate.
+
+## 3.1. Parameter-budget gate
+
+- Tổng tham số của tất cả model active trong Task 2 phải nhỏ hơn
+  `4_000_000_000`.
+- Phải cộng embedding, reranker, generator, semantic grader/verifier và mọi
+  model phụ trợ; BM25, RRF và code rule-based không có learned parameters.
+- Distilled model được phép nếu model cuối thực sự nằm dưới giới hạn.
+- Quantization, LoRA hoặc giảm số bit lưu trữ không làm giảm parameter count để
+  xét điều kiện.
+- Thiếu parameter count/bằng chứng cho bất kỳ model active nào hoặc tổng
+  `>= 4_000_000_000` phải chặn official run.
+- Candidate register hiện tại chưa phải bằng chứng rằng tổng cấu hình đang dùng
+  hợp lệ; cần hoàn tất inventory trước khi chọn final stack.
 
 ## 4. Submission governance
 
@@ -141,14 +163,14 @@ Repository áp dụng:
 
 1. Google Form đăng ký model được phát hành khi nào và registration có cần BTC
    phản hồi chấp thuận riêng hay chỉ cần khai báo?
-2. BTC có cho phép model đã pretrain bằng dữ liệu ngoài hay không?
-3. External/commercial model API có được dùng không?
-4. Inference có Internet không và model weights được cung cấp/mount thế nào?
+2. Google Form yêu cầu khai báo parameter count theo nguồn nào và có cần BTC
+   phản hồi chấp thuận riêng không?
+3. Môi trường inference/chấm cuối có Internet không và model weights được
+   cung cấp/mount thế nào?
 5. Docker command, CUDA, RAM, disk, timeout và interface chấm cuối cùng là gì?
 6. Data Statement và Model Card được nộp ở đâu, thời điểm nào và theo format
    nào?
-7. BTC sửa/cố định NLTK WordNet trong warm-up scoring image khi nào, và official
-   METEOR/ROUGE-L parameters/aggregation là gì?
+7. Official METEOR/ROUGE-L parameters/aggregation là gì?
 
 Mọi điểm trên giữ trạng thái unresolved; code không được biến chúng thành giả
 định ngầm.

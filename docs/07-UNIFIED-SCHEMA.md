@@ -1216,6 +1216,12 @@ adapter. Schema này không tự suy diễn document number, Điều, Khoản, h
 hoặc relationship. M26 map một context sang một `LegalDocument`, sau đó parser
 và chunker reusable mới tạo cấu trúc/chunk.
 
+Overview BTC có ví dụ raw `id` là JSON integer. Unified `context_id` vẫn luôn là
+string: competition adapter chịu trách nhiệm canonicalize raw non-negative
+integer hoặc non-blank string thành string deterministic sau audit. Boolean,
+float, null, blank và canonicalization collision phải bị từ chối. Đây là raw
+boundary rule, không thay đổi type của unified schema.
+
 ### 21.3 `CompetitionCorpusAuditReport`
 
 Audit report giữ dataset/revision, source kind, member/record/unique counts,

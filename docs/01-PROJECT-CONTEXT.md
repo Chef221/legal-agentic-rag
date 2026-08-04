@@ -39,6 +39,11 @@ question_id → {question, answer?}
 context → {id, name, link, passage}
 ```
 
+Chi tiết authoritative-in-repository nằm tại
+`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`. Ví dụ BTC dùng numeric context ID,
+`name` dạng slug và passage chứa nguyên văn pháp lý với xuống dòng/Unicode; raw
+ID cần được adapter canonicalize sang string sau khi audit corpus thật.
+
 `warmup.json` cung cấp question và reference answer. Nó không cung cấp
 retrieval relevance ID, vì vậy không được tạo relevance label giả.
 

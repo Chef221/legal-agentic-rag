@@ -1567,8 +1567,8 @@ thuộc chúng. Warm-up answers không tạo ra retrieval relevance labels.
 
 **Status:** Accepted
 
-The organizer overview defines each `context_*.json` file as one selected legal
-document with exactly `id`, `name`, `link`, and `passage`. Milestone 26 applies
+The organizer overview describes each `context_*.json` file as one selected legal
+document with `id`, `name`, `link`, and `passage`. Milestone 26 applies
 the following fail-closed mapping:
 
 - `id` becomes the exact unified `document_id`;
@@ -1590,6 +1590,15 @@ the following fail-closed mapping:
   `text_modified = false` so the existing parser contract remains intact;
 - Warm-up answers remain answer-level references and are not converted into
   document/chunk relevance labels.
+
+The overview example uses a numeric JSON context ID and a slug-like `name`.
+Therefore the raw adapter must eventually accept an audited non-negative integer
+or non-blank string ID and canonicalize it to the unified string ID, while
+rejecting booleans, floats, nulls and canonical collisions. This requirement is
+not yet implemented by the current strict string-only model and must be resolved
+before the official corpus build. The overview does not prove that future corpus
+records contain no additional fields; exact unknown-field policy remains an
+audit-time decision.
 
 No BM25, vector, graph, or training artifact may be claimed as official until
 the released `selected-contexts.zip` bytes have passed the corpus audit.
@@ -1810,5 +1819,39 @@ leakage control, evaluator and experiment plan exist. The project must not
 manufacture QA pairs, answers, evidence labels, hard negatives or other
 training examples to compensate for missing supervision.
 
-Runtime hardware, network, Docker, model pretraining/external API rules and
-Private Test reproduction details remain unresolved until later BTC notices.
+Parameter budget, pretrained-model data treatment, API prohibition and flexible
+reproduction packaging are resolved by D079. Final runtime hardware, scoring
+environment and Private Test interface remain unresolved.
+
+---
+
+## D079 — Competition Model Budget, Local Control and Reproducibility
+
+**Status:** Accepted
+
+Thông báo chung mới nhất của BTC xác nhận các ràng buộc sau cho từng task:
+
+- tổng tham số của toàn bộ model/hệ thống phải nhỏ hơn 4 tỷ; embedding,
+  reranker, generator, verifier/grader dùng model và mọi model phụ trợ đều được
+  cộng vào cùng một ngân sách;
+- distillation được phép nếu model/hệ thống cuối cùng thực sự dưới 4 tỷ tham số;
+- quantization, LoRA và kỹ thuật giảm bộ nhớ không thay đổi số tham số để xét
+  điều kiện; model gốc từ 4 tỷ tham số trở lên không trở thành hợp lệ;
+- không được dùng bất kỳ API nào, kể cả API miễn phí hoặc phi lợi nhuận; model
+  phải được đội tải, chạy và kiểm soát trực tiếp;
+- model mã nguồn mở hoặc có license phi thương mại/nghiên cứu/giáo dục có thể
+  được chấp nhận, nhưng vẫn phải đăng ký, kiểm tra license và tái lập được;
+- chỉ dữ liệu BTC được dùng trực tiếp và data augmentation vẫn bị cấm; dữ liệu
+  pretraining của pretrained model/LLM không được xem là dữ liệu ngoài;
+- BTC sẽ cung cấp training data cho Task 2;
+- Docker, GitHub hoặc ZIP source/weights đều là hình thức giao nộp có thể chấp
+  nhận nếu README cho phép BTC tái lập; việc tải trọng số model hợp lệ từ
+  Internet cũng được phép.
+
+Vì vậy một candidate chỉ đủ điều kiện competition khi model inventory ghi exact
+identity, URL, revision, license, vai trò, parameter count có bằng chứng và trạng
+thái đăng ký BTC. Gate phải tính tổng tham số theo cấu hình thực tế và fail closed
+nếu thiếu bất kỳ count nào hoặc tổng `>= 4_000_000_000`.
+
+Quyết định này chưa xác nhận cấu hình model hiện tại dưới giới hạn. Việc kiểm kê
+và cộng tham số là bước bắt buộc riêng trước official run.

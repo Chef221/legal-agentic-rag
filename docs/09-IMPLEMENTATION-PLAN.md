@@ -1580,7 +1580,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ## 35. Milestone 32 — Live Codabench Submission Contract Correction
 
-**Status:** Output shape verified; official scoring blocked by BTC WordNet issue
+**Status:** Completed; BTC fixed WordNet and a submission scored successfully
 
 ### Objectives
 
@@ -1600,8 +1600,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 - targeted and full local test suites pass;
 - a corrected archive passes local formatter/scorer validation;
 - Codabench accepts the corrected root shape and reaches metric execution;
-- a non-empty official score remains an external BTC infrastructure check, not
-  a formatter implementation gate.
+- BTC's repaired scorer produces a non-empty official warm-up score.
 
 ---
 
@@ -1621,7 +1620,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 - detailed Vietnamese team onboarding guide;
 - README entry point and package/CLI navigation;
 - D078 official-only fine-tuning and synthetic-data decision;
-- observed Codabench PyVi/NLTK/WordNet infrastructure limitation;
+- observed Codabench PyVi/NLTK/WordNet limitation and its later BTC resolution;
 - version `0.35.0`, no dependency or business-logic change.
 
 ### Done When
@@ -1633,7 +1632,78 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 37. Milestone Execution Rules
+## 37. Milestone 34 — Organizer Model, API and Reproducibility Rules
+
+**Status:** Documentation completed; enforcement implementation pending
+
+### Objectives
+
+- record the organizer's system-wide parameter limit and local-control rule;
+- remove resolved uncertainty about APIs, pretrained models and packaging;
+- define the mandatory model inventory before an official run.
+
+### Confirmed Scope
+
+- total learned parameters across every active Task 2 model must be below 4B;
+- embedding, reranker, generator and model-based verifier/grader counts are
+  additive;
+- quantization and LoRA do not make an over-limit base model eligible;
+- all model APIs are prohibited; models must run under direct team control;
+- only organizer data may be used directly and augmentation is prohibited;
+- pretrained/distilled models and eligible research/non-commercial licenses are
+  allowed subject to registration and compliance review;
+- Docker, GitHub or ZIP delivery is acceptable when README reproduction is
+  complete; eligible weights may be downloaded from the Internet.
+
+### Next Implementation Gate
+
+- extend the model register with verified parameter counts and sources;
+- calculate the aggregate for each named experiment configuration;
+- fail closed on missing counts or aggregate `>= 4_000_000_000`;
+- record model registration evidence before an official batch.
+
+### Deferred
+
+- final model stack until parameter inventory and BTC registration Form exist;
+- official corpus/train experiments until the files are released and audited;
+- final execution image until hardware/runtime constraints are announced.
+
+---
+
+## 38. Milestone 35 — Official Data Overview Contract Alignment
+
+**Status:** Documentation completed; adapter implementation pending
+
+### Objectives
+
+- preserve the complete organizer overview as an in-repository coding contract;
+- distinguish confirmed fields from assumptions requiring byte-level audit;
+- identify mismatches before the official corpus build.
+
+### Confirmed Scope
+
+- Vietnamese legal question input and grounded prose-answer output;
+- five named resources and their documented phase roles;
+- question/answer mapping and four documented context fields;
+- numeric context ID and slug-like name observed in the official example;
+- legal passage preservation, retrieval requirements and METEOR/ROUGE-L roles;
+- no relationship table or retrieval relevance labels in the overview.
+
+### Next Implementation Gate
+
+- update the raw context adapter to canonicalize audited integer/string IDs;
+- reject booleans, floats, nulls, blanks, duplicates and canonical collisions;
+- add numeric-ID unit/integration fixtures based only on the official example;
+- choose unknown-field policy only after inspecting the real corpus archive.
+
+### Deferred
+
+- code changes until this adapter task is explicitly started;
+- full corpus audit, graph decision and index build until the archive exists.
+
+---
+
+## 39. Milestone Execution Rules
 
 Mỗi milestone phải:
 

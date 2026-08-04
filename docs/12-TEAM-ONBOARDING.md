@@ -108,6 +108,11 @@ Hai nửa quan trọng:
 Quy tắc quan trọng: core chỉ biết unified schema và Protocol. Tên raw của BTC
 `id`, `name`, `link`, `passage` chỉ được biết ở competition adapter.
 
+Đọc contract đầy đủ tại `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`. Lưu ý ví dụ BTC
+dùng numeric context ID, `name` dạng slug và passage có xuống dòng/Unicode; adapter
+phải chuẩn hóa ID sang string, còn core không được biết kiểu raw. `link` chỉ dùng
+làm provenance, không phải quyền crawl thêm dữ liệu.
+
 ## 5. Pipeline offline: từ corpus BTC đến artifact
 
 Composition root là `CompetitionOfflineBuildRuntime` trong
@@ -363,10 +368,10 @@ Scorer Codabench đã cho thấy:
 - dùng object `.items()` thay vì array như hướng dẫn ban đầu;
 - dùng PyVi tokenizer;
 - dùng NLTK `meteor_score` và package `rouge-score`;
-- scoring container hiện thiếu NLTK `wordnet`, khiến METEOR crash với câu trả
-  lời có token chưa exact-match.
+- scoring container từng thiếu NLTK `wordnet`, khiến METEOR crash với câu trả
+  lời có token chưa exact-match; BTC đã sửa và submission sau đó đã được chấm.
 
-Đây là lỗi hạ tầng BTC đã được báo cáo, không phải lý do để sửa output contract.
+Đây từng là lỗi hạ tầng BTC, không phải lý do để sửa output contract.
 Local scorer vẫn chỉ là diagnostic, chưa được tuyên bố parity tuyệt đối.
 
 ## 9. Evaluation và chọn model

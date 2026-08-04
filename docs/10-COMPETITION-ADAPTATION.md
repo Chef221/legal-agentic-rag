@@ -16,6 +16,12 @@ BTC công bố các tên tài nguyên:
 
 Context raw schema được mô tả bằng `id`, `name`, `link`, `passage`.
 
+Contract chi tiết và audit checklist nằm tại
+`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`. Ví dụ overview dùng numeric `id`,
+slug-like `name`, source URL và passage chứa full legal structure/newline noise.
+Không được suy ra rằng ID luôn là string hoặc corpus không có field bổ sung
+trước khi audit archive thật.
+
 Phản hồi chính thức của BTC ngày 2026-08-01 xác nhận thêm:
 
 - chỉ được dùng dữ liệu chính thức của cuộc thi;
@@ -25,6 +31,21 @@ Phản hồi chính thức của BTC ngày 2026-08-01 xác nhận thêm:
 - model mã nguồn mở phải đăng ký tên và URL qua Google Form BTC sẽ cung cấp;
 - Codabench là nền tảng chính thức của Task 2;
 - runtime/Docker/GPU/RAM/network/private-test rules sẽ công bố sau.
+
+Thông báo chung tiếp theo của BTC xác nhận:
+
+- tổng tham số của tất cả model trong một hệ thống Task 2 phải nhỏ hơn 4 tỷ,
+  tính cả embedding, reranker, generator và model phụ;
+- distillation hợp lệ nếu model cuối dưới giới hạn; quantization và LoRA không
+  làm giảm parameter count được xét;
+- cấm mọi API, kể cả miễn phí/phi lợi nhuận; đội phải trực tiếp sở hữu khả năng
+  tải, chạy và kiểm soát model;
+- pretrained model được phép và dữ liệu pretraining không bị xem là dữ liệu
+  ngoài, nhưng pipeline chỉ được trực tiếp dùng dữ liệu BTC và không được data
+  augmentation;
+- BTC sẽ cung cấp training data cho cả hai task;
+- có thể giao Docker, GitHub hoặc ZIP; được tải open weights hợp lệ từ Internet
+  nếu README mô tả đầy đủ quy trình tái lập.
 
 ## 2. Metric
 
@@ -37,9 +58,10 @@ khi có scorer code hoặc đối chiếu kết quả Codabench. Cần xác minh
 normalization, library/version và cách aggregate.
 
 Warm-up logs đã quan sát scorer dùng PyVi tokenization, NLTK `meteor_score` và
-`rouge-score`. Scoring image hiện thiếu NLTK `wordnet`, làm METEOR crash và trả
-`scoring_result.zip` rỗng. Đây là bằng chứng một phần về implementation và lỗi
-hạ tầng đã báo BTC, chưa đủ để tuyên bố local scorer parity.
+`rouge-score`. Scoring image từng thiếu NLTK `wordnet`; BTC đã sửa và một
+submission đã hoàn tất chấm điểm. Đây là bằng chứng một phần về implementation,
+nhưng vẫn chưa đủ để tuyên bố local scorer parity khi parameters/aggregation
+chưa được công bố đầy đủ.
 
 ## 3. Active Data Policy
 
@@ -121,6 +143,10 @@ link    -> source_url
 passage -> clean_text
 ```
 
+Raw numeric/string `id` phải được competition adapter canonicalize sang unified
+string ID sau audit; URL chỉ giữ provenance và không được dùng để crawl thêm dữ
+liệu. Slug-like `name` được bảo toàn, không tự diễn giải thành metadata pháp lý.
+
 No document number, legal dates, authority, effect status, or relevance label
 is inferred from the four raw fields. The direct context loader accepts the
 official ZIP or an equivalent extracted directory and computes one canonical
@@ -136,6 +162,11 @@ Trước fine-tuning phải kiểm tra:
 - metric và evaluator;
 - model/license/resource policy;
 - experiment plan và baseline comparison.
+
+Trước mọi official experiment còn phải lập model inventory và cộng parameter
+count của toàn bộ model active. Inventory tối thiểu gồm model ID, URL, revision,
+vai trò, license, parameter count, nguồn xác minh count và trạng thái đăng ký
+BTC. Thiếu count hoặc tổng từ 4 tỷ trở lên phải fail closed.
 
 BTC đã xác nhận fine-tuning được phép nếu chỉ sử dụng dữ liệu chính thức. Quyền
 này không tự tạo ra supervision: chỉ fine-tune khi train schema thật cung cấp
@@ -238,14 +269,13 @@ or prediction text.
 
 1. Khi nào `selected-contexts.zip` và `train.json` được mở?
 2. Official METEOR/ROUGE-L implementation là gì?
-3. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt, và model
-   pretraining/external API có giới hạn nào?
-4. Inference có Internet không?
+3. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt?
+4. Môi trường chấm cuối có Internet không, ngoài việc BTC đã cho phép tải trọng
+   số model hợp lệ để tái lập?
 5. Có giới hạn GPU, RAM, disk, thời gian hoặc số submission không?
 6. Public/private question files có answer field hay không?
 7. Context IDs có xuất hiện trong supervision không?
 8. Data Statement và Model Card được nộp ở đâu và theo format nào?
-9. Warm-up scoring image được bổ sung NLTK WordNet khi nào?
 
 ## 14. Competition Compliance Boundary
 

@@ -31,6 +31,11 @@ Nguồn sự thật lâu dài của dự án là:
 3. source code và tests đã được phê duyệt;
 4. các quyết định mới được người dùng xác nhận rõ ràng.
 
+Contract dữ liệu BTC được tóm tắt bắt buộc tại
+`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`. File overview gốc của BTC vẫn là bằng
+chứng bên ngoài repository; nếu dữ liệu thật khác ví dụ, phải audit và cập nhật
+decision trước khi thay đổi core.
+
 ---
 
 ## 2. Project Mission
@@ -74,13 +79,32 @@ BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview và
 - preprocessing, indexing, retrieval và fine-tuning được phép nếu chỉ dùng dữ
   liệu chính thức;
 - synthetic data bị cấm kể cả khi sinh từ dữ liệu BTC;
+- BTC sẽ cung cấp dữ liệu huấn luyện cho Task 2;
+- tổng số tham số của tất cả model trong một hệ thống Task 2 phải nhỏ hơn
+  4 tỷ, bao gồm embedding, reranker, generator, verifier/grader dùng model và
+  mọi model phụ trợ khác;
+- quantization, LoRA hoặc kỹ thuật giảm bộ nhớ không làm giảm số tham số được
+  BTC tính; model gốc từ 4 tỷ tham số trở lên vẫn không hợp lệ;
+- model distilled được phép nếu chính model/hệ thống cuối cùng vẫn có tổng số
+  tham số nhỏ hơn 4 tỷ;
+- cấm sử dụng mọi API model hoặc sản phẩm trung gian, kể cả API miễn phí hay
+  phi lợi nhuận; đội phải tải, chạy và kiểm soát trực tiếp model/hệ thống;
+- model mã nguồn mở hoặc có giấy phép phi thương mại/nghiên cứu/giáo dục được
+  chấp nhận, nhưng vẫn phải qua đăng ký model và kiểm tra license;
+- dữ liệu dùng để pretrain model/LLM không bị BTC xem là dữ liệu ngoài; đội
+  không được trực tiếp đưa dữ liệu ngoài hoặc data augmentation vào pipeline;
+- Docker không phải hình thức đóng gói duy nhất: GitHub hoặc ZIP source/weights
+  cũng được chấp nhận nếu BTC có thể tái lập thực nghiệm theo README;
+- được tải trọng số model hợp lệ từ Internet khi tái lập; quy trình tải, exact
+  model identity và từng bước thực thi phải được ghi rõ;
 - Codabench là nền tảng nộp chính thức của Task 2.
 
 Các nội dung vẫn chưa được xác nhận đầy đủ:
 
-- scorer parameters/aggregation chính xác và scoring image đã sửa WordNet;
-- giới hạn tài nguyên và Internet;
-- quy định model pretraining và external API;
+- scorer parameters/aggregation chính xác; lỗi thiếu WordNet của warm-up image
+  đã được BTC sửa và một submission đã chấm thành công;
+- giới hạn GPU, RAM, disk, thời gian thực thi và Internet trong môi trường chấm;
+- Google Form và quy trình xác nhận đăng ký model;
 - toàn bộ train data và corpus chính thức.
 
 Core không được gắn cứng với raw schema của BTC. Mọi dữ liệu competition phải
@@ -134,6 +158,11 @@ Hai contract raw đã được BTC mô tả:
 QA mapping: question_id → {question, answer?}
 context file: {id, name, link, passage}
 ```
+
+Ví dụ overview dùng numeric context `id`, `name` dạng slug và `passage` có
+CRLF/Unicode cùng cấu trúc văn bản pháp luật. Raw context ID phải được audit;
+adapter dự kiến canonicalize integer/string hợp lệ sang unified string ID mà
+không làm kiểu raw lan vào core. `link` chỉ là provenance, không cho phép crawl.
 
 Raw field names chỉ được tồn tại trong package adapter UIT DSC 2026. Cấu trúc
 thật của corpus, số file, encoding, duplicate policy và record counts phải được
@@ -571,6 +600,20 @@ Fine-tuning chỉ được thêm khi có:
 - evaluator;
 - experiment plan;
 - xác nhận từ người dùng.
+
+Mọi cấu hình model dùng cho competition phải có model inventory ghi:
+
+- tên, URL và immutable revision;
+- vai trò trong hệ thống;
+- license;
+- số tham số của chính model;
+- bằng chứng/cách tính số tham số;
+- trạng thái đăng ký với BTC.
+
+Tổng tham số của toàn bộ model trong một Task phải nhỏ hơn `4_000_000_000`.
+Embedding, reranker, generator, model-based grader/verifier và mọi model phụ đều
+phải cộng vào tổng. Không được dùng quantization, pruning storage hoặc LoRA để
+tuyên bố model gốc từ 4 tỷ tham số trở lên đã trở thành model dưới 4 tỷ.
 
 Sau khi thay embedding model hoặc fine-tune retriever:
 
@@ -1026,6 +1069,7 @@ Nếu hai nguồn ở cùng mức mâu thuẫn:
 Phải đọc:
 
 - `AGENTS.md`;
+- `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`;
 - `docs/10-COMPETITION-ADAPTATION.md`;
 - `docs/05-OFFLINE-PIPELINE.md`;
 - `docs/07-UNIFIED-SCHEMA.md`;
@@ -1055,7 +1099,8 @@ Phải đọc:
 - `AGENTS.md`;
 - `docs/01-PROJECT-CONTEXT.md`;
 - `docs/08-DESIGN-DECISIONS.md`;
-- `docs/10-COMPETITION-ADAPTATION.md`.
+- `docs/10-COMPETITION-ADAPTATION.md`;
+- `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`.
 
 ---
 
@@ -1151,6 +1196,11 @@ Cho đến khi có quyết định mới, không được:
 - thêm OCR;
 - parse PDF scan;
 - gọi external legal API;
+- gọi bất kỳ model API hoặc sản phẩm AI trung gian nào trong quá trình xây dựng
+  phương pháp hay chạy competition;
+- dùng cấu hình model có tổng tham số từ 4 tỷ trở lên hoặc chưa kiểm kê được
+  tổng tham số;
+- dùng model mà đội không thể tải, chạy, kiểm soát và cung cấp quy trình tái lập;
 - tự cập nhật hiệu lực pháp lý;
 - tạo hoặc dùng synthetic QA, answer, evidence, hard negative hay training data;
 - chọn production backend;
@@ -1297,8 +1347,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 33 — Team Onboarding and Confirmed Competition Rules
-(Documentation Completed; Official Corpus and Model Form Pending)
+Milestone 35 — Official Data Overview Contract Alignment
+(Documentation Completed; Raw-ID Adapter Fix, Official Corpus and Model Form Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1868,9 +1918,9 @@ Milestone 32 đã sửa contract theo bằng chứng từ scorer Codabench thự
 - regression test thực thi đúng phép chiếu `.items()` của scorer;
 - version `0.34.0`, không thêm dependency.
 
-Milestone 32 đã được xác nhận về output shape: Codabench đọc object keyed by ID
-và bắt đầu scoring. Scoring artifact vẫn rỗng vì image BTC thiếu NLTK WordNet,
-không phải vì submission contract.
+Milestone 32 đã được xác nhận về output shape: Codabench đọc object keyed by ID.
+BTC sau đó đã bổ sung NLTK WordNet và một submission đã được chấm thành công với
+non-empty official warm-up score.
 
 Milestone 33 đã tạo/cập nhật:
 
@@ -1878,9 +1928,25 @@ Milestone 33 đã tạo/cập nhật:
   artifact, CLI, evaluation, submission và workflow cho thành viên;
 - phản hồi BTC về model registration, official-only data, fine-tuning và cấm
   synthetic data;
-- bằng chứng warm-up scorer dùng PyVi/NLTK/rouge-score và lỗi WordNet phía BTC;
+- bằng chứng warm-up scorer dùng PyVi/NLTK/rouge-score, lỗi WordNet phía BTC và
+  trạng thái đã được BTC sửa;
 - README onboarding entry point;
 - version `0.35.0`, không thêm dependency hoặc business logic.
+
+Milestone 34 đã ghi nhận thông báo BTC mới nhất:
+
+- tổng tham số của toàn bộ model trong Task 2 phải nhỏ hơn 4 tỷ;
+- cấm mọi API và yêu cầu đội chạy/kiểm soát model trực tiếp;
+- pretrained/distilled model phù hợp được phép, nhưng augmentation bị cấm;
+- dữ liệu pretraining không được xem là dữ liệu ngoài trực tiếp;
+- Docker, GitHub hoặc ZIP đều có thể dùng để tái lập;
+- parameter inventory và aggregate budget là gate bắt buộc trước official run.
+
+Milestone 35 đã ghi nhận toàn bộ data overview của BTC tại
+`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`, gồm task contract, resource names, QA và
+context raw schema, metric, graph implication và checklist audit. Overview dùng
+numeric context ID trong ví dụ; adapter hiện còn strict string-only nên phải sửa
+và test ở bước implementation riêng trước official corpus build.
 
 ---
 

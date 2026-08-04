@@ -40,6 +40,11 @@ Data overview hiện mô tả:
 - output là câu trả lời văn xuôi tiếng Việt;
 - METEOR là metric chính và ROUGE-L là metric phụ.
 
+Contract dữ liệu và checklist audit trước official build được ghi tại
+[`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`](docs/13-UIT-DSC-2026-DATA-CONTRACT.md).
+Ví dụ BTC dùng numeric context ID và passage có nguyên văn xuống dòng/Unicode;
+adapter phải xử lý kiểu raw, còn core tiếp tục dùng unified string ID.
+
 Raw field names của BTC chỉ nằm trong
 `legal_agentic_rag.competition.uit_dsc_2026`.
 
