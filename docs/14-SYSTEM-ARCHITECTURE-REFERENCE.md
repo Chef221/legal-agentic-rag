@@ -12,6 +12,8 @@ trả lời ba câu hỏi:
 Tài liệu mô tả **as-built architecture**, không biến phần đang chờ dữ liệu BTC
 thành chức năng đã hoàn tất. Contract dữ liệu cuộc thi chi tiết nằm tại
 [`13-UIT-DSC-2026-DATA-CONTRACT.md`](13-UIT-DSC-2026-DATA-CONTRACT.md).
+Scorer BTC được mô tả tại
+[`15-OFFICIAL-SCORING-CONTRACT.md`](15-OFFICIAL-SCORING-CONTRACT.md).
 
 ## 2. Trạng thái tổng quan
 
@@ -27,7 +29,7 @@ thành chức năng đã hoàn tất. Contract dữ liệu cuộc thi chi tiết
 | Bounded deterministic Agent | Đã triển khai, không phải autonomous/multi-agent |
 | API và local UI | Đã triển khai |
 | Batch, resume, submission ZIP, local scoring | Đã triển khai |
-| Exact official scorer parity | Chưa xác nhận đầy đủ parameters/aggregation |
+| Official scorer source contract | Đã phân tích và checksum; local parity chưa implement |
 | Model registration và tổng tham số dưới 4B | Chưa hoàn tất inventory/đăng ký |
 
 ## 3. Kiến trúc cấp cao
@@ -508,8 +510,9 @@ kiểm tra đầy đủ/duy nhất/order của ID và tạo checksum archive.
 | Warm-up scorer | `warmup.json` + `submission.zip` | Content-free score report + checksums |
 
 Local METEOR dùng exact-token deterministic matching; local ROUGE-L dùng token
-LCS F1. Chúng phục vụ diagnostic, chưa được tuyên bố parity tuyệt đối với scorer
-Codabench.
+LCS F1. Chúng phục vụ diagnostic và không parity với scorer BTC. Source chính
+thức dùng whitespace NLTK METEOR, vendored ASCII-only ROUGE tokenizer và macro
+mean; exact NLTK/WordNet versions vẫn chưa được ZIP pin.
 
 ## 15. CLI surface
 
@@ -564,7 +567,8 @@ service và invalid user input. Serving map chúng sang lỗi HTTP đã sanitize
 5. Model inventory, parameter count aggregate, license review và BTC registration
    chưa hoàn tất.
 6. Chưa biết GPU/RAM/disk/time/network của môi trường chấm cuối.
-7. Local METEOR/ROUGE-L chưa được chứng minh exact scorer parity.
+7. Source scorer đã rõ nhưng local METEOR/ROUGE-L chưa implement exact behavior;
+   exact NLTK/WordNet resource versions cũng chưa được khóa.
 8. PyTorch/transitive dependency freeze và final reproduction image chưa chốt.
 
 ## 18. Definition of one successful run

@@ -14,6 +14,11 @@ BTC đã mô tả:
 - METEOR là metric chính;
 - ROUGE-L là metric phụ.
 
+BTC đã cung cấp source scoring chính thức. ZIP checksum, exact tokenizer,
+aggregation, runtime I/O và các dependency chưa pin được ghi tại
+`docs/15-OFFICIAL-SCORING-CONTRACT.md`. Local evaluator hiện vẫn là diagnostic,
+không tương đương scorer đó.
+
 Thể lệ được cung cấp ngày 2026-08-01 còn xác nhận:
 
 - chỉ dùng dữ liệu chính thức do BTC phát hành;

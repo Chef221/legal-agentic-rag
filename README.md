@@ -5,9 +5,10 @@ Task 2 — Legal Question Answering.
 
 ## Trạng thái
 
-Milestone hiện tại là **M33 — Team Onboarding and Confirmed Competition Rules**.
-Pipeline, compliance scaffold, submission tooling và tài liệu onboarding đã
-hoàn thành; full-corpus build vẫn chờ file `selected-contexts.zip` thật.
+Milestone hiện tại là **M36 — Official Scoring Source Analysis**. Pipeline,
+compliance scaffold, submission tooling và tài liệu onboarding đã hoàn thành;
+source scorer BTC đã được phân tích, còn full-corpus build vẫn chờ file
+`selected-contexts.zip` thật.
 
 Thành viên mới nên bắt đầu tại
 [`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md). Tài liệu này giải
@@ -44,6 +45,10 @@ Contract dữ liệu và checklist audit trước official build được ghi t�
 [`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`](docs/13-UIT-DSC-2026-DATA-CONTRACT.md).
 Ví dụ BTC dùng numeric context ID và passage có nguyên văn xuống dòng/Unicode;
 adapter phải xử lý kiểu raw, còn core tiếp tục dùng unified string ID.
+
+Contract scorer chính thức, checksum, tokenizer, aggregation và khác biệt với
+local evaluator nằm tại
+[`docs/15-OFFICIAL-SCORING-CONTRACT.md`](docs/15-OFFICIAL-SCORING-CONTRACT.md).
 
 Raw field names của BTC chỉ nằm trong
 `legal_agentic_rag.competition.uit_dsc_2026`.
@@ -106,9 +111,10 @@ citation nội bộ đã được xác minh như `[E1]` bị loại khỏi answe
 được giữ trong batch nội bộ.
 
 Khi benchmark có `reference_answer`, evaluator báo local diagnostic `meteor` và
-`rouge_l`. Warm-up log cho thấy Codabench dùng PyVi, NLTK METEOR và
-`rouge-score`, nhưng parameters/aggregation chưa được xác nhận và scoring image
-hiện thiếu NLTK WordNet. Local score chưa được tuyên bố tương đương official.
+`rouge_l`. Source BTC xác nhận METEOR dùng whitespace tokens + NLTK defaults,
+ROUGE-L dùng vendored ASCII-only default tokenizer và cả hai được macro mean;
+PyVi không chạy. Local score vẫn chưa tương đương official vì dùng tokenizer và
+METEOR matching khác. Scorer ZIP cũng chưa pin exact NLTK/WordNet versions.
 
 Chấm trực tiếp một bài nộp trên warm-up có đáp án:
 
@@ -171,7 +177,7 @@ format.
 - audit `selected-contexts.zip` thật;
 - chạy adapter/parser/chunker trên toàn corpus và đo memory;
 - official corpus build và artifact manifests;
-- scorer METEOR/ROUGE-L tương thích Codabench;
+- implement và verify scorer METEOR/ROUGE-L tương thích source BTC;
 - train/dev strategy và fine-tuning;
 - model benchmark cuối cùng.
 

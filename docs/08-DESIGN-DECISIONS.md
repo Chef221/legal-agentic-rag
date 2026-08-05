@@ -1694,6 +1694,10 @@ is inferred. These local values may compare answer variants on one pinned
 benchmark, but cannot be represented as exact Codabench scores until scorer
 implementation or verified parity evidence is available.
 
+D080 later records the official scorer source. D073 remains the accepted
+contract for the existing diagnostic implementation; it does not become
+official-equivalent merely because the official algorithm is now known.
+
 Because `[E<number>]` is internal grounding notation rather than expert answer
 text, the competition formatter removes only markers whose evidence IDs exist
 in the verified `AnswerResponse.citations`. Unknown markers fail closed. The
@@ -1746,7 +1750,7 @@ M31 applies these rules as follows:
 - source owned by the team is MIT licensed, while third-party data, packages,
   tokenizers and weights retain their own licenses;
 - platform naming, pretrained-model scope, Internet availability, final Docker
-  interface and scorer parity remain unresolved organizer questions.
+  interface and local scorer implementation parity remain unresolved questions.
 
 This decision records compliance controls only. It does not approve a model,
 model license, dataset byte sequence, Docker GPU image or official score.
@@ -1791,10 +1795,13 @@ be an object keyed by official question ID:
 ```
 
 The ZIP still contains only `submission.json`; each value contains only one
-string `answer`; and IDs must remain complete, unique and in official source
-order. The formatter and local scorer reject the formerly documented array.
-Executable scoring behavior takes precedence over contradictory prose until
-BTC publishes a corrected scorer or contract.
+string `answer`; and IDs must remain complete and unique. D080 source analysis
+shows the scorer aggregates by prediction keys and does not depend on object
+order. The repository nevertheless preserves official source order as a
+stricter deterministic packaging/reproducibility gate. The formatter and local
+scorer reject the formerly documented array. Executable scoring behavior takes
+precedence over contradictory prose until BTC publishes a corrected scorer or
+contract.
 
 ---
 
@@ -1855,3 +1862,38 @@ nếu thiếu bất kỳ count nào hoặc tổng `>= 4_000_000_000`.
 
 Quyết định này chưa xác nhận cấu hình model hiện tại dưới giới hạn. Việc kiểm kê
 và cộng tham số là bước bắt buộc riêng trước official run.
+
+---
+
+## D080 — Organizer Scorer Source Defines Metric Tokenization and Aggregation
+
+**Status:** Accepted
+
+BTC cung cấp `Scoring-Program-Task-LegalQA.zip` có SHA-256
+`4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`.
+Read-only source analysis xác nhận:
+
+- prediction root là object; mỗi ID được chiếu sang `value["answer"]`;
+- METEOR chuyển reference/prediction sang `str`, tách bằng whitespace
+  `str.split()` và gọi NLTK `meteor_score` với defaults;
+- scorer tải `wordnet` và `omw-1.4` khi chạy;
+- PyVi import/call bị comment và không tham gia scoring;
+- ROUGE-L dùng package `rouge_score` vendored trong ZIP với
+  `use_stemmer=False`;
+- vendored default tokenizer lowercase, thay ký tự ngoài ASCII `[a-z0-9]` bằng
+  khoảng trắng, rồi tính LCS precision/recall/F1;
+- METEOR và ROUGE-L đều được arithmetic macro mean trên prediction IDs;
+- output `/app/output/scores.json` có keys `rouge` và `meteor`.
+
+Local M29/M30 scorer không parity vì dùng NFC/casefold Unicode tokenization và
+exact-token-only METEOR. Nó tiếp tục mang diagnostic warning cho tới khi một
+official-compatible mode được implement và verified bằng golden vectors.
+
+Repository giữ submission validation nghiêm hơn scorer: exact complete IDs,
+source order, duplicate-key rejection và string-only answer. Không nới lỏng các
+gate này chỉ vì official script mới kiểm count và coerce answer qua `str`.
+
+Archive không chứa dependency lock hoặc exact NLTK/NumPy/WordNet identities.
+Do đó công thức, tokenizer ROUGE và aggregation đã resolved; absolute runtime
+reproduction vẫn phải pin các dependency/resource còn thiếu. Chi tiết và member
+checksums nằm tại `docs/15-OFFICIAL-SCORING-CONTRACT.md`.

@@ -76,8 +76,8 @@ Hai nửa quan trọng:
 - chưa có đầy đủ train/public/private data;
 - model open-source phải chờ Google Form của BTC để đăng ký tên và URL;
 - chưa chốt final model, GPU image và giới hạn runtime;
-- scorer warm-up hiện đã lộ dependency PyVi/NLTK nhưng scoring container BTC
-  đang thiếu NLTK WordNet.
+- chưa implement local scorer tương thích source BTC; scorer chính thức dùng
+  NLTK/WordNet nhưng không pin exact dependency/resource versions trong ZIP.
 
 ### Ràng buộc BTC phải nhớ
 
@@ -363,16 +363,22 @@ tra đủ ID, đúng thứ tự, checksum và không overwrite output cũ.
 
 ### 8.3 Scorer warm-up đã quan sát
 
-Scorer Codabench đã cho thấy:
+Source scorer BTC checksum
+`4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+xác nhận:
 
 - dùng object `.items()` thay vì array như hướng dẫn ban đầu;
-- dùng PyVi tokenizer;
-- dùng NLTK `meteor_score` và package `rouge-score`;
+- METEOR dùng whitespace `split()` rồi gọi NLTK `meteor_score` defaults;
+- ROUGE-L dùng vendored `rouge_score`, lowercase và chỉ giữ ASCII `[a-z0-9]`;
+- cả hai metric được arithmetic macro mean;
+- PyVi đã bị comment và không được dùng;
 - scoring container từng thiếu NLTK `wordnet`, khiến METEOR crash với câu trả
   lời có token chưa exact-match; BTC đã sửa và submission sau đó đã được chấm.
 
 Đây từng là lỗi hạ tầng BTC, không phải lý do để sửa output contract.
-Local scorer vẫn chỉ là diagnostic, chưa được tuyên bố parity tuyệt đối.
+Local scorer vẫn chỉ là diagnostic vì tokenizer/cách match khác và scorer ZIP
+không pin NLTK/WordNet bytes. Xem
+[`15-OFFICIAL-SCORING-CONTRACT.md`](15-OFFICIAL-SCORING-CONTRACT.md).
 
 ## 9. Evaluation và chọn model
 

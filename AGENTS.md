@@ -36,6 +36,10 @@ Contract dữ liệu BTC được tóm tắt bắt buộc tại
 chứng bên ngoài repository; nếu dữ liệu thật khác ví dụ, phải audit và cập nhật
 decision trước khi thay đổi core.
 
+Contract scorer BTC được tóm tắt bắt buộc tại
+`docs/15-OFFICIAL-SCORING-CONTRACT.md`. Mọi scorer artifact mới phải được
+checksum/diff; không được suy ra parity từ tên metric hoặc log cũ.
+
 ---
 
 ## 2. Project Mission
@@ -69,7 +73,11 @@ BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview và
 - corpus chính thức dự kiến nằm trong `selected-contexts.zip`;
 - các context có các trường raw `id`, `name`, `link`, `passage`;
 - dữ liệu theo giai đoạn gồm warm-up, public test và private test;
-- METEOR là metric xếp hạng chính, ROUGE-L là metric phụ.
+- METEOR là metric xếp hạng chính, ROUGE-L là metric phụ;
+- source scorer BTC checksum
+  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+  dùng NLTK METEOR trên whitespace tokens, vendored ASCII-tokenized ROUGE-L và
+  arithmetic macro mean; PyVi bị comment và không chạy;
 - Codabench nhận `submission.zip` chứa duy nhất UTF-8 `submission.json`;
 - scorer Codabench thực tế yêu cầu `submission.json` là object ánh xạ mỗi
   question ID sang đúng `{"answer": string}`; hướng dẫn dạng mảng đã bị scorer
@@ -101,8 +109,8 @@ BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview và
 
 Các nội dung vẫn chưa được xác nhận đầy đủ:
 
-- scorer parameters/aggregation chính xác; lỗi thiếu WordNet của warm-up image
-  đã được BTC sửa và một submission đã chấm thành công;
+- exact NLTK/NumPy versions, WordNet/OMW bytes và việc public/private có giữ
+  đúng scorer checksum đã phân tích; lỗi WordNet warm-up đã được BTC sửa;
 - giới hạn GPU, RAM, disk, thời gian thực thi và Internet trong môi trường chấm;
 - Google Form và quy trình xác nhận đăng ký model;
 - toàn bộ train data và corpus chính thức.
@@ -1100,7 +1108,9 @@ Phải đọc:
 - `docs/01-PROJECT-CONTEXT.md`;
 - `docs/08-DESIGN-DECISIONS.md`;
 - `docs/10-COMPETITION-ADAPTATION.md`;
-- `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`.
+- `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`;
+- `docs/15-OFFICIAL-SCORING-CONTRACT.md` khi task liên quan evaluation,
+  answer rendering hoặc submission scoring.
 
 ---
 
@@ -1347,8 +1357,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 35 — Official Data Overview Contract Alignment
-(Documentation Completed; Raw-ID Adapter Fix, Official Corpus and Model Form Pending)
+Milestone 36 — Official Scoring Source Analysis
+(Documentation Completed; Official-compatible Evaluator, Raw-ID Fix, Corpus and Model Form Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1873,8 +1883,9 @@ Milestone 29 đã tạo:
 - version `0.31.0`, không thêm dependency;
 - local suite: 369 passed, 1 skipped; compileall pass.
 
-Milestone 29 chưa biết official tokenizer, stemming/synonym policy, scorer
-package/version, METEOR parameters hoặc aggregation details của Codabench.
+Tại thời điểm Milestone 29, official tokenizer, stemming/synonym policy và
+aggregation chưa biết. Milestone 36 đã phân tích source BTC; implementation M29
+vẫn là diagnostic và chưa được thay bằng official-compatible mode.
 
 Milestone 30 đã tạo:
 
@@ -1928,8 +1939,8 @@ Milestone 33 đã tạo/cập nhật:
   artifact, CLI, evaluation, submission và workflow cho thành viên;
 - phản hồi BTC về model registration, official-only data, fine-tuning và cấm
   synthetic data;
-- bằng chứng warm-up scorer dùng PyVi/NLTK/rouge-score, lỗi WordNet phía BTC và
-  trạng thái đã được BTC sửa;
+- bằng chứng log warm-up ban đầu về NLTK/rouge-score và lỗi WordNet phía BTC;
+  kết luận PyVi cũ đã bị source chính thức ở Milestone 36 supersede;
 - README onboarding entry point;
 - version `0.35.0`, không thêm dependency hoặc business logic.
 
@@ -1947,6 +1958,21 @@ Milestone 35 đã ghi nhận toàn bộ data overview của BTC tại
 context raw schema, metric, graph implication và checklist audit. Overview dùng
 numeric context ID trong ví dụ; adapter hiện còn strict string-only nên phải sửa
 và test ở bước implementation riêng trước official corpus build.
+
+Milestone 36 đã phân tích read-only source scorer BTC:
+
+- ZIP SHA-256
+  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`;
+- METEOR dùng whitespace split + NLTK defaults + WordNet/OMW;
+- ROUGE-L dùng vendored lowercase ASCII `[a-z0-9]` tokenizer, không stemming;
+- cả hai metric dùng arithmetic macro mean;
+- PyVi bị comment và không tham gia scoring;
+- runtime I/O, member checksums và local parity gap được ghi tại
+  `docs/15-OFFICIAL-SCORING-CONTRACT.md`;
+- không sửa evaluator, không thêm dependency và không commit source scorer.
+
+Milestone 36 chưa implement official-compatible scoring mode và chưa pin exact
+NLTK/NumPy/WordNet identities vì scorer ZIP không chứa dependency lock.
 
 ---
 

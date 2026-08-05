@@ -119,11 +119,21 @@ Overview không cung cấp relevance labels hoặc relationship table. Vì vậy
 ## 8. Evaluation contract
 
 - METEOR là metric chính dùng để xếp hạng;
-- METEOR xét token match, precision, recall và độ liên tục/thứ tự;
-- ROUGE-L là metric phụ dựa trên Longest Common Subsequence;
+- scorer BTC hiện dùng whitespace `str.split()` và NLTK `meteor_score` defaults
+  cho METEOR, có WordNet/OMW resource;
+- ROUGE-L là metric phụ dựa trên Longest Common Subsequence, dùng vendored
+  `rouge_score` default tokenizer lowercase chỉ giữ ASCII `[a-z0-9]`, không
+  stemming;
+- cả hai metric được arithmetic macro mean trên prediction IDs;
+- scorer hiện không dùng PyVi;
 - cả hai metric càng cao càng tốt;
-- scorer parameters, tokenizer và aggregation chỉ được coi là exact khi được
-  xác minh bằng scorer chính thức.
+- scorer source được định danh bằng ZIP SHA-256
+  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`.
+
+Chi tiết thuật toán, runtime I/O, member checksum và khác biệt với evaluator
+local nằm tại `docs/15-OFFICIAL-SCORING-CONTRACT.md`. ZIP không pin NLTK/NumPy
+hoặc WordNet bytes, nên các phần môi trường đó vẫn phải được khóa trước khi
+tuyên bố tái lập tuyệt đối.
 
 Optimization phải giữ cân bằng giữa similarity với reference và grounded legal
 correctness. Không được thêm thông tin không có căn cứ chỉ để tăng overlap.

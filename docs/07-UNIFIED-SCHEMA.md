@@ -1286,3 +1286,7 @@ caller. The official ZIP contains only `submission.json`.
 
 The report does not contain question text, gold answer text, prediction text,
 citations, or model prompts.
+
+D080/source analysis does not change this schema: M29/M30 values still use the
+local diagnostic algorithm and remain non-equivalent to the BTC scorer described
+in `docs/15-OFFICIAL-SCORING-CONTRACT.md`.

@@ -111,9 +111,14 @@ vẫn phải đi qua registration/license/reproducibility gate.
   từ file local.
 - Local METEOR/ROUGE-L chỉ là diagnostic cho tới khi scorer parity được chứng
   minh.
-- Warm-up scorer hiện đã lộ PyVi + NLTK METEOR + `rouge-score`, nhưng container
-  thiếu NLTK `wordnet` và trả scoring artifact rỗng. Không thay đổi submission
-  để né lỗi hạ tầng này.
+- Source scorer BTC checksum
+  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+  xác nhận NLTK METEOR, vendored `rouge_score` và macro mean; PyVi hiện bị
+  comment và không chạy.
+- Scorer tải `wordnet`/`omw-1.4` lúc thực thi nhưng không pin NLTK hoặc resource
+  bytes. BTC đã sửa lỗi WordNet của warm-up image; không thay đổi submission để
+  né lỗi hạ tầng scorer.
+- Phân tích đầy đủ nằm tại `docs/15-OFFICIAL-SCORING-CONTRACT.md`.
 
 Template thực thi nằm tại:
 
@@ -170,7 +175,8 @@ Repository áp dụng:
 5. Docker command, CUDA, RAM, disk, timeout và interface chấm cuối cùng là gì?
 6. Data Statement và Model Card được nộp ở đâu, thời điểm nào và theo format
    nào?
-7. Official METEOR/ROUGE-L parameters/aggregation là gì?
+7. Image public/private có dùng đúng scorer checksum đã phân tích và exact
+   NLTK/WordNet resource versions nào?
 
 Mọi điểm trên giữ trạng thái unresolved; code không được biến chúng thành giả
 định ngầm.

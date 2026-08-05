@@ -53,15 +53,22 @@ Thông báo chung tiếp theo của BTC xác nhận:
 - ROUGE-L: metric phụ;
 - higher is better.
 
-Chưa được coi local implementation nào là tương đương official scorer cho tới
-khi có scorer code hoặc đối chiếu kết quả Codabench. Cần xác minh tokenizer,
-normalization, library/version và cách aggregate.
+BTC đã cung cấp source scorer có ZIP SHA-256
+`4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`.
+Contract chính xác được phân tích tại
+`docs/15-OFFICIAL-SCORING-CONTRACT.md`:
 
-Warm-up logs đã quan sát scorer dùng PyVi tokenization, NLTK `meteor_score` và
-`rouge-score`. Scoring image từng thiếu NLTK `wordnet`; BTC đã sửa và một
-submission đã hoàn tất chấm điểm. Đây là bằng chứng một phần về implementation,
-nhưng vẫn chưa đủ để tuyên bố local scorer parity khi parameters/aggregation
-chưa được công bố đầy đủ.
+- METEOR dùng `str.split()` rồi gọi NLTK `meteor_score` với defaults;
+- scorer tải NLTK `wordnet` và `omw-1.4` lúc chạy;
+- ROUGE-L dùng vendored `RougeScorer(["rougeL"], use_stemmer=False)`;
+- default ROUGE tokenizer lowercase và chỉ giữ ASCII `[a-z0-9]`;
+- cả hai điểm được arithmetic macro mean qua toàn bộ prediction IDs;
+- PyVi không được dùng; code PyVi trong scorer đã bị comment.
+
+Local implementation M29/M30 vẫn không tương đương scorer vì dùng Unicode-aware
+NFC/casefold tokens và exact-token-only METEOR. Source scorer cũng không pin
+NLTK/NumPy hay WordNet bytes, nên official-compatible implementation phải khóa
+runtime/resource và kiểm tra parity riêng trước khi thay diagnostic scorer.
 
 ## 3. Active Data Policy
 
@@ -229,10 +236,14 @@ on the root and therefore requires:
 - every question ID exactly once, with no missing question;
 - UTF-8 Vietnamese text is preserved.
 
+Official scorer source later confirms object order does not affect the metric;
+repository source-order validation remains a stricter deterministic packaging
+gate.
+
 M28 validates exact question and batch bytes before atomically publishing a
 deterministic, no-overwrite archive. Official METEOR/ROUGE-L implementation
-equivalence remains unresolved until scorer code or verified scoring behavior
-is available.
+is now documented from the BTC scorer source; local implementation equivalence
+remains pending.
 
 ## 11. Implemented Diagnostic Metrics
 
@@ -268,14 +279,15 @@ or prediction text.
 ## 13. Remaining Questions
 
 1. Khi nào `selected-contexts.zip` và `train.json` được mở?
-2. Official METEOR/ROUGE-L implementation là gì?
-3. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt?
-4. Môi trường chấm cuối có Internet không, ngoài việc BTC đã cho phép tải trọng
+2. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt?
+3. Môi trường chấm cuối có Internet không, ngoài việc BTC đã cho phép tải trọng
    số model hợp lệ để tái lập?
-5. Có giới hạn GPU, RAM, disk, thời gian hoặc số submission không?
-6. Public/private question files có answer field hay không?
-7. Context IDs có xuất hiện trong supervision không?
-8. Data Statement và Model Card được nộp ở đâu và theo format nào?
+4. Có giới hạn GPU, RAM, disk, thời gian hoặc số submission không?
+5. Public/private question files có answer field hay không?
+6. Context IDs có xuất hiện trong supervision không?
+7. Data Statement và Model Card được nộp ở đâu và theo format nào?
+8. Image public/private có dùng đúng scorer checksum trên và exact NLTK/WordNet
+   resources nào?
 
 ## 14. Competition Compliance Boundary
 

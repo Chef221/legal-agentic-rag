@@ -1620,7 +1620,8 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 - detailed Vietnamese team onboarding guide;
 - README entry point and package/CLI navigation;
 - D078 official-only fine-tuning and synthetic-data decision;
-- observed Codabench PyVi/NLTK/WordNet limitation and its later BTC resolution;
+- observed Codabench NLTK/WordNet limitation and its later BTC resolution;
+  the earlier PyVi inference is superseded by M36 source analysis;
 - version `0.35.0`, no dependency or business-logic change.
 
 ### Done When
@@ -1703,7 +1704,49 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 39. Milestone Execution Rules
+## 39. Milestone 36 — Official Scoring Source Analysis
+
+**Status:** Documentation completed; compatible local implementation pending
+
+### Objectives
+
+- inventory and checksum the exact scoring ZIP supplied by BTC;
+- derive executable prediction/reference/output contracts without running
+  untrusted archive code;
+- resolve METEOR/ROUGE-L tokenization and aggregation assumptions;
+- identify exact differences from local M29/M30 diagnostics;
+- update every active competition source-of-truth document.
+
+### Confirmed Scope
+
+- ZIP SHA-256
+  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`;
+- NLTK METEOR over whitespace tokens with default runtime behavior;
+- WordNet and OMW resources downloaded at scorer startup;
+- vendored ROUGE-L with no stemming and lowercase ASCII-only tokenization;
+- arithmetic macro mean for both metrics;
+- no active PyVi tokenization;
+- score output keys `rouge` and `meteor`;
+- local diagnostic implementation is not official-equivalent.
+
+### Deferred
+
+- implementation of a separate official-compatible metric mode;
+- exact NLTK/NumPy and WordNet/OMW pinning because the ZIP has no lock;
+- golden-vector parity check against the BTC scorer runtime;
+- verification that public/private phases use the same scorer checksum.
+
+### Done When
+
+- scorer artifact/member checksums and runtime I/O are documented;
+- stale PyVi and unknown-aggregation claims are removed;
+- D080 records the accepted behavior;
+- documentation consistency checks pass;
+- no scorer source, dataset, dependency or business logic is added.
+
+---
+
+## 40. Milestone Execution Rules
 
 Mỗi milestone phải:
 
