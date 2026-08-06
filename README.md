@@ -5,10 +5,10 @@ Task 2 — Legal Question Answering.
 
 ## Trạng thái
 
-Milestone hiện tại là **M36 — Official Scoring Source Analysis**. Pipeline,
-compliance scaffold, submission tooling và tài liệu onboarding đã hoàn thành;
-source scorer BTC đã được phân tích, còn full-corpus build vẫn chờ file
-`selected-contexts.zip` thật.
+Milestone hiện tại là **M37 — Official Data Adapter and Passage Cleaner**.
+`train.json`, `public-official.json` và `selected-contexts.zip` đã được audit;
+adapter/cleaner chính thức đã hoàn thành. Full BM25/vector build và model
+experiments vẫn là bước riêng tiếp theo.
 
 Thành viên mới nên bắt đầu tại
 [`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md). Tài liệu này giải
@@ -31,12 +31,12 @@ nguồn ngoài BTC không còn được hỗ trợ.
 
 ## Dữ liệu BTC đã biết
 
-Data overview hiện mô tả:
+Các file thật đã xác nhận:
 
 - `warmup.json`, `train.json`, `public-official.json`,
   `private-official.json`;
 - `selected-contexts.zip` chứa các file `context_*.json`;
-- mỗi context có raw fields `id`, `name`, `link`, `passage`;
+- mỗi context có raw fields bắt buộc `id`, `link`, `passage`; `name` optional;
 - input là câu hỏi pháp luật tiếng Việt;
 - output là câu trả lời văn xuôi tiếng Việt;
 - METEOR là metric chính và ROUGE-L là metric phụ.
@@ -166,19 +166,20 @@ Official BTC JSON
 - đọc trực tiếp ZIP hoặc thư mục đã giải nén;
 - canonical corpus SHA-256 không phụ thuộc ZIP packaging;
 - mapping context sang unified `LegalDocument`;
-- audit cùng normalized/plain-text manifests;
-- giữ nguyên question, answer và passage hợp lệ.
+- audit cùng normalized/cleaned manifests;
+- canonicalize raw integer/string ID sang string;
+- giữ raw passage ở normalized artifact và làm sạch có kiểm soát bằng policy
+  được pin trong cleaned manifest.
 
 Loader không tự tải dữ liệu, không tạo index và không suy đoán submission
 format.
 
-## Việc còn chờ dữ liệu/quy định BTC
+## Việc còn lại
 
-- audit `selected-contexts.zip` thật;
-- chạy adapter/parser/chunker trên toàn corpus và đo memory;
-- official corpus build và artifact manifests;
+- build parser/chunker/BM25/vector artifacts từ official corpus trong artifact
+  root mới và benchmark memory/latency;
 - implement và verify scorer METEOR/ROUGE-L tương thích source BTC;
-- train/dev strategy và fine-tuning;
+- chốt leakage-safe train/dev strategy trước fine-tuning;
 - model benchmark cuối cùng.
 
 Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,

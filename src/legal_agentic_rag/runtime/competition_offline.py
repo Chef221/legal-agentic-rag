@@ -194,12 +194,12 @@ class CompetitionOfflineBuildRuntime:
         else:
             persist_dataset_manifest(result.dataset_manifest, self._root)
         self._persist_or_validate_documents(
-            result.documents,
+            result.normalized_documents,
             result.normalized_manifest,
             "normalized_documents_directory",
         )
         self._persist_or_validate_documents(
-            result.documents,
+            result.cleaned_documents,
             result.cleaned_manifest,
             "cleaned_documents_directory",
         )
@@ -237,7 +237,7 @@ class CompetitionOfflineBuildRuntime:
                 self._config.offline.graph_index
             )
             graph.build(
-                result.documents,
+                result.normalized_documents,
                 [],
                 document_manifest=result.normalized_manifest,
                 relationship_manifest=relationship_manifest,

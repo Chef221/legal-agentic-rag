@@ -72,8 +72,9 @@ Hai nửa quan trọng:
 
 ### Chưa thể hoàn tất
 
-- chưa có `selected-contexts.zip` chính thức để build corpus/index thật;
-- chưa có đầy đủ train/public/private data;
+- đã có/audit `selected-contexts.zip`, `train.json` và public questions nhưng
+  chưa chạy full parser/index build;
+- chưa có private questions và chưa chốt leakage-safe train/dev strategy;
 - model open-source phải chờ Google Form của BTC để đăng ký tên và URL;
 - chưa chốt final model, GPU image và giới hạn runtime;
 - chưa implement local scorer tương thích source BTC; scorer chính thức dùng
@@ -125,13 +126,13 @@ legal-rag-build-competition --config <config.json> --source <selected-contexts.z
 ### 5.1 Corpus stage
 
 1. `UitDsc2026DataLoader` đọc ZIP hoặc thư mục `context_*.json`.
-2. Loader từ chối duplicate JSON key, file/member lạ, field thiếu/thừa và
-   duplicate context ID.
+2. Loader canonicalize numeric/string ID, chấp nhận optional `name` và blank
+   passage đã audit; mọi schema drift và ID collision bị từ chối.
 3. `UitDsc2026ContextAdapter` ánh xạ một context thành một `LegalDocument`.
-4. `UitDsc2026CorpusIngestor` tạo audit report, dataset manifest và normalized
-   artifact.
-5. Passage chính thức được giữ nguyên; adapter không tự suy diễn số văn bản,
-   ngày hiệu lực hoặc nhãn liên quan.
+4. `UitDsc2026CorpusIngestor` tạo audit report, dataset manifest, raw-preserving
+   normalized artifact và cleaned artifact.
+5. `UitDsc2026PassageCleaner` chỉ chuẩn hóa Unicode/newline/whitespace và loại
+   known HTML + exact TVPL notice đã audit; adapter không suy diễn metadata.
 
 Mục đích: cô lập raw schema và chứng minh chính xác corpus byte nào được dùng.
 
@@ -141,8 +142,7 @@ Mục đích: cô lập raw schema và chứng minh chính xác corpus byte nào
 corpus trong RAM:
 
 ```text
-LegalDocument
-→ LegalHtmlCleaner
+Cleaned LegalDocument
 → LegalStructureParser
 → LegalChunker
 → LegalChunkValidator

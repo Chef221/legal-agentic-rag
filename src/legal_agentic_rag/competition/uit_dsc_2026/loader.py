@@ -166,14 +166,25 @@ class UitDsc2026DataLoader:
             raise DatasetSchemaError(
                 f"Context file '{source_name}' must contain one object"
             )
-        if set(raw_record) != raw_schema.CONTEXT_FIELDS:
+        keys = set(raw_record)
+        missing = raw_schema.CONTEXT_REQUIRED_FIELDS - keys
+        unknown = keys - raw_schema.CONTEXT_FIELDS
+        if missing:
             raise DatasetSchemaError(
-                f"Context file '{source_name}' has invalid fields"
+                f"Context file '{source_name}' is missing required fields"
             )
+        if unknown:
+            raise DatasetSchemaError(
+                f"Context file '{source_name}' has unknown fields"
+            )
+        context_id = _canonical_context_id(
+            raw_record[raw_schema.CONTEXT_ID_FIELD],
+            source_name,
+        )
         try:
             return CompetitionContext(
-                context_id=raw_record[raw_schema.CONTEXT_ID_FIELD],
-                title=raw_record[raw_schema.CONTEXT_TITLE_FIELD],
+                context_id=context_id,
+                title=raw_record.get(raw_schema.CONTEXT_TITLE_FIELD),
                 source_url=raw_record[raw_schema.CONTEXT_URL_FIELD],
                 passage=raw_record[raw_schema.CONTEXT_PASSAGE_FIELD],
             )
@@ -273,3 +284,24 @@ def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
             raise DatasetSchemaError(f"Duplicate JSON key '{key}'")
         result[key] = value
     return result
+
+
+def _canonical_context_id(value: object, source_name: str) -> str:
+    """Canonicalize the two organizer ID types observed in the data contract."""
+    if isinstance(value, bool):
+        raise DatasetSchemaError(
+            f"Context file '{source_name}' has invalid context ID"
+        )
+    if isinstance(value, int):
+        if value < 0:
+            raise DatasetSchemaError(
+                f"Context file '{source_name}' has invalid context ID"
+            )
+        return str(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+    raise DatasetSchemaError(
+        f"Context file '{source_name}' has invalid context ID"
+    )

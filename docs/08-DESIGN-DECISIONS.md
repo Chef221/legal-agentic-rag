@@ -1567,14 +1567,18 @@ thuộc chúng. Warm-up answers không tạo ra retrieval relevance labels.
 
 **Status:** Accepted
 
+The one-file/one-document mapping remains accepted. Raw-ID, optional-title and
+cleaning clauses below are superseded by the released-data evidence in D081.
+
 The organizer overview describes each `context_*.json` file as one selected legal
 document with `id`, `name`, `link`, and `passage`. Milestone 26 applies
 the following fail-closed mapping:
 
-- `id` becomes the exact unified `document_id`;
-- `name` becomes `title`;
+- canonicalized `id` becomes the unified string `document_id`;
+- optional `name` becomes nullable `title`;
 - `link` becomes `source_url`;
-- `passage` becomes `clean_text` without rewriting legal text;
+- `passage` becomes raw-preserving normalized `clean_text`, then D081 creates a
+  separately cleaned `clean_text`;
 - `source_dataset` is the official UIT DSC 2026 Task 2 corpus identity;
 - missing legal metadata is left null rather than inferred;
 - raw organizer field names remain inside the UIT DSC adapter boundary;
@@ -1584,24 +1588,20 @@ the following fail-closed mapping:
 - corpus revision is a deterministic SHA-256 over ordered context filenames and
   exact member bytes, so an archive and its equivalent extracted directory have
   the same lineage;
-- `passage` is treated as organizer-provided plain legal text, so HTML cleaning
-  is not inserted before parsing;
-- ingestion emits an explicit cleaned-document pass-through manifest with
-  `text_modified = false` so the existing parser contract remains intact;
+- dataset-specific cleaning is inserted before parsing under D081;
+- ingestion emits distinct normalized and cleaned manifests;
 - Warm-up answers remain answer-level references and are not converted into
   document/chunk relevance labels.
 
-The overview example uses a numeric JSON context ID and a slug-like `name`.
-Therefore the raw adapter must eventually accept an audited non-negative integer
-or non-blank string ID and canonicalize it to the unified string ID, while
-rejecting booleans, floats, nulls and canonical collisions. This requirement is
-not yet implemented by the current strict string-only model and must be resolved
-before the official corpus build. The overview does not prove that future corpus
-records contain no additional fields; exact unknown-field policy remains an
-audit-time decision.
+The released archive confirms numeric JSON context IDs and optional `name`.
+The raw adapter accepts non-negative integers or non-blank strings and
+canonicalizes them to unified string IDs, while rejecting booleans, floats,
+nulls, blanks and canonical collisions. Only the two audited field sets are
+accepted; future changed bytes require a new audit.
 
-No BM25, vector, graph, or training artifact may be claimed as official until
-the released `selected-contexts.zip` bytes have passed the corpus audit.
+No BM25, vector, graph, or training artifact may be claimed as official unless
+its source bytes have passed the corpus audit and its manifest pins that exact
+revision.
 
 ---
 
@@ -1897,3 +1897,38 @@ Archive không chứa dependency lock hoặc exact NLTK/NumPy/WordNet identities
 Do đó công thức, tokenizer ROUGE và aggregation đã resolved; absolute runtime
 reproduction vẫn phải pin các dependency/resource còn thiếu. Chi tiết và member
 checksums nằm tại `docs/15-OFFICIAL-SCORING-CONTRACT.md`.
+
+---
+
+## D081 — Official Context Boundary and Audited Passage Cleaning
+
+**Status:** Accepted
+
+Read-only audit ngày 2026-08-06 xác nhận `selected-contexts.zip` có 8.532 JSON
+records trên canonical revision
+`sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`.
+Raw IDs là non-negative integers; 1.125 records thiếu `name`; 20 passages rỗng;
+không có field ngoài `id/name/link/passage` và không có relationship/evidence
+labels.
+
+Boundary được chốt như sau:
+
+- adapter canonicalize non-negative integer hoặc non-blank string ID sang
+  unified string ID và từ chối boolean, float, null, blank, duplicate/collision;
+- `name` optional map sang title nullable; blank passage được giữ với
+  `has_content = false`;
+- normalized artifact giữ raw passage sau schema mapping;
+- cleaned artifact dùng dataset-specific cleaner versioned: NFC, newline,
+  Unicode space/control và line-whitespace normalization, known HTML
+  presentation markup removal, exact audited TVPL Pro notice removal;
+- cleaner không drop duplicate records, không xóa repeated opening sequences,
+  không suy diễn document metadata và không thay đổi legal meaning;
+- cleaner policy identity tham gia processing hash; online/offline artifact
+  compatibility tiếp tục fail closed;
+- graph artifact giữ zero-edge cho tới khi official relationship evidence tồn
+  tại.
+
+Audit chính thức cũng xác nhận warm-up/train/public overlap đáng kể và train chỉ
+có answer supervision. Do đó không được xem warm-up là independent dev hoặc suy
+diễn retrieval/reranker labels từ answer text. Full index build và model
+experiments không thuộc quyết định này.

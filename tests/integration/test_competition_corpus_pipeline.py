@@ -17,11 +17,10 @@ def test_official_context_flows_to_legal_chunks(tmp_path: Path) -> None:
     (context_source / "context_0001.json").write_text(
         json.dumps(
             {
-                "id": "740",
-                "name": "Quyết định kiểm thử",
+                "id": 740,
                 "link": "https://example.invalid/document-740",
                 "passage": (
-                    "CHƯƠNG I\n"
+                    "<p>CHƯƠNG I</p>\r\n"
                     "QUY ĐỊNH CHUNG\n"
                     "Điều 1. Phạm vi điều chỉnh\n"
                     "1. Quy định này áp dụng cho doanh nghiệp.\n"
@@ -38,11 +37,11 @@ def test_official_context_flows_to_legal_chunks(tmp_path: Path) -> None:
     )
 
     parsing = LegalStructureParser(clock=lambda: now).parse(
-        documents=ingestion.documents,
+        documents=ingestion.cleaned_documents,
         source_manifest=ingestion.cleaned_manifest,
     )
     chunking = LegalChunker(clock=lambda: now).chunk(
-        documents=ingestion.documents,
+        documents=ingestion.cleaned_documents,
         blocks=parsing.blocks,
         source_manifest=parsing.manifest,
     )

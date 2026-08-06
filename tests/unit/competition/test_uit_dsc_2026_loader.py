@@ -117,6 +117,96 @@ def test_loader_reads_documented_context_files(tmp_path: Path) -> None:
     assert records[0].passage.startswith("Điều 1")
 
 
+def test_loader_accepts_audited_numeric_id_optional_name_and_blank_passage(
+    tmp_path: Path,
+) -> None:
+    """The released corpus variants map without leaking numeric IDs into core."""
+    records = [
+        {
+            "id": 740,
+            "link": "https://example.invalid/context-740",
+            "passage": "",
+        },
+        {
+            "id": " 741 ",
+            "name": "Văn bản có tên",
+            "link": "https://example.invalid/context-741",
+            "passage": "Điều 1. Nội dung.",
+        },
+    ]
+    for index, record in enumerate(records, start=1):
+        (tmp_path / f"context_{index:04d}.json").write_text(
+            json.dumps(record, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    loaded = UitDsc2026DataLoader().load_contexts(tmp_path)
+
+    assert [item.context_id for item in loaded] == ["740", "741"]
+    assert loaded[0].title is None
+    assert loaded[0].passage == ""
+
+
+@pytest.mark.parametrize("invalid_id", [True, -1, 1.5, None, "   "])
+def test_loader_rejects_invalid_raw_context_ids(
+    tmp_path: Path,
+    invalid_id: object,
+) -> None:
+    """Only audited integer/string identities can cross the raw boundary."""
+    (tmp_path / "context_0001.json").write_text(
+        json.dumps(
+            {
+                "id": invalid_id,
+                "link": "https://example.invalid/context",
+                "passage": "Điều 1. Nội dung.",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DatasetSchemaError, match="invalid context ID"):
+        UitDsc2026DataLoader().load_contexts(tmp_path)
+
+
+def test_loader_rejects_canonical_context_id_collision(tmp_path: Path) -> None:
+    """Integer 740 and string '740' cannot become two unified documents."""
+    for index, raw_id in enumerate((740, "740"), start=1):
+        (tmp_path / f"context_{index:04d}.json").write_text(
+            json.dumps(
+                {
+                    "id": raw_id,
+                    "link": f"https://example.invalid/context-{index}",
+                    "passage": f"Điều {index}. Nội dung.",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+    with pytest.raises(DatasetSchemaError, match="Duplicate competition context"):
+        UitDsc2026DataLoader().load_contexts(tmp_path)
+
+
+def test_loader_rejects_unknown_context_fields(tmp_path: Path) -> None:
+    """The audited optional name does not permit arbitrary raw schema drift."""
+    (tmp_path / "context_0001.json").write_text(
+        json.dumps(
+            {
+                "id": 740,
+                "link": "https://example.invalid/context",
+                "passage": "Điều 1. Nội dung.",
+                "relationship": "external",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(DatasetSchemaError, match="unknown fields"):
+        UitDsc2026DataLoader().load_contexts(tmp_path)
+
+
 def test_loader_rejects_duplicate_context_identity(tmp_path: Path) -> None:
     """Two files cannot silently describe the same official context ID."""
     record = {

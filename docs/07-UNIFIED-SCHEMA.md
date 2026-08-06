@@ -1206,7 +1206,7 @@ phát minh label.
 
 ```text
 context_id: str, required
-title: str, required
+title: str | null, default null
 source_url: str, required
 passage: str, required
 ```
@@ -1220,26 +1220,32 @@ Overview BTC có ví dụ raw `id` là JSON integer. Unified `context_id` vẫn 
 string: competition adapter chịu trách nhiệm canonicalize raw non-negative
 integer hoặc non-blank string thành string deterministic sau audit. Boolean,
 float, null, blank và canonicalization collision phải bị từ chối. Đây là raw
-boundary rule, không thay đổi type của unified schema.
+boundary rule, không thay đổi type của unified schema. Archive thật xác nhận
+`name` thiếu ở 1.125/8.532 records và `passage` rỗng ở 20 records; hai trường
+hợp này được giữ minh bạch, không phát minh title hoặc content.
 
 ### 21.3 `CompetitionCorpusAuditReport`
 
 Audit report giữ dataset/revision, source kind, member/record/unique counts,
-passage character bounds, duplicate title/URL counts, passed checks và warnings.
-Contract bắt buộc một member tạo đúng một unique context record.
+content/blank/missing-title counts, raw/cleaned character totals, passage bounds,
+duplicate title/URL/passage counts, HTML/boilerplate/modified counts, passed checks
+và warnings. Contract bắt buộc một member tạo đúng một unique context record.
 
 ### 21.4 `CompetitionCorpusIngestionResult`
 
 ```text
-documents: list[LegalDocument]
+normalized_documents: list[LegalDocument]
+cleaned_documents: list[LegalDocument]
 dataset_manifest: DatasetManifest
 normalized_manifest: ArtifactManifest(normalized_documents)
 cleaned_manifest: ArtifactManifest(cleaned_documents)
 audit: CompetitionCorpusAuditReport
 ```
 
-`cleaned_manifest` là plain-text pass-through contract với
-`text_modified = false`; nó không tuyên bố đã chạy HTML cleaning. Tất cả
+`normalized_documents` giữ raw passage hợp lệ sau schema mapping.
+`cleaned_documents` là output của `UitDsc2026PassageCleaner`: NFC/newline và
+whitespace normalization, known HTML presentation markup removal và exact
+audited TVPL Pro notice removal. Hai danh sách phải cùng count/order/ID; mọi
 documents, manifests và audit phải cùng official dataset/revision.
 
 ### 21.5 Competition execution records

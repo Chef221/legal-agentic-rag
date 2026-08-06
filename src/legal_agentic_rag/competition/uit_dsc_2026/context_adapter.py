@@ -8,16 +8,16 @@ from legal_agentic_rag.schemas.legal_documents import LegalDocument
 
 
 class UitDsc2026ContextAdapter:
-    """Map the four documented raw fields without inferring legal metadata."""
+    """Map audited organizer fields without inferring legal metadata."""
 
     def to_document(self, context: CompetitionContext) -> LegalDocument:
-        """Preserve official identity, title, URL, and passage exactly."""
+        """Preserve official identity, optional title, URL, and raw passage."""
         return LegalDocument(
             document_id=context.context_id,
             title=context.title,
             source_url=context.source_url,
             clean_text=context.passage,
-            has_content=True,
+            has_content=bool(context.passage.strip()),
             source_dataset=OFFICIAL_CORPUS_DATASET_NAME,
             raw_metadata={},
         )

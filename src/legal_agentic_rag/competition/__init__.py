@@ -5,6 +5,7 @@ from legal_agentic_rag.competition.uit_dsc_2026 import (
     UitDsc2026ContextAdapter,
     UitDsc2026CorpusIngestor,
     UitDsc2026DataLoader,
+    UitDsc2026PassageCleaner,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "UitDsc2026ContextAdapter",
     "UitDsc2026CorpusIngestor",
     "UitDsc2026DataLoader",
+    "UitDsc2026PassageCleaner",
 ]

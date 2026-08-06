@@ -16,6 +16,10 @@ from legal_agentic_rag.competition.uit_dsc_2026.loader import (
     ContextSourceIdentity,
     UitDsc2026DataLoader,
 )
+from legal_agentic_rag.competition.uit_dsc_2026.passage_cleaner import (
+    PassageCleaningResult,
+    UitDsc2026PassageCleaner,
+)
 from legal_agentic_rag.competition.uit_dsc_2026.submission import (
     CodabenchSubmissionFormatter,
     load_submission_archive,
@@ -33,5 +37,7 @@ __all__ = [
     "render_competition_answer",
     "load_submission_archive",
     "CompetitionWarmupScorer",
+    "PassageCleaningResult",
     "UitDsc2026DataLoader",
+    "UitDsc2026PassageCleaner",
 ]

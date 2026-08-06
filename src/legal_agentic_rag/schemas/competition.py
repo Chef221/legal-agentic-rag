@@ -54,14 +54,22 @@ class CompetitionContext(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     context_id: str = Field(min_length=1)
-    title: str = Field(min_length=1)
+    title: str | None = None
     source_url: str = Field(min_length=1)
-    passage: str = Field(min_length=1)
+    passage: str
 
-    @field_validator("context_id", "title", "source_url", "passage")
+    @field_validator("context_id", "source_url")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         """Reject blank official fields without cleaning legal content."""
+        return _require_non_blank(value)
+
+    @field_validator("title")
+    @classmethod
+    def validate_optional_title(cls, value: str | None) -> str | None:
+        """Allow an omitted title but reject a present blank organizer value."""
+        if value is None:
+            return None
         return _require_non_blank(value)
 
 
@@ -77,11 +85,20 @@ class CompetitionCorpusAuditReport(BaseModel):
     member_count: int = Field(ge=1)
     record_count: int = Field(ge=1)
     unique_context_count: int = Field(ge=1)
-    total_passage_characters: int = Field(ge=1)
-    minimum_passage_characters: int = Field(ge=1)
-    maximum_passage_characters: int = Field(ge=1)
+    content_context_count: int = Field(ge=0)
+    blank_passage_count: int = Field(ge=0)
+    missing_title_count: int = Field(ge=0)
+    total_passage_characters: int = Field(ge=0)
+    total_cleaned_characters: int = Field(ge=0)
+    minimum_passage_characters: int = Field(ge=0)
+    maximum_passage_characters: int = Field(ge=0)
     duplicate_title_count: int = Field(ge=0)
     duplicate_source_url_count: int = Field(ge=0)
+    duplicate_passage_count: int = Field(ge=0)
+    html_markup_context_count: int = Field(ge=0)
+    boilerplate_context_count: int = Field(ge=0)
+    boilerplate_occurrence_count: int = Field(ge=0)
+    modified_context_count: int = Field(ge=0)
     passed_checks: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
@@ -109,6 +126,17 @@ class CompetitionCorpusAuditReport(BaseModel):
             == self.unique_context_count
         ):
             raise ValueError("context member and record counts must match")
+        if self.content_context_count + self.blank_passage_count != self.record_count:
+            raise ValueError("content and blank context counts must match records")
+        bounded_counts = (
+            self.missing_title_count,
+            self.duplicate_passage_count,
+            self.html_markup_context_count,
+            self.boilerplate_context_count,
+            self.modified_context_count,
+        )
+        if any(value > self.record_count for value in bounded_counts):
+            raise ValueError("audit subset count cannot exceed record count")
         if self.minimum_passage_characters > self.maximum_passage_characters:
             raise ValueError("passage character bounds are inconsistent")
         return self
@@ -119,7 +147,8 @@ class CompetitionCorpusIngestionResult(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    documents: list[LegalDocument]
+    normalized_documents: list[LegalDocument]
+    cleaned_documents: list[LegalDocument]
     dataset_manifest: DatasetManifest
     normalized_manifest: ArtifactManifest
     cleaned_manifest: ArtifactManifest
@@ -128,7 +157,15 @@ class CompetitionCorpusIngestionResult(BaseModel):
     @model_validator(mode="after")
     def validate_lineage(self) -> "CompetitionCorpusIngestionResult":
         """Keep result records, manifests, and audit on one exact lineage."""
-        record_count = len(self.documents)
+        record_count = len(self.normalized_documents)
+        if len(self.cleaned_documents) != record_count:
+            raise ValueError("normalized and cleaned document counts must match")
+        normalized_ids = [
+            document.document_id for document in self.normalized_documents
+        ]
+        cleaned_ids = [document.document_id for document in self.cleaned_documents]
+        if normalized_ids != cleaned_ids:
+            raise ValueError("normalized and cleaned document order must match")
         if record_count == 0 or self.normalized_manifest.record_count != record_count:
             raise ValueError("normalized manifest count must match documents")
         if self.audit.record_count != record_count:
@@ -160,7 +197,10 @@ class CompetitionCorpusIngestionResult(BaseModel):
             raise ValueError("ingestion lineage must be identical")
         if any(
             document.source_dataset != self.dataset_manifest.dataset_name
-            for document in self.documents
+            for document in [
+                *self.normalized_documents,
+                *self.cleaned_documents,
+            ]
         ):
             raise ValueError("document provenance must match dataset manifest")
         return self

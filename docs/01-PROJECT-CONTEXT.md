@@ -83,9 +83,9 @@ M25 loại source, adapter, raw audit, normalizer, build runtime, fixtures,
 profiles và dependency chỉ phục vụ corpus cũ. External artifacts không bị xóa
 tự động nhưng bị competition runtime từ chối.
 
-M26 đã tạo ZIP/directory loader, context adapter, corpus audit và unified
-ingestion manifests. Full offline corpus build vẫn trì hoãn cho tới khi có thể
-audit bytes thật của `selected-contexts.zip`.
+M37 đã audit archive thật, hoàn thiện numeric-ID/optional-title adapter và tạo
+raw-preserving normalized + dataset-specifically cleaned manifests. Full
+parser/chunker/BM25/vector build vẫn là bước riêng chưa chạy.
 
 ## 6. Legal Safety
 

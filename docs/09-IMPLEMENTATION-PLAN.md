@@ -1316,8 +1316,7 @@ marker. Citation metadata vẫn chỉ dựng từ selected Evidence.
 
 ## 28. Milestone 26 — Official Corpus Ingestion
 
-**Status:** Implementation completed with fixtures; full corpus validation
-awaits `selected-contexts.zip`
+**Status:** Completed; released-data validation and cleaner completed in M37
 
 ### Objectives
 
@@ -1334,12 +1333,12 @@ awaits `selected-contexts.zip`
 - duplicate JSON-key, member-name and context-ID checks;
 - deterministic source revision shared by equivalent ZIP/directory inputs;
 - strict context adapter and corpus audit report;
-- normalized and plain-text pass-through ingestion manifests;
+- normalized and cleaned ingestion contracts (cleaner finalized in M37);
 - unit and local integration tests with small official-format fixtures.
 
 ### Deferred
 
-- full corpus counts and quality findings until the archive is available;
+- full corpus counts and quality findings (completed in M37);
 - persistence/build CLI and complete artifact build orchestration;
 - BM25/vector/graph rebuild;
 - official metric equivalence and submission formatting;
@@ -1673,7 +1672,7 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ## 38. Milestone 35 — Official Data Overview Contract Alignment
 
-**Status:** Documentation completed; adapter implementation pending
+**Status:** Superseded by completed Milestone 37 implementation
 
 ### Objectives
 
@@ -1697,10 +1696,10 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 - add numeric-ID unit/integration fixtures based only on the official example;
 - choose unknown-field policy only after inspecting the real corpus archive.
 
-### Deferred
+### Follow-up
 
-- code changes until this adapter task is explicitly started;
-- full corpus audit, graph decision and index build until the archive exists.
+- adapter and full-corpus audit completed in Milestone 37;
+- official index build remains a separate measured run.
 
 ---
 
@@ -1746,7 +1745,47 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 40. Milestone Execution Rules
+## 40. Milestone 37 — Official Data Adapter and Passage Cleaner
+
+**Status:** Completed
+
+### Objectives
+
+- adapt the exact released QA/context schemas without leaking raw types;
+- preserve raw official passages and create a separate cleaned artifact;
+- remove only noise demonstrated by byte-level corpus audit;
+- pin cleaning policy and source lineage for later index builds.
+
+### Implementation Scope
+
+- numeric/string context-ID canonicalization and collision rejection;
+- optional `name`, blank `passage`, exact field-set enforcement;
+- dataset-specific deterministic cleaner for NFC/newlines/line whitespace,
+  known HTML presentation markup and exact TVPL Pro boilerplate;
+- expanded audit schema and normalized/cleaned ingestion result;
+- offline runtime consumes cleaned documents for parsing while preserving raw
+  normalized documents;
+- full read-only audit of 8.532 official context records;
+- focused unit/integration tests and source-of-truth documentation;
+- version `0.36.0`, no dependency added.
+
+### Deferred
+
+- full official parser/chunker/BM25/vector artifact build;
+- any relationship extraction or non-empty graph;
+- leakage-safe train/dev split and fine-tuning experiments;
+- official-compatible scorer implementation and final model benchmarking.
+
+### Done When
+
+- adapter accepts every official record and rejects unobserved schema drift;
+- normalized and cleaned outputs have identical ID/order/count and lineage;
+- full corpus audit records exact counts and deterministic cleaning statistics;
+- targeted and full local test suites pass.
+
+---
+
+## 41. Milestone Execution Rules
 
 Mỗi milestone phải:
 

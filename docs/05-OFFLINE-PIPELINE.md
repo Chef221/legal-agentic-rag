@@ -732,15 +732,15 @@ Offline pipeline phải:
 
 ## 16. Runtime Assembly
 
-M26 đã có official ZIP/directory loader, context adapter, audit và ingestion
-manifests nhưng chưa có full offline composition root. Pipeline mục tiêu sau
-khi audit corpus BTC thật là:
+Official ZIP/directory loader, context adapter, audit, dataset-specific cleaner
+và resumable offline composition root đã có. Pipeline đã chốt sau audit corpus
+BTC thật là:
 
 ```text
 Official competition context snapshot
 → audit
-→ normalize documents
-→ plain-text pass-through (không sửa passage)
+→ normalize documents (giữ raw passage hợp lệ)
+→ UIT DSC passage cleaner
 → parse legal blocks
 → legal chunks
 → normalize relationships
@@ -754,8 +754,10 @@ SHA-256. Relationship/BM25/vector/graph tiếp tục dùng artifact store riêng
 từng module. Tất cả directory nằm dưới configured `ArtifactConfig.root_path`;
 future runtime preflight phải từ chối overwrite trước khi load dataset.
 
-Execution strategy, streaming, relationship handling và checkpoint policy chưa
-được chốt cho corpus mới; chúng phải dựa trên inventory và đo memory thật.
+Corpus audit xác nhận 8.532 records, trong đó 20 blank passages và 1.125 missing
+titles. Cleaner chuẩn hóa NFC/newline/line whitespace, loại known HTML
+presentation markup và exact TVPL Pro notice; không drop record hoặc suy diễn
+metadata. Relationship artifact và graph giữ rỗng vì source không có edge.
 
 Mỗi processed stage phải được persist/checksum ngay sau khi tạo. Runtime tương
 lai phải giải phóng stage không còn consumer và không giữ toàn corpus trong RAM.
@@ -854,8 +856,8 @@ corpus -> document_processing -> bm25 -> vector -> validation
 application-config SHA-256, code version, timestamps, and completed stage
 prefix. Resume validates already-published payloads before reuse.
 
-The corpus stage persists provenance, audit, normalized and plain-text
-pass-through documents, a zero-record relationship artifact, and a zero-edge
+The corpus stage persists provenance, audit, raw-preserving normalized documents
+and dataset-specifically cleaned documents, a zero-record relationship artifact, and a zero-edge
 graph. Empty relationships are truthful because the documented official fields
 contain no relationship information. Document processing remains streaming,
 BM25 remains disk-backed, and vector build retains `.vector.partial` batch

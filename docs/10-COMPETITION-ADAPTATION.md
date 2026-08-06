@@ -19,8 +19,8 @@ Context raw schema được mô tả bằng `id`, `name`, `link`, `passage`.
 Contract chi tiết và audit checklist nằm tại
 `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`. Ví dụ overview dùng numeric `id`,
 slug-like `name`, source URL và passage chứa full legal structure/newline noise.
-Không được suy ra rằng ID luôn là string hoặc corpus không có field bổ sung
-trước khi audit archive thật.
+Archive thật đã được audit: ID là integer, `name` là optional và không có raw
+field nào ngoài `id/name/link/passage`.
 
 Phản hồi chính thức của BTC ngày 2026-08-01 xác nhận thêm:
 
@@ -97,11 +97,19 @@ Official JSON
 ```
 
 Loader hiện kiểm tra duplicate JSON keys, unknown fields, missing fields,
-duplicate context IDs và blank values. Loader giữ nguyên legal text hợp lệ.
+duplicate/canonical-collision context IDs và invalid values. Raw integer/string
+ID được canonicalize sang string; missing `name` và blank `passage` là hai biến
+thể hợp lệ đã quan sát được. Loader giữ nguyên legal text tại raw boundary.
 
 M26 map một `CompetitionContext` sang một `LegalDocument` theo D069. Legal
 structure và chunks chỉ được tạo bởi parser/chunker reusable; adapter không tự
 suy diễn Điều, Khoản hoặc metadata pháp lý còn thiếu.
+
+Cleaner dataset-specific chạy sau mapping: giữ normalized artifact nguyên văn,
+đồng thời tạo cleaned artifact bằng NFC/newline/whitespace normalization, loại
+known HTML presentation markup và exact audited TVPL Pro notice. Cleaner không
+drop duplicate/blank records và không xóa repeated opening sequences chưa đủ
+an toàn.
 
 ## 5. Warm-up Adaptation
 
@@ -124,20 +132,20 @@ Có thể dùng ngay để:
 
 Không được dùng warm-up answer để giả lập relevant document/chunk IDs.
 
-## 6. Corpus Adaptation When Released
+## 6. Released Corpus Adaptation
 
-Sau khi nhận `selected-contexts.zip`:
+Audit `selected-contexts.zip` ngày 2026-08-06 đã hoàn thành:
 
 1. checksum và inventory archive;
 2. audit encoding, JSON root shape, field types, nulls, duplicates và counts;
-3. xác định một context là document, passage hay retrieval unit;
+3. xác định một context là organizer-selected document source;
 4. chốt deterministic ID mapping;
 5. map sang unified schema;
-6. quyết định có cần cleaner/parser/chunker hay không;
-7. build mới BM25/vector và graph rỗng nếu không có relationships;
-8. persist manifests với official lineage;
-9. validate artifact set;
-10. benchmark end-to-end.
+6. áp dụng cleaner đã audit, sau đó tái sử dụng parser/chunker;
+7. chưa build BM25/vector trong milestone adapter/cleaner này;
+8. graph baseline giữ zero-edge vì không có relationships;
+9. normalized/cleaned manifests pin canonical official lineage;
+10. full index build và benchmark là bước kế tiếp riêng.
 
 Không tái sử dụng index từ corpus khác.
 
@@ -147,7 +155,7 @@ The accepted M26 mapping is one context file to one unified document:
 id      -> document_id
 name    -> title
 link    -> source_url
-passage -> clean_text
+passage -> normalized clean_text -> dataset-specific cleaned clean_text
 ```
 
 Raw numeric/string `id` phải được competition adapter canonicalize sang unified
@@ -175,9 +183,12 @@ count của toàn bộ model active. Inventory tối thiểu gồm model ID, URL
 vai trò, license, parameter count, nguồn xác minh count và trạng thái đăng ký
 BTC. Thiếu count hoặc tổng từ 4 tỷ trở lên phải fail closed.
 
-BTC đã xác nhận fine-tuning được phép nếu chỉ sử dụng dữ liệu chính thức. Quyền
-này không tự tạo ra supervision: chỉ fine-tune khi train schema thật cung cấp
-nhãn phù hợp, có split/leakage control và không sinh synthetic examples.
+BTC đã xác nhận fine-tuning được phép nếu chỉ sử dụng dữ liệu chính thức.
+`train.json` thật có 7.000 question/answer records nhưng không có evidence label;
+warm-up trùng exact 387/500 records với train và public có 41 normalized-question
+overlaps với train/warm-up. Vì vậy generator experiments cần split/leakage policy
+riêng; retrieval/reranker training không được suy diễn pseudo labels từ answers
+và không được sinh synthetic examples.
 
 Không fine-tune retriever nếu chỉ có answer text mà không có supervision phù
 hợp. Thay embedding model yêu cầu re-embed và rebuild vector index.
@@ -278,8 +289,8 @@ or prediction text.
 
 ## 13. Remaining Questions
 
-1. Khi nào `selected-contexts.zip` và `train.json` được mở?
-2. Form đăng ký model yêu cầu trạng thái khai báo hay phê duyệt?
+1. Model nào trong inventory đã được BTC phê duyệt chính thức?
+2. Public/private có giữ nguyên scorer checksum và dependency/resources không?
 3. Môi trường chấm cuối có Internet không, ngoài việc BTC đã cho phép tải trọng
    số model hợp lệ để tái lập?
 4. Có giới hạn GPU, RAM, disk, thời gian hoặc số submission không?

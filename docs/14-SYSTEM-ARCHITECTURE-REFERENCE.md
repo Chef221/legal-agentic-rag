@@ -20,9 +20,9 @@ Scorer BTC được mô tả tại
 | Hạng mục | Trạng thái |
 |---|---|
 | Unified schemas, configuration, contracts | Đã triển khai |
-| Competition loader/adapter/audit | Đã triển khai; raw numeric context ID chưa được code hỗ trợ |
+| Competition loader/adapter/audit/cleaner | Đã triển khai và xác nhận trên 8.532 context thật |
 | Parser, chunker, BM25, vector index | Đã triển khai và có test fixture |
-| Official BTC corpus build | Chưa chạy vì chưa có/audit `selected-contexts.zip` thật |
+| Official BTC corpus build | Adapter/cleaner audit đã chạy; parser/index build chưa chạy |
 | Hybrid RRF và reranker | Đã triển khai |
 | Graph backend/retrieval | Đã triển khai generic; official graph hiện bắt buộc rỗng vì BTC chưa cung cấp relationships |
 | Grounded generation, grading, verification | Đã triển khai |
@@ -38,7 +38,9 @@ Scorer BTC được mô tả tại
 flowchart TB
     subgraph OFFLINE[Offline build]
         RAW[Official BTC files] --> ADAPTER[Competition loader + adapter]
-        ADAPTER --> DOCS[Unified LegalDocument]
+        ADAPTER --> RAWDOCS[Raw-preserving LegalDocument]
+        RAWDOCS --> CLEAN[UIT DSC passage cleaner]
+        CLEAN --> DOCS[Cleaned LegalDocument]
         DOCS --> PARSER[Legal structure parser]
         PARSER --> CHUNKS[Legal chunker + validator]
         CHUNKS --> BM25[SQLite FTS5 BM25]
@@ -100,18 +102,18 @@ selected-contexts.zip
 
 ## 5. Technical statistics
 
-Số liệu được đo từ working tree ngày 2026-08-04:
+Số liệu được đo từ working tree ngày 2026-08-06:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.35.0` |
+| Project version | `0.36.0` |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
-| Source Python files | 139 |
-| Source lines | 20,435 |
-| Test Python files | 99 |
-| Test lines | 11,020 |
-| Test functions | 375 |
+| Source Python files | 140 |
+| Source lines | 20,850 |
+| Test Python files | 100 |
+| Test lines | 11,190 |
+| Test functions | 383 |
 | Public CLI commands | 9 |
 | Fixed Agent tools | 8 |
 
@@ -558,12 +560,10 @@ service và invalid user input. Serving map chúng sang lỗi HTTP đã sanitize
 
 ## 17. Known gaps and next gates
 
-1. Raw context example dùng numeric `id`, nhưng current Pydantic
-   `CompetitionContext.context_id` và loader còn strict string-only.
-2. Chưa audit byte thật của `selected-contexts.zip`, nên chưa chốt unknown-field,
-   record count, duplicate policy và context là full document hay excerpt.
-3. Official graph hiện zero-edge; không được kỳ vọng graph cải thiện retrieval.
-4. Chưa có official relevance labels nên chưa fine-tune retriever/reranker.
+1. Official graph hiện zero-edge; không được kỳ vọng graph cải thiện retrieval.
+2. Chưa có official relevance labels nên chưa fine-tune retriever/reranker.
+3. Warm-up/train/public có overlap; train/dev strategy phải chống leakage.
+4. Full parser/chunker/BM25/vector artifact build chưa chạy trên corpus BTC.
 5. Model inventory, parameter count aggregate, license review và BTC registration
    chưa hoàn tất.
 6. Chưa biết GPU/RAM/disk/time/network của môi trường chấm cuối.

@@ -65,13 +65,23 @@ Hệ thống phải có khả năng:
 
 ## 3. Current Competition Context
 
-BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview và
-`warmup.json`. Các thông tin đã xác nhận:
+BTC UIT Data Science Challenge 2026 Task 2 đã công bố data overview,
+`warmup.json`, `train.json`, `public-official.json` và
+`selected-contexts.zip`. Các thông tin đã xác nhận:
 
 - input là câu hỏi pháp luật tiếng Việt;
 - output là câu trả lời văn xuôi tiếng Việt;
-- corpus chính thức dự kiến nằm trong `selected-contexts.zip`;
-- các context có các trường raw `id`, `name`, `link`, `passage`;
+- corpus chính thức nằm trong `selected-contexts.zip`, có 8.532 context và
+  canonical revision
+  `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`;
+- context có raw fields bắt buộc `id`, `link`, `passage`; `name` optional;
+- raw context ID trong archive là non-negative integer và được adapter
+  canonicalize sang unified string ID;
+- 20 passage rỗng, 1.125 context thiếu name; không drop hoặc phát minh dữ liệu;
+- `train.json` có 7.000 answer-labeled records, public có 1.000 question-only
+  records và không có evidence/relevance labels;
+- warm-up/train/public có overlap, nên mọi split/evaluation phải kiểm soát
+  leakage;
 - dữ liệu theo giai đoạn gồm warm-up, public test và private test;
 - METEOR là metric xếp hạng chính, ROUGE-L là metric phụ;
 - source scorer BTC checksum
@@ -113,7 +123,7 @@ Các nội dung vẫn chưa được xác nhận đầy đủ:
   đúng scorer checksum đã phân tích; lỗi WordNet warm-up đã được BTC sửa;
 - giới hạn GPU, RAM, disk, thời gian thực thi và Internet trong môi trường chấm;
 - Google Form và quy trình xác nhận đăng ký model;
-- toàn bộ train data và corpus chính thức.
+- private-test data và thay đổi dữ liệu/scorer ở phase sau.
 
 Core không được gắn cứng với raw schema của BTC. Mọi dữ liệu competition phải
 đi qua adapter, evaluator và output boundary.
@@ -142,8 +152,10 @@ Chính sách mặc định là competition-only và fail-closed:
 - không dùng synthetic QA làm gold benchmark;
 - không tạo bất kỳ synthetic QA, answer, evidence, hard negative hoặc training
   example nào, kể cả từ dữ liệu BTC;
-- `warmup.json` chỉ là answer-level supervision/evaluation data;
-- chưa tạo corpus/index mới trước khi kiểm tra `selected-contexts.zip` thật.
+- `warmup.json` và `train.json` chỉ là answer-level supervision/evaluation data,
+  không phải retrieval labels;
+- archive thật đã được audit; official index chỉ được build từ canonical
+  revision nêu trên hoặc revision mới đã audit lại.
 
 Code, config, fixture và test dành riêng cho AIO được loại khỏi active tree.
 Git history có thể giữ dấu vết lịch sử nhưng không được runtime import hoặc sử
@@ -1357,8 +1369,8 @@ Nếu test chưa chạy được, milestone chưa được xem là hoàn thành.
 Trạng thái hiện tại:
 
 ```text
-Milestone 36 — Official Scoring Source Analysis
-(Documentation Completed; Official-compatible Evaluator, Raw-ID Fix, Corpus and Model Form Pending)
+Milestone 37 — Official Data Adapter and Passage Cleaner
+(Adapter/Cleaner Completed; Official Index Build and Model Experiments Pending)
 ```
 
 Milestone 1 đã tạo:
@@ -1955,9 +1967,8 @@ Milestone 34 đã ghi nhận thông báo BTC mới nhất:
 
 Milestone 35 đã ghi nhận toàn bộ data overview của BTC tại
 `docs/13-UIT-DSC-2026-DATA-CONTRACT.md`, gồm task contract, resource names, QA và
-context raw schema, metric, graph implication và checklist audit. Overview dùng
-numeric context ID trong ví dụ; adapter hiện còn strict string-only nên phải sửa
-và test ở bước implementation riêng trước official corpus build.
+context raw schema, metric, graph implication và checklist audit. Milestone 37
+đã thay các giả định từ overview bằng kết quả audit archive thật.
 
 Milestone 36 đã phân tích read-only source scorer BTC:
 
@@ -1973,6 +1984,23 @@ Milestone 36 đã phân tích read-only source scorer BTC:
 
 Milestone 36 chưa implement official-compatible scoring mode và chưa pin exact
 NLTK/NumPy/WordNet identities vì scorer ZIP không chứa dependency lock.
+
+Milestone 37 đã hoàn thành:
+
+- audit read-only `train.json`, `public-official.json` và
+  `selected-contexts.zip` thật;
+- canonical corpus revision
+  `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`;
+- adapter cho numeric/string ID, optional `name`, blank `passage` và strict
+  audited field sets;
+- raw-preserving normalized artifact và dataset-specific cleaned artifact;
+- cleaner versioned cho NFC/newline/line whitespace, known HTML presentation
+  markup và exact TVPL Pro notice;
+- graph vẫn zero-edge; không tạo retrieval labels hoặc synthetic data;
+- version `0.36.0`, không thêm dependency.
+
+Milestone 37 chưa build full parser/chunker/BM25/vector artifacts, chưa chạy
+model experiment và chưa implement official-compatible scorer.
 
 ---
 
