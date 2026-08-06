@@ -1,6 +1,6 @@
 {
   "artifacts": {
-    "root_path": "artifacts/uit-dsc-2026-task2"
+    "root_path": "artifacts/uit-dsc-2026-task2-v0381"
   },
   "competition": {
     "competition_id": "uit-dsc-2026-task2",
@@ -11,7 +11,15 @@
     "require_official_artifact_lineage": true,
     "source_authority": "UIT Data Science Challenge 2026 Task 2 organizers"
   },
-  "offline": {},
+  "offline": {
+    "chunking": {
+      "max_tokens": 384,
+      "max_search_tokens": 448,
+      "min_tokens": 50,
+      "overlap_tokens": 50,
+      "tokenizer_name": "unicode_word_v1"
+    }
+  },
   "online": {
     "query_understanding": {
       "enabled": true,

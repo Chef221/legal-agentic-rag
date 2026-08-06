@@ -5,10 +5,12 @@ Task 2 — Legal Question Answering.
 
 ## Trạng thái
 
-Milestone hiện tại là **M37 — Official Data Adapter and Passage Cleaner**.
-`train.json`, `public-official.json` và `selected-contexts.zip` đã được audit;
-adapter/cleaner chính thức đã hoàn thành. Full BM25/vector build và model
-experiments vẫn là bước riêng tiếp theo.
+Milestone hiện tại là **M39 — Official Pre-GPU Quality Hardening** và đã hoàn
+thành phần CPU. `train.json`, `public-official.json` và
+`selected-contexts.zip` đã được audit; cleaner/parser/chunker đã được làm cứng
+trên corpus official-only và BM25 đã build/reload thành công. Cổng kế tiếp là
+exact tokenizer preflight của embedding model đã đăng ký trước khi dùng GPU để
+build vector.
 
 Thành viên mới nên bắt đầu tại
 [`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md). Tài liệu này giải
@@ -97,7 +99,19 @@ legal-rag-compare
 ```
 
 Build CLI mới chỉ nhận ZIP/thư mục context chính thức, persist theo stage và
-resume khi source/config/code identity khớp. Batch CLI ghi output nội bộ có
+resume khi source/config/code identity khớp. Có thể dừng ngay sau parser/chunker
+mà không khởi tạo embedding model hoặc build index:
+
+```text
+legal-rag-build-competition \
+  --config <config.json> \
+  --source <selected-contexts.zip> \
+  --through document_processing
+```
+
+Lần chạy sau với cùng source, config, code version và không truyền `--through`
+sẽ xác minh blocks/chunks đã persist rồi resume BM25, vector và validation.
+Batch CLI ghi output nội bộ có
 checkpoint và completeness manifest. Tạo file nộp sau khi batch hoàn tất bằng:
 
 ```text

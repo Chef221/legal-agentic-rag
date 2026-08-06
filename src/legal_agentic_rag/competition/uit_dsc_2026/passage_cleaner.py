@@ -9,7 +9,7 @@ from html.parser import HTMLParser
 import re
 import unicodedata
 
-_CLEANER_VERSION = "1.0"
+_CLEANER_VERSION = "1.2"
 _TVPL_PRO_NOTICE = (
     "Bạn phải đăng nhập hoặc đăng ký Thành Viên TVPL Pro để sử dụng được đầy "
     "đủ các tiện ích gia tăng liên quan đến nội dung TCVN.Mọi chi tiết xin "
@@ -27,6 +27,7 @@ _BLOCK_TAGS = frozenset(
         "h1",
         "h2",
         "h3",
+        "huongdan",
         "li",
         "ol",
         "p",
@@ -45,6 +46,30 @@ _KNOWN_TAGS = _IGNORED_SUBTREES | _BLOCK_TAGS | _INLINE_TAGS | _VOID_TAGS
 _KNOWN_MARKUP = re.compile(
     rf"<\s*/?\s*(?:{'|'.join(sorted(_KNOWN_TAGS))})(?:\s[^<>]*?)?/?>",
     re.IGNORECASE,
+)
+_NAKED_SCRIPT_BLOCK_START = re.compile(
+    r"^\s*(?:"
+    r"\$\(document\)\.ready\s*\(\s*function\s*\(\)\s*\{|"
+    r"function\s+(?:DeleteDoc|ScrollNoiDungTA|ShowGuid|ShowPopupVBTraiNgiem)"
+    r"\s*\([^)]*\)\s*\{|"
+    r"(?:\.download\s+\.divAttachFiles|\.huong-dan-dieu-khoan(?:-d)?)"
+    r"\s*(?:\{)?"
+    r")",
+    re.IGNORECASE,
+)
+_NAKED_SCRIPT_SINGLE_LINE = re.compile(
+    r"^\s*(?:"
+    r"var\s+(?:breadcrumbs|_scrollTopNoiDung(?:TA)?)\s*=|"
+    r"_gaq\.push\s*\("
+    r")",
+    re.IGNORECASE,
+)
+_AUDITED_WEB_UI_LINES = frozenset(
+    {
+        "Bản án liên quan",
+        "Hỏi đáp pháp luật",
+        "PHÁP LUẬT DOANH NGHIỆP",
+    }
 )
 
 
@@ -158,14 +183,19 @@ class UitDsc2026PassageCleaner:
     def clean(self, passage: str) -> PassageCleaningResult:
         """Return deterministic clean text without interpreting legal meaning."""
         without_boilerplate, occurrence_count = self._remove_boilerplate(passage)
-        html_markup_removed = bool(_KNOWN_MARKUP.search(without_boilerplate))
-        visible = (
-            self._remove_known_markup(without_boilerplate)
-            if html_markup_removed
-            else without_boilerplate
+        newline_normalized = "\r" in without_boilerplate
+        without_naked_script, naked_script_removed = self._remove_naked_script(
+            without_boilerplate
         )
+        html_markup_removed = bool(_KNOWN_MARKUP.search(without_naked_script))
+        visible = (
+            self._remove_known_markup(without_naked_script)
+            if html_markup_removed
+            else without_naked_script
+        )
+        if naked_script_removed:
+            visible = self._remove_audited_web_ui_lines(visible)
         unicode_normalized = visible != unicodedata.normalize("NFC", visible)
-        newline_normalized = "\r" in visible
         clean_text = self._normalize_text(visible)
         return PassageCleaningResult(
             text=clean_text,
@@ -185,6 +215,11 @@ class UitDsc2026PassageCleaner:
             "unicode_normalization": "NFC",
             "known_html_tags": sorted(_KNOWN_TAGS),
             "ignored_html_subtrees": sorted(_IGNORED_SUBTREES),
+            "naked_script_block_start_patterns": [
+                _NAKED_SCRIPT_BLOCK_START.pattern,
+                _NAKED_SCRIPT_SINGLE_LINE.pattern,
+            ],
+            "audited_web_ui_lines": sorted(_AUDITED_WEB_UI_LINES),
             "boilerplate_sha256": sha256(
                 _TVPL_PRO_NOTICE.encode("utf-8")
             ).hexdigest(),
@@ -207,6 +242,89 @@ class UitDsc2026PassageCleaner:
         parser.feed(value)
         parser.close()
         return parser.text
+
+    @staticmethod
+    def _remove_naked_script(value: str) -> tuple[str, bool]:
+        """Remove only balanced JavaScript blocks audited in official passages."""
+        lines = value.splitlines()
+        kept: list[str] = []
+        index = 0
+        removed = False
+        while index < len(lines):
+            line = lines[index]
+            if _NAKED_SCRIPT_SINGLE_LINE.match(line):
+                removed = True
+                index += 1
+                continue
+            if not _NAKED_SCRIPT_BLOCK_START.match(line):
+                kept.append(line)
+                index += 1
+                continue
+
+            end = UitDsc2026PassageCleaner._balanced_script_end(lines, index)
+            if end is None:
+                # Fail closed: an unbalanced candidate may contain legal text later.
+                kept.append(line)
+                index += 1
+                continue
+            removed = True
+            index = end + 1
+        return "\n".join(kept), removed
+
+    @staticmethod
+    def _balanced_script_end(lines: list[str], start: int) -> int | None:
+        depth = 0
+        opened = False
+        for index in range(start, len(lines)):
+            delta, saw_open = UitDsc2026PassageCleaner._javascript_brace_delta(
+                lines[index]
+            )
+            depth += delta
+            opened = opened or saw_open
+            if opened and depth <= 0:
+                return index
+        return None
+
+    @staticmethod
+    def _javascript_brace_delta(line: str) -> tuple[int, bool]:
+        """Count structural braces while ignoring quoted JavaScript strings."""
+        depth = 0
+        saw_open = False
+        quote: str | None = None
+        escaped = False
+        index = 0
+        while index < len(line):
+            character = line[index]
+            if escaped:
+                escaped = False
+                index += 1
+                continue
+            if quote is not None:
+                if character == "\\":
+                    escaped = True
+                elif character == quote:
+                    quote = None
+                index += 1
+                continue
+            if character in {"'", '"', "`"}:
+                quote = character
+            elif character == "/" and index + 1 < len(line) and line[index + 1] == "/":
+                break
+            elif character == "{":
+                depth += 1
+                saw_open = True
+            elif character == "}":
+                depth -= 1
+            index += 1
+        return depth, saw_open
+
+    @staticmethod
+    def _remove_audited_web_ui_lines(value: str) -> str:
+        return "\n".join(
+            line
+            for line in value.splitlines()
+            if line.strip() not in _AUDITED_WEB_UI_LINES
+        )
 
     @staticmethod
     def _normalize_text(value: str) -> str:

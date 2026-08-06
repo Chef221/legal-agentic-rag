@@ -33,7 +33,7 @@ from legal_agentic_rag.runtime.competition_offline import (
     CompetitionOfflineBuildRuntime,
 )
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
-from legal_agentic_rag.schemas import ArtifactType
+from legal_agentic_rag.schemas import ArtifactType, CompetitionBuildStage
 from legal_agentic_rag.serving.api import create_app
 from legal_agentic_rag.serving.config_loader import load_application_config
 from legal_agentic_rag.serving.query_service import ServingService
@@ -46,13 +46,20 @@ def competition_build_main() -> None:
     arguments = _competition_build_parser().parse_args()
     config = load_application_config(arguments.config)
     configure_logging(config.logging)
-    result = CompetitionOfflineBuildRuntime(config, arguments.source).build()
+    result = CompetitionOfflineBuildRuntime(config, arguments.source).build(
+        through=arguments.through
+    )
     _LOGGER.info(
         "competition_build_command_completed",
         extra={
             "stage_count": len(result.completed_stages),
+            "through_stage": arguments.through.value,
             "resumed": result.resumed,
-            "is_valid": result.validation_report.is_valid,
+            "is_valid": (
+                result.validation_report.is_valid
+                if result.validation_report is not None
+                else None
+            ),
         },
     )
 
@@ -66,9 +73,7 @@ def competition_batch_main() -> None:
     service = ServingService(runtime, config.serving, config.online)
     manifest = CompetitionBatchRunner(
         service,
-        application_config_hash=canonical_sha256(
-            config.model_dump(mode="json")
-        ),
+        application_config_hash=canonical_sha256(config),
     ).run(arguments.questions, arguments.output)
     _LOGGER.info(
         "competition_batch_command_completed",
@@ -251,6 +256,16 @@ def _competition_build_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="Official selected-contexts ZIP or extracted directory.",
+    )
+    parser.add_argument(
+        "--through",
+        type=CompetitionBuildStage,
+        choices=list(CompetitionBuildStage),
+        default=CompetitionBuildStage.VALIDATION,
+        help=(
+            "Last durable stage to build. Use document_processing to stop "
+            "after parser/chunker artifacts; default: validation."
+        ),
     )
     return parser
 

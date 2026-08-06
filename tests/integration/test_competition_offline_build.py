@@ -15,6 +15,7 @@ from legal_agentic_rag.configuration import (
     OnlineConfig,
     VectorIndexConfig,
 )
+from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.runtime.competition_offline import (
     CompetitionOfflineBuildRuntime,
 )
@@ -42,6 +43,16 @@ class _InterruptedGraph(AdjacencyGraphBackend):
     def persist(self, destination):  # type: ignore[no-untyped-def]
         del destination
         raise RuntimeError("graph interrupted")
+
+
+class _UnexpectedEmbeddingProvider:
+    def embed_documents(self, texts, *, batch_size):  # type: ignore[no-untyped-def]
+        del texts, batch_size
+        raise AssertionError("document-processing build must not embed chunks")
+
+    def embed_query(self, text):  # type: ignore[no-untyped-def]
+        del text
+        raise AssertionError("document-processing build must not embed queries")
 
 
 def _config(root: Path) -> ApplicationConfig:
@@ -103,6 +114,52 @@ def test_official_build_persists_valid_artifacts_and_resumes(tmp_path: Path) -> 
     graph = json.loads((root / "graph" / "graph.json").read_text(encoding="utf-8"))
     assert graph["relationships"] == []
     assert graph["document_ids"] == ["1", "2"]
+
+
+def test_official_build_can_stop_after_parser_and_chunker_then_resume(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "contexts"
+    root = tmp_path / "artifacts"
+    _corpus(source)
+    config = _config(root)
+
+    partial = CompetitionOfflineBuildRuntime(
+        config,
+        source,
+        embedding_provider=_UnexpectedEmbeddingProvider(),
+    ).build(through=CompetitionBuildStage.DOCUMENT_PROCESSING)
+
+    assert partial.completed_stages == [
+        CompetitionBuildStage.CORPUS,
+        CompetitionBuildStage.DOCUMENT_PROCESSING,
+    ]
+    assert partial.validation_report is None
+    assert (root / "legal_blocks" / "manifest.json").is_file()
+    assert (root / "legal_chunks" / "manifest.json").is_file()
+    assert not (root / "bm25").exists()
+    assert not (root / "vector").exists()
+    assert not (root / "build_validation.json").exists()
+
+    completed = CompetitionOfflineBuildRuntime(
+        config,
+        source,
+        embedding_provider=_EmbeddingProvider(),
+    ).build()
+
+    assert completed.resumed is True
+    assert completed.completed_stages == list(CompetitionBuildStage)
+    assert completed.validation_report is not None
+    assert completed.validation_report.is_valid is True
+
+
+def test_official_build_uses_canonical_typed_application_config_hash(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path / "artifacts")
+    runtime = CompetitionOfflineBuildRuntime(config, tmp_path / "contexts")
+
+    assert runtime._config_hash() == canonical_sha256(config)
 
 
 def test_official_build_recovers_a_partially_persisted_corpus_stage(

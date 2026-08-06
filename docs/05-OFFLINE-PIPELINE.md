@@ -407,18 +407,22 @@ Milestone 6 chỉ nhận unified `LegalDocument`, `LegalBlock` và manifest
   Khoản liên tiếp và không vượt giới hạn;
 - nếu một legal unit vẫn quá dài, tokenizer `unicode_word_v1` tạo sliding
   windows với overlap cấu hình;
-- block ngoài Điều tạo standalone chunk để không mất preamble, heading, phụ
-  lục, table hoặc văn bản không cấu trúc;
-- defaults baseline là `max_tokens=512`, `min_tokens=50`,
-  `overlap_tokens=50`; `min_tokens` là ngưỡng cảnh báo, không phải lý do xóa
-  chunk hợp lệ;
+- `Phần/Chương/Mục/Tiểu mục` liên tiếp được gắn vào retrieval unit nội dung kế
+  tiếp; heading cuối tài liệu không có consumer vẫn được giữ thành standalone
+  chunk để bảo toàn source-block coverage;
+- block ngoài Điều còn lại tạo standalone chunk để không mất preamble, phụ lục,
+  table hoặc văn bản không cấu trúc;
+- defaults official baseline là `max_tokens=384`, `max_search_tokens=448`,
+  `min_tokens=50`, `overlap_tokens=50`; `min_tokens` là ngưỡng cảnh báo, không
+  phải lý do xóa chunk hợp lệ;
 - chunk ID là content hash deterministic; `chunk_index` liên tục theo từng
   document;
 - mỗi chunk giữ source block IDs, strategy, tokenizer, split index/count,
   inherited document metadata và `LegalStructure`;
-- `search_text` chỉ thêm metadata/hierarchy có thật và preserved chunk text;
-- validator kiểm tra ID, token count/limit, source-block coverage, metadata
-  inheritance và chunk ordering;
+- `search_text` luôn giữ nguyên toàn bộ chunk text; metadata/hierarchy có thật
+  chỉ được thêm khi còn nằm trong `max_search_tokens`;
+- validator kiểm tra ID, chunk/search token count, content preservation,
+  source-block coverage, metadata inheritance và chunk ordering;
 - output là `LegalChunkingResult` in-memory cùng manifest `legal_chunks`;
   persistence writer tiếp tục trì hoãn tới khi artifact storage format được
   phê duyệt.
@@ -426,6 +430,11 @@ Milestone 6 chỉ nhận unified `LegalDocument`, `LegalBlock` và manifest
 `unicode_word_v1` không được xem là tokenizer của embedding model hoặc LLM.
 Khi model chính thức được chọn, tokenizer/config và artifacts phải được đánh
 giá lại, version và rebuild rõ ràng.
+
+`max_search_tokens=448` là budget proxy có chừa headroom cho prefix/provider
+tokens của model 512-token hiện tại. Đây không phải bằng chứng tokenizer parity;
+trước GPU build phải chạy exact tokenizer preflight của embedding model đã đăng
+ký và fail nếu bất kỳ input nào bị truncate.
 
 ### 7.5 Token Split Fallback
 
@@ -862,6 +871,34 @@ graph. Empty relationships are truthful because the documented official fields
 contain no relationship information. Document processing remains streaming,
 BM25 remains disk-backed, and vector build retains `.vector.partial` batch
 checkpoints. Final validation still requires all eight artifact types.
+
+Từ version `0.37.0`, CLI nhận `--through` để dừng ở một durable stage. Target
+`document_processing` chạy chính xác:
+
+```text
+corpus audit/normalize/clean
+→ legal structure parser
+→ legal chunker
+→ checksum legal_blocks/legal_chunks
+→ stop
+```
+
+Chế độ này không khởi tạo embedding provider, không build BM25/vector và không
+tạo `build_validation.json`, vì report cuối chỉ hợp lệ khi đủ toàn bộ artifact.
+`competition_build_state.json` vẫn ghi ordered completed-stage prefix. Lần chạy
+sau với cùng source revision, application-config hash và code version xác minh
+lại payload đã persist rồi resume từ BM25. Destination không tương thích tiếp
+tục fail closed và không bị overwrite.
+
+Measured run ngày 2026-08-06 trên canonical corpus revision tạo 1.215.092 legal
+blocks và 335.014 legal chunks từ 8.532 documents. Source/covered non-whitespace
+characters đều là 261.550.497; 7.637 documents có recognized structure, 875
+documents không có explicit marker và đúng 20 blank documents không có chunk.
+Chunk strategies gồm 131.806 article, 73.914 clause-group, 87.623 token-fallback
+và 41.671 standalone chunks. Hai run độc lập tạo cùng payload SHA-256 cho blocks
+và chunks; invocation thứ hai trên root hợp lệ chỉ verify/resume trong khoảng
+11 giây. Số liệu thời gian full stage phụ thuộc CPU/I/O và không phải benchmark
+phần cứng chuẩn của BTC.
 
 ### 17.4 Resumable Vector Batches
 

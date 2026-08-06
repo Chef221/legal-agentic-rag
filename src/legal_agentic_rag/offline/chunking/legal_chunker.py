@@ -34,6 +34,14 @@ from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 
 Clock = Callable[[], datetime]
 _LOGGER = logging.getLogger(__name__)
+_CONTEXT_HEADING_TYPES = frozenset(
+    {
+        LegalBlockType.PART,
+        LegalBlockType.CHAPTER,
+        LegalBlockType.SECTION,
+        LegalBlockType.SUBSECTION,
+    }
+)
 
 
 @dataclass
@@ -219,16 +227,32 @@ class LegalChunker:
                 children[block.parent_block_id].append(block)
         consumed: set[str] = set()
         drafts: list[_ChunkDraft] = []
+        pending_context: list[LegalBlock] = []
         for block in blocks:
             if block.block_id in consumed:
+                continue
+            if block.block_type in _CONTEXT_HEADING_TYPES:
+                pending_context.append(block)
+                consumed.add(block.block_id)
                 continue
             if block.block_type == LegalBlockType.ARTICLE:
                 article_blocks = self._subtree(block, children)
                 consumed.update(item.block_id for item in article_blocks)
-                drafts.extend(self._article_drafts(block, article_blocks, children))
+                drafts.extend(
+                    self._article_drafts(
+                        block,
+                        article_blocks,
+                        children,
+                        context_blocks=pending_context,
+                    )
+                )
+                pending_context = []
             else:
                 consumed.add(block.block_id)
-                drafts.extend(self._standalone_drafts([block]))
+                drafts.extend(self._standalone_drafts([*pending_context, block]))
+                pending_context = []
+        if pending_context:
+            drafts.extend(self._standalone_drafts(pending_context))
         return [
             self._legal_chunk(document, draft, chunk_index)
             for chunk_index, draft in enumerate(drafts)
@@ -239,12 +263,16 @@ class LegalChunker:
         article: LegalBlock,
         article_blocks: list[LegalBlock],
         children: dict[str, list[LegalBlock]],
+        *,
+        context_blocks: list[LegalBlock] | None = None,
     ) -> list[_ChunkDraft]:
-        article_text = self._join_blocks(article_blocks)
+        context = list(context_blocks or [])
+        all_blocks = [*context, *article_blocks]
+        article_text = self._join_blocks(all_blocks)
         if self._tokenizer.count(article_text) <= self._config.max_tokens:
-            return [_ChunkDraft(article_blocks, article_text, "article")]
+            return [_ChunkDraft(all_blocks, article_text, "article")]
 
-        units: list[list[LegalBlock]] = [[article]]
+        units: list[list[LegalBlock]] = [[*context, article]]
         for child in sorted(
             children[article.block_id], key=lambda block: block.order_index
         ):
@@ -337,12 +365,14 @@ class LegalChunker:
             draft.split_index,
             draft.text,
         )
+        search_text = self._search_text(document, structure, draft.text)
+        search_text_token_count = self._tokenizer.count(search_text)
         return LegalChunk(
             chunk_id=chunk_id,
             document_id=document.document_id,
             chunk_index=chunk_index,
             text=draft.text,
-            search_text=self._search_text(document, structure, draft.text),
+            search_text=search_text,
             token_count=self._tokenizer.count(draft.text),
             structure=structure,
             document_title=document.title,
@@ -363,6 +393,7 @@ class LegalChunker:
                 ],
                 "chunk_strategy": draft.strategy,
                 "tokenizer_name": self._config.tokenizer_name,
+                "search_text_token_count": search_text_token_count,
                 "split_index": draft.split_index,
                 "split_count": draft.split_count,
             },
@@ -406,8 +437,8 @@ class LegalChunker:
         )
         return LegalStructure.model_validate(payload)
 
-    @staticmethod
     def _search_text(
+        self,
         document: LegalDocument,
         structure: LegalStructure,
         text: str,
@@ -436,8 +467,19 @@ class LegalChunker:
             lines.append(f"Khoản: {', '.join(structure.clause_numbers)}")
         if structure.point_numbers:
             lines.append(f"Điểm: {', '.join(structure.point_numbers)}")
-        lines.extend(["Nội dung:", text])
-        return "\n".join(lines)
+        content_lines = ["Nội dung:", text]
+        selected: set[int] = set()
+        current_text = "\n".join(content_lines)
+        priority = list(range(len(lines) - 1, -1, -1))
+        for index in priority:
+            candidate_indexes = sorted([*selected, index])
+            candidate = "\n".join(
+                [*(lines[item] for item in candidate_indexes), *content_lines]
+            )
+            if self._tokenizer.count(candidate) <= self._config.max_search_tokens:
+                selected.add(index)
+                current_text = candidate
+        return current_text
 
     @staticmethod
     def _subtree(
@@ -579,6 +621,8 @@ class LegalChunker:
                 "standalone_chunk_count": strategy_counts["standalone_block"],
                 "chunking_issue_count": issue_count,
                 "tokenizer_name": self._config.tokenizer_name,
+                "max_tokens": self._config.max_tokens,
+                "max_search_tokens": self._config.max_search_tokens,
             },
         )
 

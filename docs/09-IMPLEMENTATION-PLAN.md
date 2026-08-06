@@ -1785,7 +1785,109 @@ Tích hợp dữ liệu và yêu cầu chính thức của BTC.
 
 ---
 
-## 41. Milestone Execution Rules
+## 41. Milestone 38 — Official Parser/Chunker Stage Execution
+
+**Status:** Completed
+
+### Objectives
+
+- run the reusable legal parser/chunker on official cleaned contexts only;
+- stop before model-backed/index stages so structure quality can be audited;
+- make the partial output immutable, checksummed and resumable.
+
+### Implementation Scope
+
+- `--through document_processing` on `legal-rag-build-competition`;
+- explicit post-write validation of block/chunk manifests and payloads;
+- stage-limited result with `validation_report = null`;
+- exact resume into BM25/vector/final validation using the same source, config
+  and code identity;
+- integration coverage proving embedding is not invoked;
+- version `0.37.0`, no dependency added.
+
+### Measured Result
+
+- canonical revision produced 1.215.092 blocks and 335.014 chunks;
+- parser coverage was 261.550.497 / 261.550.497 non-whitespace characters;
+- 7.637 documents were structured, 875 unstructured and 20 blank;
+- chunk strategies: 131.806 article, 73.914 clause-group, 87.623 token-fallback,
+  41.671 standalone;
+- block/chunk payload SHA-256 and processing hashes matched across two builds;
+- cross-process resume completed in about 11 seconds without reparsing;
+- peak observed parser/chunker working set was about 116 MB after corpus ingest;
+- typed application config is now hashed directly, fixing process-dependent
+  ordering caused by prematurely converting frozensets to JSON lists.
+
+### Out of Scope
+
+- BM25/vector full build;
+- inferred graph relationships;
+- synthetic retrieval labels or training data;
+- fine-tuning and model benchmarking.
+
+---
+
+## 42. Milestone 39 — Official Pre-GPU Quality Hardening
+
+**Status:** Completed
+
+### Objectives
+
+- remove only organizer page-code residue demonstrated by the M38 audit;
+- stop parser false positives without losing source text or valid Roman Điều;
+- turn structural headings into context for a substantive retrieval unit;
+- guarantee a bounded `search_text` proxy before exact embedding-tokenizer
+  preflight;
+- rebuild immutable official artifacts and BM25 on CPU before any GPU use.
+
+### Implementation Scope
+
+- UIT DSC passage cleaner `1.2` with balanced naked script/style removal and
+  fail-closed unbalanced handling;
+- complete-token and wrapped-line article markers plus conservative
+  implicit-clause guards;
+- heading attachment with complete source-block coverage;
+- `max_tokens=384`, `max_search_tokens=448`, stored search-token diagnostics
+  and content-preservation validation;
+- version `0.38.1`, no dependency added;
+- new artifact root; M38 diagnostic artifacts are not modified.
+
+### Done When
+
+- full test suite passes;
+- all 8.532 official contexts rebuild with exact parser/chunker coverage;
+- audited JavaScript and false-marker signatures are absent;
+- every search text preserves its full chunk and respects the configured proxy
+  budget;
+- BM25 builds and reloads on CPU from the corrected chunks;
+- exact embedding-model tokenizer preflight remains the only gate before the
+  Kaggle GPU vector build.
+
+### Full-corpus Verification
+
+The immutable `0.38.1` root rebuilt all 8,532 official contexts into
+1,145,383 legal blocks and 373,253 chunks. The independent audit found zero
+audited JavaScript residues, zero nested-numeric false clauses, zero duplicate
+chunk IDs, zero `search_text` budget violations and zero content-preservation
+mismatches. It recognized 12,412 wrapped article markers. Three remaining
+replacement characters are source corruption and are preserved rather than
+guessed.
+
+The CPU BM25 artifact contains 373,253 records, uses the canonical official
+corpus revision and reloads in a fresh process with checksum/integrity
+validation. Three smoke queries each returned five hits in approximately
+0.05--0.12 seconds after load. Retrieval relevance is not claimed from this
+unlabeled smoke test.
+
+### Out of Scope
+
+- embedding or vector build;
+- model download, generation, fine-tuning or benchmark;
+- inferred graph relationships or synthetic supervision.
+
+---
+
+## 43. Milestone Execution Rules
 
 Mỗi milestone phải:
 

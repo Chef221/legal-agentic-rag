@@ -249,6 +249,74 @@ def test_non_article_block_becomes_standalone_chunk() -> None:
     assert result.standalone_chunk_count == 1
 
 
+def test_structural_headings_are_attached_to_next_article() -> None:
+    """Chapter and section headings add context without becoming tiny chunks."""
+    chapter = _block(
+        "chapter-1",
+        LegalBlockType.CHAPTER,
+        "Chương I\nQUY ĐỊNH CHUNG",
+        0,
+        number="I",
+        structure=LegalStructure(chapter="Chương I", structure_path=["Chương I"]),
+    )
+    article = _block(
+        "article-1",
+        LegalBlockType.ARTICLE,
+        "Điều 1. Phạm vi áp dụng",
+        1,
+        parent_block_id="chapter-1",
+        number="1",
+        structure=_structure(article="1", article_title="Phạm vi áp dụng"),
+    )
+
+    result = LegalChunker(
+        ChunkingConfig(max_tokens=100, min_tokens=1, overlap_tokens=10)
+    ).chunk(
+        documents=[_document()],
+        blocks=[chapter, article],
+        source_manifest=_manifest(2),
+    )
+
+    assert len(result.chunks) == 1
+    assert result.chunks[0].metadata["chunk_strategy"] == "article"
+    assert result.chunks[0].metadata["source_block_ids"] == [
+        "chapter-1",
+        "article-1",
+    ]
+    assert result.chunks[0].text.startswith("Chương I\nQUY ĐỊNH CHUNG")
+    assert result.diagnostics[0].block_coverage == 1.0
+
+
+def test_search_text_budget_preserves_complete_chunk_content() -> None:
+    """Metadata is trimmed before any legal chunk content can be truncated."""
+    document = _document().model_copy(
+        update={"title": " ".join(f"tiêu-đề-{index}" for index in range(30))}
+    )
+    block = _block(
+        "article-1",
+        LegalBlockType.ARTICLE,
+        "Điều 1. Nội dung pháp lý phải được giữ nguyên.",
+        0,
+        number="1",
+        structure=_structure(article="1", article_title="Phạm vi áp dụng"),
+    )
+    config = ChunkingConfig(
+        max_tokens=20,
+        max_search_tokens=24,
+        min_tokens=1,
+        overlap_tokens=2,
+    )
+
+    result = LegalChunker(config).chunk(
+        documents=[document], blocks=[block], source_manifest=_manifest(1)
+    )
+    chunk = result.chunks[0]
+
+    assert chunk.search_text.endswith(chunk.text)
+    assert chunk.metadata["search_text_token_count"] <= 24
+    assert "Điều 1. Nội dung pháp lý phải được giữ nguyên." in chunk.search_text
+
+
 def test_chunker_is_deterministic_and_does_not_mutate_inputs() -> None:
     """Stable content yields stable chunk IDs and leaves source models intact."""
     documents = [_document()]

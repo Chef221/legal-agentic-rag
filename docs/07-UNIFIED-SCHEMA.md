@@ -240,6 +240,7 @@ che giấu text bị rơi.
   "source_block_types": ["article", "clause"],
   "chunk_strategy": "article|clause_group|token_fallback|standalone_block",
   "tokenizer_name": "unicode_word_v1",
+  "search_text_token_count": 0,
   "split_index": 0,
   "split_count": 1
 }
@@ -285,6 +286,12 @@ che giấu text bị rơi.
 hiện trong ít nhất một chunk; token overlap có thể khiến cùng source block xuất
 hiện trong nhiều token-fallback chunks. Chunk IDs unique và `chunk_index` liên
 tục trong từng document.
+
+`search_text_token_count` dùng cùng tokenizer proxy với `token_count` và phải
+không vượt `ChunkingConfig.max_search_tokens`. `search_text` bắt buộc kết thúc
+bằng nguyên vẹn `text`; metadata prefix được bỏ theo budget trước khi legal text
+có thể bị cắt. Exact embedding-tokenizer validation thuộc pre-vector gate, không
+được suy ra từ trường proxy này.
 
 ---
 
@@ -1253,7 +1260,10 @@ documents, manifests và audit phải cùng official dataset/revision.
 `CompetitionBuildState` records the exact official source revision,
 application-config hash, code version, timestamps, and an ordered prefix of
 `CompetitionBuildStage` values. `CompetitionOfflineBuildResult` returns that
-identity with the final `BuildValidationReport`.
+identity and `validation_report: BuildValidationReport | null`. The report is
+required exactly when the `validation` stage is present; a stage-limited
+parser/chunker run returns `null` because it is not a complete artifact-set
+validation.
 
 `CompetitionBatchRecord` maps one official `question_id` to one full
 `AnswerResponse`. `CompetitionBatchState` records the ordered completed IDs for

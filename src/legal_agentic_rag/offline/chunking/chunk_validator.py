@@ -104,6 +104,39 @@ class LegalChunkValidator:
                         metadata={"token_count": chunk.token_count},
                     )
                 )
+            search_token_count = self._tokenizer.count(chunk.search_text)
+            if search_token_count > self._config.max_search_tokens:
+                issues.append(
+                    self._issue(
+                        "search_text_too_long",
+                        AuditSeverity.ERROR,
+                        chunk.document_id,
+                        chunk.chunk_id,
+                        "Search text exceeds the configured embedding-input budget",
+                        metadata={"search_text_token_count": search_token_count},
+                    )
+                )
+            if chunk.metadata.get("search_text_token_count") != search_token_count:
+                issues.append(
+                    self._issue(
+                        "search_text_token_count_mismatch",
+                        AuditSeverity.ERROR,
+                        chunk.document_id,
+                        chunk.chunk_id,
+                        "Stored search-text token count is missing or incorrect",
+                        metadata={"actual_search_text_token_count": search_token_count},
+                    )
+                )
+            if not chunk.search_text.endswith(chunk.text):
+                issues.append(
+                    self._issue(
+                        "chunk_text_missing_from_search_text",
+                        AuditSeverity.ERROR,
+                        chunk.document_id,
+                        chunk.chunk_id,
+                        "Search text does not preserve the complete chunk text",
+                    )
+                )
             self._validate_metadata_inheritance(chunk, document, issues)
             source_ids = chunk.metadata.get("source_block_ids")
             if not isinstance(source_ids, list):

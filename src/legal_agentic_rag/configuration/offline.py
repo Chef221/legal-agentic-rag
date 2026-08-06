@@ -70,7 +70,8 @@ class ChunkingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     artifact_version: str = Field(default="1.0", min_length=1)
-    max_tokens: int = Field(default=512, gt=0)
+    max_tokens: int = Field(default=384, gt=0)
+    max_search_tokens: int = Field(default=448, gt=0)
     min_tokens: int = Field(default=50, gt=0)
     overlap_tokens: int = Field(default=50, ge=0)
     tokenizer_name: Literal["unicode_word_v1"] = "unicode_word_v1"
@@ -82,6 +83,8 @@ class ChunkingConfig(BaseModel):
             raise ValueError("min_tokens must not exceed max_tokens")
         if self.overlap_tokens >= self.max_tokens:
             raise ValueError("overlap_tokens must be less than max_tokens")
+        if self.max_search_tokens <= self.max_tokens:
+            raise ValueError("max_search_tokens must exceed max_tokens")
         return self
 
 

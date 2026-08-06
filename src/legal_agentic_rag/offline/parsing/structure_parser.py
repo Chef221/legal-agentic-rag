@@ -53,7 +53,7 @@ _SUBSECTION_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _ARTICLE_PATTERN = re.compile(
-    rf"^ĐIỀU\s+(?P<number>{_NUMBER})\s*"
+    rf"^ĐIỀU\s+(?P<number>{_NUMBER})(?!\w)\s*"
     rf"(?:(?:{_DELIMITER})\s*)?(?P<title>.*)$",
     re.IGNORECASE,
 )
@@ -63,7 +63,7 @@ _EXPLICIT_CLAUSE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CLAUSE_PATTERN = re.compile(
-    rf"^(?P<number>{_CLAUSE_NUMBER})[.)]\s*(?P<body>.*)$",
+    rf"^(?P<number>{_CLAUSE_NUMBER})(?P<delimiter>[.)])\s*(?P<body>.*)$",
     re.IGNORECASE,
 )
 _EXPLICIT_POINT_PATTERN = re.compile(
@@ -85,6 +85,10 @@ _POTENTIAL_MARKER_PATTERN = re.compile(
     r"(?:\d|[IVXLCDM]+\b|[A-ZĐ][.):])",
     re.IGNORECASE,
 )
+_BARE_MARKER_PATTERN = re.compile(
+    r"^(?:PHẦN|CHƯƠNG|TIỂU\s+MỤC|MỤC|ĐIỀU|KHOẢN|ĐIỂM|PHỤ\s+LỤC)$",
+    re.IGNORECASE,
+)
 _STRUCTURE_TYPES = frozenset(
     {
         LegalBlockType.PART,
@@ -94,6 +98,16 @@ _STRUCTURE_TYPES = frozenset(
         LegalBlockType.ARTICLE,
         LegalBlockType.CLAUSE,
         LegalBlockType.POINT,
+        LegalBlockType.APPENDIX,
+    }
+)
+_TITLE_BEARING_TYPES = frozenset(
+    {
+        LegalBlockType.PART,
+        LegalBlockType.CHAPTER,
+        LegalBlockType.SECTION,
+        LegalBlockType.SUBSECTION,
+        LegalBlockType.ARTICLE,
         LegalBlockType.APPENDIX,
     }
 )
@@ -252,11 +266,26 @@ class LegalStructureParser:
                 line_index += 1
                 continue
             active.pop(8, None)
-            marker = self._classify_marker(line, drafts, active)
+            marker_source_lines = [line]
+            if (
+                _BARE_MARKER_PATTERN.fullmatch(line)
+                and line_index + 1 < len(lines)
+            ):
+                joined = f"{line} {lines[line_index + 1]}"
+                joined_marker = self._classify_marker(joined, drafts, active)
+                if joined_marker is not None:
+                    marker_source_lines.append(lines[line_index + 1])
+                    line_index += 1
+                    marker = joined_marker
+                else:
+                    marker = self._classify_marker(line, drafts, active)
+            else:
+                marker = self._classify_marker(line, drafts, active)
             if marker is not None:
                 title_line: str | None = None
                 if (
-                    marker.title is None
+                    marker.block_type in _TITLE_BEARING_TYPES
+                    and marker.title is None
                     and line_index + 1 < len(lines)
                     and self._looks_like_title(lines[line_index + 1])
                 ):
@@ -271,7 +300,11 @@ class LegalStructureParser:
                     line_index += 1
                 self._start_marker_block(
                     marker,
-                    [line, title_line] if title_line is not None else [line],
+                    (
+                        [*marker_source_lines, title_line]
+                        if title_line is not None
+                        else marker_source_lines
+                    ),
                     drafts,
                     active,
                 )
@@ -365,16 +398,27 @@ class LegalStructureParser:
         )
         if not has_article:
             return None
-        for pattern in (_EXPLICIT_CLAUSE_PATTERN, _CLAUSE_PATTERN):
-            match = pattern.match(line)
-            if match is not None:
-                number = self._group(match, "number")
-                return _Marker(
-                    LegalBlockType.CLAUSE,
-                    6,
-                    number,
-                    f"Khoản {number}",
-                )
+        explicit_clause = _EXPLICIT_CLAUSE_PATTERN.match(line)
+        if explicit_clause is not None:
+            number = self._group(explicit_clause, "number")
+            return _Marker(
+                LegalBlockType.CLAUSE,
+                6,
+                number,
+                f"Khoản {number}",
+            )
+        implicit_clause = _CLAUSE_PATTERN.match(line)
+        if (
+            implicit_clause is not None
+            and self._is_valid_implicit_clause(implicit_clause)
+        ):
+            number = self._group(implicit_clause, "number")
+            return _Marker(
+                LegalBlockType.CLAUSE,
+                6,
+                number,
+                f"Khoản {number}",
+            )
         for pattern in (_EXPLICIT_POINT_PATTERN, _POINT_PATTERN):
             match = pattern.match(line)
             if match is not None:
@@ -386,6 +430,17 @@ class LegalStructureParser:
                     f"Điểm {number}",
                 )
         return None
+
+    @staticmethod
+    def _is_valid_implicit_clause(match: re.Match[str]) -> bool:
+        """Reject years, decimals, and tariff codes masquerading as clauses."""
+        body = match.group("body").strip()
+        if not body:
+            return False
+        return not (
+            match.group("delimiter") == "."
+            and body[0].isdigit()
+        )
 
     def _start_marker_block(
         self,
@@ -516,6 +571,8 @@ class LegalStructureParser:
         if len(line.split()) > self._config.maximum_title_words:
             return False
         if self._is_table_row(line):
+            return False
+        if _BARE_MARKER_PATTERN.fullmatch(line):
             return False
         if line.endswith((".", ";", ":")):
             return False

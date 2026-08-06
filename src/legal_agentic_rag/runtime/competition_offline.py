@@ -14,7 +14,12 @@ from legal_agentic_rag import __version__
 from legal_agentic_rag.competition.uit_dsc_2026 import UitDsc2026CorpusIngestor
 from legal_agentic_rag.configuration import ApplicationConfig
 from legal_agentic_rag.configuration.hashing import canonical_sha256
-from legal_agentic_rag.contracts import BM25Backend, EmbeddingProvider, GraphBackend, VectorBackend
+from legal_agentic_rag.contracts import (
+    BM25Backend,
+    EmbeddingProvider,
+    GraphBackend,
+    VectorBackend,
+)
 from legal_agentic_rag.embeddings import SentenceTransformerEmbeddingProvider
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
@@ -81,36 +86,51 @@ class CompetitionOfflineBuildRuntime:
         self._graph = graph_backend
         self._clock = clock or (lambda: datetime.now(UTC))
 
-    def build(self) -> CompetitionOfflineBuildResult:
-        """Build or resume one immutable official corpus artifact set."""
+    def build(
+        self,
+        *,
+        through: CompetitionBuildStage = CompetitionBuildStage.VALIDATION,
+    ) -> CompetitionOfflineBuildResult:
+        """Build or resume official artifacts through one requested stage."""
         source_identity = self._ingestor.inspect_source(self._source)
         state, resumed = self._prepare_state(source_identity.revision)
         if CompetitionBuildStage.CORPUS not in state.completed_stages:
             self._build_corpus_stage()
+            self._validate_corpus_stage(source_identity.revision)
             state = self._complete_stage(state, CompetitionBuildStage.CORPUS)
         else:
             self._validate_corpus_stage(source_identity.revision)
+        if through == CompetitionBuildStage.CORPUS:
+            return self._build_result(state, resumed)
 
         if CompetitionBuildStage.DOCUMENT_PROCESSING not in state.completed_stages:
             self._build_document_stage()
+            self._validate_document_stage()
             state = self._complete_stage(
                 state, CompetitionBuildStage.DOCUMENT_PROCESSING
             )
         else:
-            self._validate_model_artifact("legal_blocks_directory", ArtifactType.LEGAL_BLOCKS)
-            self._validate_model_artifact("legal_chunks_directory", ArtifactType.LEGAL_CHUNKS)
+            self._validate_document_stage()
+        if through == CompetitionBuildStage.DOCUMENT_PROCESSING:
+            return self._build_result(state, resumed)
 
         if CompetitionBuildStage.BM25 not in state.completed_stages:
             self._build_bm25_stage()
+            self._validate_bm25_stage()
             state = self._complete_stage(state, CompetitionBuildStage.BM25)
         else:
             self._validate_bm25_stage()
+        if through == CompetitionBuildStage.BM25:
+            return self._build_result(state, resumed)
 
         if CompetitionBuildStage.VECTOR not in state.completed_stages:
             self._build_vector_stage()
+            self._validate_vector_stage()
             state = self._complete_stage(state, CompetitionBuildStage.VECTOR)
         else:
             self._validate_vector_stage()
+        if through == CompetitionBuildStage.VECTOR:
+            return self._build_result(state, resumed)
 
         report = self._validation_report()
         if CompetitionBuildStage.VALIDATION not in state.completed_stages:
@@ -124,6 +144,24 @@ class CompetitionOfflineBuildRuntime:
             validation_report=report,
         )
 
+    def _build_result(
+        self,
+        state: CompetitionBuildState,
+        resumed: bool,
+    ) -> CompetitionOfflineBuildResult:
+        report = (
+            self._validation_report()
+            if CompetitionBuildStage.VALIDATION in state.completed_stages
+            else None
+        )
+        return CompetitionOfflineBuildResult(
+            artifact_root=str(self._root),
+            source_revision=state.source_revision,
+            resumed=resumed,
+            completed_stages=state.completed_stages,
+            validation_report=report,
+        )
+
     @property
     def _root(self) -> Path:
         return self._config.artifacts.root_path.resolve()
@@ -132,7 +170,7 @@ class CompetitionOfflineBuildRuntime:
         return self._config.artifacts.directory(field).resolve()
 
     def _config_hash(self) -> str:
-        return canonical_sha256(self._config.model_dump(mode="json"))
+        return canonical_sha256(self._config)
 
     def _prepare_state(self, source_revision: str) -> tuple[CompetitionBuildState, bool]:
         root = self._root
@@ -398,6 +436,14 @@ class CompetitionOfflineBuildRuntime:
         close = getattr(backend, "close", None)
         if callable(close):
             close()
+
+    def _validate_document_stage(self) -> None:
+        self._validate_model_artifact(
+            "legal_blocks_directory", ArtifactType.LEGAL_BLOCKS
+        )
+        self._validate_model_artifact(
+            "legal_chunks_directory", ArtifactType.LEGAL_CHUNKS
+        )
 
     def _validate_vector_stage(self) -> None:
         destination = self._directory("vector_directory")

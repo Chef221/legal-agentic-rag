@@ -995,6 +995,12 @@ implementation:
 - `Path`, `Enum`, date/time và primitive values có biểu diễn ổn định;
 - NaN, infinity, non-string mapping key và type không hỗ trợ bị từ chối.
 
+Caller phải truyền typed Pydantic config (hoặc Python-mode values) trực tiếp
+vào canonical hasher. Không được gọi `model_dump(mode="json")` trước vì bước đó
+có thể biến set/frozenset thành list với process-dependent order. M38 sửa cả
+competition offline-build identity và batch-checkpoint identity theo invariant
+này; cross-process resume test bảo vệ regression.
+
 Quy tắc này áp dụng cho dataset source, audit, normalization, cleaning, parsing,
 chunking, BM25, vector, graph và full-build recovery identity.
 `OfflineBuildState` được nâng lên schema `1.1`.
@@ -1932,3 +1938,86 @@ Audit chính thức cũng xác nhận warm-up/train/public overlap đáng kể v
 có answer supervision. Do đó không được xem warm-up là independent dev hoặc suy
 diễn retrieval/reranker labels từ answer text. Full index build và model
 experiments không thuộc quyết định này.
+
+---
+
+## D082 — Official Parser/Chunker Is a Durable Stage Boundary
+
+**Status:** Accepted
+
+The official build may stop after `document_processing` so the released corpus
+can be parsed, chunked and audited without initializing any embedding model or
+building retrieval indexes. This is an execution boundary, not a second parser
+implementation:
+
+- the existing dataset-independent `LegalStructureParser` and `LegalChunker`
+  consume only cleaned unified documents;
+- raw BTC fields remain confined to the UIT DSC adapter;
+- processing stays one-document-at-a-time and writes atomic JSONL artifacts;
+- legal-block and legal-chunk manifests and payload checksums must validate
+  before the stage is recorded complete;
+- 20 blank official passages remain documents with no fabricated blocks/chunks;
+- `validation_report` is absent until the final full-artifact validation stage;
+- a later invocation with identical source/config/code identity resumes from
+  persisted chunks and does not parse the corpus again;
+- incompatible partial roots fail closed and are never silently overwritten.
+
+This stage does not approve chunk quality, build BM25/vector indexes, infer
+relationships, generate labels, or use any non-organizer data. Full-corpus
+statistics must come from the measured official run rather than fixtures.
+
+Measured evidence on 2026-08-06 confirms 1,215,092 blocks and 335,014 chunks
+from all 8,532 official contexts, with exact non-whitespace character coverage.
+The 20 blank contexts produced no fabricated chunks. Independent builds had
+identical block/chunk payload and processing hashes. A typed-config hashing bug
+found by cross-process resume was fixed before accepting the reusable root;
+the incompatible diagnostic root was not migrated or edited in place.
+
+---
+
+## D083 — Official Pre-GPU Text and Retrieval-Unit Quality Gates
+
+**Status:** Accepted
+
+Full-corpus M38 audit found deterministic integrity but four quality defects
+that must be fixed before any GPU/vector work:
+
+- naked Thư Viện Pháp Luật page JavaScript remained in three organizer
+  passages after known-tag cleaning;
+- the article regex could parse the first Roman-numeral letter of ordinary
+  phrases such as `điều của`, while implicit clause parsing confused decimals,
+  tariff codes and bare years with Khoản markers;
+- structural headings became tens of thousands of tiny standalone retrieval
+  units despite having a clear following consumer;
+- `search_text` could exceed a 512-token embedding window even when chunk text
+  itself satisfied the former 512-token proxy limit.
+
+The accepted correction is official-data-specific and fail-closed:
+
+- cleaner `1.2` removes only balanced naked script/style blocks with audited start
+  signatures, exact adjacent UI labels and the audited custom `huongdan` tag;
+  an unbalanced candidate is preserved rather than deleting following text;
+- legal marker parsing requires a complete article-number token and rejects
+  implicit blank/decimal-nested clauses while preserving the source line as
+  ordinary legal text; a bare marker keyword may join only its immediately
+  following valid number line, covering organizer wraps such as `Điều\n23.`;
+- `Phần/Chương/Mục/Tiểu mục` are attached to the next substantive unit and
+  remain traceable through `source_block_ids`; trailing orphan headings remain
+  standalone so source coverage stays complete;
+- official defaults become 384 proxy tokens for chunk content and 448 for
+  `search_text`; metadata is budgeted before content and complete chunk text is
+  mandatory;
+- exact model-tokenizer preflight remains mandatory before embedding because
+  `unicode_word_v1` is not the E5 tokenizer.
+
+All corrected artifacts must be rebuilt under a new root and lineage. The M38
+root remains immutable diagnostic evidence and must not be resumed for M39.
+
+The accepted `0.38.1` full-corpus verification produced 1,145,383 blocks and
+373,253 chunks from all 8,532 official contexts. The quality scan found no
+audited JavaScript residue, nested-numeric false clause, duplicate chunk ID,
+search-budget violation or content-preservation mismatch. The persisted BM25
+artifact has the same 373,253-record official lineage and passed a fresh-process
+integrity reload plus non-empty CPU retrieval smoke. These checks establish
+artifact correctness only; they do not establish retrieval quality without
+labeled retrieval relevance.

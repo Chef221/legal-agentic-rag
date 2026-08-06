@@ -17,7 +17,8 @@ def _application_config() -> ApplicationConfig:
         artifacts=ArtifactConfig(root_path=Path("artifacts")),
         offline=OfflineConfig(
             chunking=ChunkingConfig(
-                max_tokens=512,
+                max_tokens=384,
+                max_search_tokens=448,
                 min_tokens=32,
                 overlap_tokens=32,
                 tokenizer_name="unicode_word_v1",

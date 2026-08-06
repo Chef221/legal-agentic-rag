@@ -91,7 +91,7 @@ class CompetitionBuildState(BaseModel):
 
 
 class CompetitionOfflineBuildResult(BaseModel):
-    """Summary returned after one complete or resumed official build."""
+    """Summary returned after one complete or stage-limited official build."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -99,13 +99,25 @@ class CompetitionOfflineBuildResult(BaseModel):
     source_revision: str
     resumed: bool
     completed_stages: list[CompetitionBuildStage]
-    validation_report: BuildValidationReport
+    validation_report: BuildValidationReport | None = None
 
     @field_validator("source_revision")
     @classmethod
     def validate_revision(cls, value: str) -> str:
         """Pin the exact official corpus bytes used by the build."""
         return _validate_source_revision(value)
+
+    @model_validator(mode="after")
+    def validate_report_stage(self) -> "CompetitionOfflineBuildResult":
+        """Expose final validation only when the validation stage is complete."""
+        validation_completed = (
+            CompetitionBuildStage.VALIDATION in self.completed_stages
+        )
+        if validation_completed != (self.validation_report is not None):
+            raise ValueError(
+                "validation report must match validation-stage completion"
+            )
+        return self
 
 
 class CompetitionBatchRecord(BaseModel):

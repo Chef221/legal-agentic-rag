@@ -323,12 +323,15 @@ def test_chunking_config_validates_token_relationships() -> None:
 def test_chunking_config_has_bounded_dependency_free_defaults() -> None:
     """Baseline chunking limits and tokenizer identity are explicit."""
     config = ChunkingConfig()
-    assert config.max_tokens == 512
+    assert config.max_tokens == 384
+    assert config.max_search_tokens == 448
     assert config.min_tokens == 50
     assert config.overlap_tokens == 50
     assert config.tokenizer_name == "unicode_word_v1"
     with pytest.raises(ValidationError):
         ChunkingConfig(tokenizer_name="unknown")
+    with pytest.raises(ValidationError):
+        ChunkingConfig(max_tokens=128, max_search_tokens=128)
 
 
 def test_agent_retry_is_capped_at_two() -> None:

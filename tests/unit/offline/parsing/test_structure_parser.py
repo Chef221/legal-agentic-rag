@@ -136,6 +136,98 @@ def test_parser_handles_missing_levels_roman_articles_and_discontinuous_numbers(
     assert result.diagnostics[0].text_coverage == 1.0
 
 
+def test_parser_does_not_read_prose_as_roman_article_marker() -> None:
+    """Words beginning with Roman numerals after 'điều' remain ordinary prose."""
+    text = "\n".join(
+        [
+            "Thông tư quy định chi tiết một số điều của Luật mẫu.",
+            "Điều lệ của tổ chức phải được công bố.",
+            "Điều IV. Quy định thật sự",
+            "1. Nội dung hợp lệ.",
+        ]
+    )
+
+    result = LegalStructureParser().parse(
+        documents=[_document("doc-roman-boundary", text)],
+        source_manifest=_manifest(),
+    )
+
+    articles = [
+        block for block in result.blocks if block.block_type == LegalBlockType.ARTICLE
+    ]
+    assert [block.block_number for block in articles] == ["IV"]
+    assert "điều của" in result.blocks[0].text
+    assert "Điều lệ" in result.blocks[0].text
+    assert result.diagnostics[0].text_coverage == 1.0
+
+
+def test_parser_keeps_decimals_codes_and_years_inside_article_text() -> None:
+    """Implicit clauses exclude decimal data, tariff codes, and bare years."""
+    text = "\n".join(
+        [
+            "Điều 1. Danh mục kỹ thuật",
+            "1. Khoản hợp lệ.",
+            "200.000 km là ngưỡng kỹ thuật.",
+            "8108.90.00 là mã hàng hóa.",
+            "2022.",
+        ]
+    )
+
+    result = LegalStructureParser().parse(
+        documents=[_document("doc-numeric-data", text)],
+        source_manifest=_manifest(),
+    )
+
+    clauses = [
+        block for block in result.blocks if block.block_type == LegalBlockType.CLAUSE
+    ]
+    assert [block.block_number for block in clauses] == ["1"]
+    assert "200.000 km" in clauses[0].text
+    assert "8108.90.00" in clauses[0].text
+    assert "2022." in clauses[0].text
+    assert result.diagnostics[0].text_coverage == 1.0
+
+
+def test_parser_recognizes_markers_split_across_source_lines() -> None:
+    """Organizer line wrapping between marker and number preserves hierarchy."""
+    text = "\n".join(
+        [
+            "Chương",
+            "III",
+            "TỔ CHỨC THỰC HIỆN",
+            "Điều",
+            "23. Hiệu lực thi hành",
+            "1. Văn bản có hiệu lực từ ngày ký.",
+            "Điều",
+            "24.",
+            "Tổ chức thực hiện",
+            "Khoản",
+            "1. Cơ quan có trách nhiệm thi hành.",
+        ]
+    )
+
+    result = LegalStructureParser().parse(
+        documents=[_document("doc-wrapped-marker", text)],
+        source_manifest=_manifest(),
+    )
+
+    assert [block.block_type for block in result.blocks] == [
+        LegalBlockType.CHAPTER,
+        LegalBlockType.ARTICLE,
+        LegalBlockType.CLAUSE,
+        LegalBlockType.ARTICLE,
+        LegalBlockType.CLAUSE,
+    ]
+    assert [
+        block.block_number
+        for block in result.blocks
+        if block.block_type == LegalBlockType.ARTICLE
+    ] == ["23", "24"]
+    assert result.blocks[1].text.startswith("Điều\n23. Hiệu lực thi hành")
+    assert result.blocks[3].title == "Tổ chức thực hiện"
+    assert result.diagnostics[0].text_coverage == 1.0
+
+
 def test_parser_preserves_malformed_marker_and_reports_diagnostic() -> None:
     """Unsupported numbering remains ordinary text with an explicit issue."""
     text = "Điều A. Marker không hợp lệ\nNội dung không được sửa hoặc bỏ."
