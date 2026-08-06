@@ -7,10 +7,14 @@ from legal_agentic_rag.offline.chunking.legal_chunker import (
     ChunkedLegalDocument,
     LegalChunker,
 )
-from legal_agentic_rag.offline.chunking.tokenizer import UnicodeWordTokenizer
+from legal_agentic_rag.offline.chunking.tokenizer import (
+    EmbeddingModelTokenizer,
+    UnicodeWordTokenizer,
+)
 
 __all__ = [
     "ChunkedLegalDocument",
+    "EmbeddingModelTokenizer",
     "LegalChunker",
     "LegalChunkValidator",
     "UnicodeWordTokenizer",

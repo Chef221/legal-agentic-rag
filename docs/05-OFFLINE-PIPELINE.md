@@ -451,6 +451,25 @@ Các giá trị này chưa được hard-code trong architecture docs.
 
 ---
 
+### 7.6 Exact embedding-tokenizer gate
+
+Competition config `0.40.0` uses `embedding_model_v1`, loaded from the exact
+embedding model name and immutable revision. Counts include the `passage:`
+prefix and special tokens. The competition budgets are 448 tokens for chunk
+content and 512 tokens for `search_text`; source-span splitting preserves the
+original legal text and metadata is removed before content.
+
+The complete M39 preflight found 6,239 of 373,253 inputs above 512 E5 tokens,
+with a maximum of 1,043. Therefore `0.38.1` is diagnostic only and must not be
+embedded. Exact preflight remains mandatory even after tokenizer-aware rebuild.
+
+The complete M40 rebuild produced 330,768 chunks from 8,532 official contexts.
+An independent batched preflight retokenized every persisted `search_text` with
+the pinned E5 tokenizer, including the `passage:` prefix and special tokens. The
+maximum input length was 512 tokens and the violation count was zero. The M40
+BM25 index contains the same 330,768 records and is the only chunk/BM25 lineage
+authorized for the next vector build.
+
 ## 8. Step 7: Validate Chunks
 
 Kiểm tra:

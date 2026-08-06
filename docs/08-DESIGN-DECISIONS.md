@@ -2021,3 +2021,28 @@ artifact has the same 373,253-record official lineage and passed a fresh-process
 integrity reload plus non-empty CPU retrieval smoke. These checks establish
 artifact correctness only; they do not establish retrieval quality without
 labeled retrieval relevance.
+
+---
+
+## D084 — Exact Embedding Tokenizer Governs Competition Chunk Windows
+
+**Status:** Accepted
+
+Kaggle preflight on the complete `0.38.1` chunk artifact found 6,239 of 373,253
+E5 inputs over the 512-token model window, with a maximum of 1,043 tokens. The
+proxy budget cannot authorize vector construction, and truncation is prohibited
+because it would silently remove legal content.
+
+Competition chunking now injects `embedding_model_v1`, pinned to the same model
+name, revision and document prefix as `EmbeddingConfig`. Counts include prefix
+and special tokens. Source-span splitting keeps original text rather than model
+decode output; metadata is dropped before legal content; tokenizer identity is
+part of chunk metadata, manifest metadata and processing hash. Generic fixtures
+retain `unicode_word_v1`. Corrected chunks, BM25 and vector artifacts must share
+one new immutable `0.40.0` lineage; `0.38.1` remains diagnostic only.
+
+The full `0.40.0` rebuild produced 330,768 chunks and a matching 330,768-record
+BM25 index. Independent post-build preflight observed a maximum of exactly 512
+tokens and zero violations across all persisted chunks. This authorizes vector
+construction from `uit-dsc-2026-task2-v0400`; it does not authorize reuse of any
+earlier vector artifact.

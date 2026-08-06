@@ -26,6 +26,7 @@ from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend, VectorIndexBuilder
 from legal_agentic_rag.offline.chunking import LegalChunker
+from legal_agentic_rag.offline.chunking.tokenizer import EmbeddingModelTokenizer
 from legal_agentic_rag.offline.document_processing import StreamingDocumentProcessor
 from legal_agentic_rag.offline.parsing import LegalStructureParser
 from legal_agentic_rag.offline.relationships import (
@@ -305,7 +306,15 @@ class CompetitionOfflineBuildRuntime:
         )
         processor = StreamingDocumentProcessor(
             LegalStructureParser(self._config.offline.legal_structure_parser),
-            LegalChunker(self._config.offline.chunking),
+            LegalChunker(
+                self._config.offline.chunking,
+                tokenizer=(
+                    EmbeddingModelTokenizer(self._config.offline.embedding)
+                    if self._config.offline.chunking.tokenizer_name
+                    == "embedding_model_v1"
+                    else None
+                ),
+            ),
             progress_interval_documents=self._config.offline.index_build.batch_size,
         )
         if blocks_directory.exists():

@@ -1887,7 +1887,25 @@ unlabeled smoke test.
 
 ---
 
-## 43. Milestone Execution Rules
+## 43. Milestone 40 — Exact E5 Tokenizer Rechunk
+
+**Status:** Completed
+
+- replace the failed proxy gate with exact revision-pinned E5 token budgeting;
+- preserve source text and prohibit silent truncation;
+- rebuild official chunks and BM25 under `uit-dsc-2026-task2-v0400`;
+- require zero inputs above 512 tokens before vector construction;
+- keep `0.38.1` immutable as failed preflight evidence.
+
+Completion evidence:
+
+- rebuilt 330,768 official chunks and a matching 330,768-record BM25 index;
+- retained the canonical official corpus revision
+  `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`;
+- independently retokenized all persisted E5 inputs;
+- observed maximum length 512 and zero inputs above the model window.
+
+## 44. Milestone Execution Rules
 
 Mỗi milestone phải:
 

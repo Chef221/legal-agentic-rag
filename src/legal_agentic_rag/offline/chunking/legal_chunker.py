@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import logging
+from typing import Protocol
 
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration.hashing import canonical_sha256
@@ -44,6 +45,21 @@ _CONTEXT_HEADING_TYPES = frozenset(
 )
 
 
+class ChunkTokenizer(Protocol):
+    """Tokenizer behavior required by legal chunk construction."""
+
+    name: str
+
+    @property
+    def identity(self) -> dict[str, str]: ...
+
+    def count(self, text: str) -> int: ...
+
+    def split(
+        self, text: str, *, max_tokens: int, overlap_tokens: int
+    ) -> list[str]: ...
+
+
 @dataclass
 class _ChunkDraft:
     source_blocks: list[LegalBlock]
@@ -69,7 +85,7 @@ class LegalChunker:
         self,
         config: ChunkingConfig | None = None,
         *,
-        tokenizer: UnicodeWordTokenizer | None = None,
+        tokenizer: ChunkTokenizer | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._config = config or ChunkingConfig()
@@ -393,6 +409,11 @@ class LegalChunker:
                 ],
                 "chunk_strategy": draft.strategy,
                 "tokenizer_name": self._config.tokenizer_name,
+                **{
+                    key: value
+                    for key, value in self._tokenizer.identity.items()
+                    if key != "tokenizer_name"
+                },
                 "search_text_token_count": search_text_token_count,
                 "split_index": draft.split_index,
                 "split_count": draft.split_count,
@@ -621,6 +642,7 @@ class LegalChunker:
                 "standalone_chunk_count": strategy_counts["standalone_block"],
                 "chunking_issue_count": issue_count,
                 "tokenizer_name": self._config.tokenizer_name,
+                "tokenizer_identity": self._tokenizer.identity,
                 "max_tokens": self._config.max_tokens,
                 "max_search_tokens": self._config.max_search_tokens,
             },
@@ -630,6 +652,7 @@ class LegalChunker:
         payload = {
             "source_processing_config_hash": source_manifest.processing_config_hash,
             "chunking": self._config,
+            "tokenizer_identity": self._tokenizer.identity,
         }
         return canonical_sha256(payload)
 

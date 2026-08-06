@@ -74,7 +74,9 @@ class ChunkingConfig(BaseModel):
     max_search_tokens: int = Field(default=448, gt=0)
     min_tokens: int = Field(default=50, gt=0)
     overlap_tokens: int = Field(default=50, ge=0)
-    tokenizer_name: Literal["unicode_word_v1"] = "unicode_word_v1"
+    tokenizer_name: Literal["unicode_word_v1", "embedding_model_v1"] = (
+        "unicode_word_v1"
+    )
 
     @model_validator(mode="after")
     def validate_token_limits(self) -> "ChunkingConfig":

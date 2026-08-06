@@ -1,6 +1,6 @@
 {
   "artifacts": {
-    "root_path": "artifacts/uit-dsc-2026-task2-v0381"
+    "root_path": "artifacts/uit-dsc-2026-task2-v0400"
   },
   "competition": {
     "competition_id": "uit-dsc-2026-task2",
@@ -13,11 +13,11 @@
   },
   "offline": {
     "chunking": {
-      "max_tokens": 384,
-      "max_search_tokens": 448,
+      "max_tokens": 448,
+      "max_search_tokens": 512,
       "min_tokens": 50,
       "overlap_tokens": 50,
-      "tokenizer_name": "unicode_word_v1"
+      "tokenizer_name": "embedding_model_v1"
     }
   },
   "online": {

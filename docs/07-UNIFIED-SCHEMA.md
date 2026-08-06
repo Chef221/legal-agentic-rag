@@ -246,6 +246,12 @@ che giấu text bị rơi.
 }
 ```
 
+For competition chunks, `tokenizer_name` may be `embedding_model_v1`. In that
+case metadata also records `tokenizer_model_name`,
+`tokenizer_model_revision`, and `tokenizer_document_prefix`; token counts include
+the prefix and model special tokens. These fields are omitted for the generic
+dependency-free `unicode_word_v1` tokenizer.
+
 ### DocumentChunkingDiagnostic
 
 ```json
