@@ -2081,3 +2081,20 @@ chưa có relevance labels để chứng minh lợi ích chất lượng.
 Query understanding và tối đa ba biến thể vẫn được giữ. Mọi run dùng reranker
 hoặc model generator phải có config/output directory mới; không resume vào batch
 M42 vì config hash và code version là recovery identity.
+
+---
+
+## D087 — M43 Qwen Candidate Is a Separate GPU Experiment
+
+**Status:** Accepted
+
+M43 không sửa hoặc resume batch extractive M42. Candidate dùng hybrid retrieval,
+E5 query embedding và exact dense search trên GPU, sau đó sinh answer bằng
+`Qwen/Qwen2.5-3B-Instruct` revision đã pin. Reranker và semantic model verifier
+không được gọi.
+
+Generation nhận tối đa 5 evidence trong context budget 3.072 token và sinh tối
+đa 256 token ở temperature 0. Profile nhằm giảm độ dài answer so với trung bình
+9.850 ký tự của M42; chưa được coi là candidate chính thức cho tới khi model
+registration/approval evidence được xác nhận. Không dùng output M43 để nộp nếu
+gate này chưa đạt.

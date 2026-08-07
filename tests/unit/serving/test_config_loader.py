@@ -19,6 +19,24 @@ def test_example_configuration_loads() -> None:
     assert config.competition.allow_external_data is False
 
 
+def test_kaggle_qwen_configuration_is_bounded_and_local() -> None:
+    """The M43 profile pins one local model and bounded hybrid generation."""
+    path = (
+        Path(__file__).parents[3]
+        / "configs"
+        / "uit-dsc-2026-task2-qwen3b-kaggle.example.json"
+    )
+
+    config = load_application_config(path)
+
+    assert config.online.agent.strategy_order == ["hybrid"]
+    assert config.online.generation.backend == "transformers"
+    assert config.online.generation.model_name == "Qwen/Qwen2.5-3B-Instruct"
+    assert config.online.generation.max_output_tokens == 256
+    assert config.online.semantic_verification.backend == "disabled"
+    assert config.competition.allow_external_data is False
+
+
 def test_config_loader_wraps_invalid_json_without_leaking_details(
     tmp_path: Path,
 ) -> None:

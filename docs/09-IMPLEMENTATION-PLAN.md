@@ -1951,7 +1951,27 @@ Completion evidence:
 - answer extractive trung bình 9.850 ký tự và mọi record chạm context budget;
   đây là format/operational baseline, chưa phải quality candidate tối ưu metric.
 
-## 46. Milestone Execution Rules
+## 46. Milestone 43 — Qwen3B Kaggle Generation Candidate
+
+**Status:** Ready to run; blocked for official submission pending model approval evidence
+
+- pin Kaggle GPU config cho E5 + Qwen2.5-3B, tổng model dưới 4B;
+- giữ hybrid-only retrieval, không load reranker hoặc semantic verifier;
+- giới hạn 5 evidence, 3.072 context token và 256 output token;
+- đóng gói online-only artifact cùng exact public source;
+- smoke một câu trước khi chạy resumable batch 1.000 câu;
+- validate exact ID coverage và deterministic submission ZIP;
+- không nộp output nếu chưa xác nhận BTC model approval.
+
+Prepared artifact:
+
+- `uit-dsc-2026-task2-serving-v0430.tar.gz`, 17 members, khoảng 0,98 GiB;
+- SHA-256
+  `90d4d211a20f6d3a6f894d8dd33c0f187fcf141c1bcbc3814d8dcc7e003e729c`;
+- chỉ chứa online artifacts M40, validation/provenance manifests và
+  `public-official.json`; không chứa AIO hoặc offline intermediate payloads.
+
+## 47. Milestone Execution Rules
 
 Mỗi milestone phải:
 
