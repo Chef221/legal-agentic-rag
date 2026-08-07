@@ -28,6 +28,7 @@ from legal_agentic_rag.indexing.vector import prepare_vector_serving_metadata
 from legal_agentic_rag.runtime import (
     ArtifactSetValidator,
     OnlineRuntimeFactory,
+    persist_build_validation_report,
 )
 from legal_agentic_rag.runtime.competition_offline import (
     CompetitionOfflineBuildRuntime,
@@ -103,7 +104,7 @@ def serve_main() -> None:
 
 def validate_main() -> None:
     """Revalidate an existing artifact set without rebuilding or changing it."""
-    arguments = _parser("Validate legal RAG artifacts").parse_args()
+    arguments = _validation_parser().parse_args()
     config = load_application_config(arguments.config)
     configure_logging(config.logging)
     report = ArtifactSetValidator(
@@ -120,6 +121,12 @@ def validate_main() -> None:
     )
     if not report.is_valid:
         raise ArtifactCompatibilityError("Artifact set failed validation")
+    if arguments.persist:
+        persist_build_validation_report(
+            report,
+            config.artifacts.root_path,
+            config.build_validation.report_filename,
+        )
 
 
 def prepare_serving_main() -> None:
@@ -245,6 +252,19 @@ def _evaluation_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="New directory for immutable evaluation reports.",
+    )
+    return parser
+
+
+def _validation_parser() -> argparse.ArgumentParser:
+    parser = _parser("Validate legal RAG artifacts")
+    parser.add_argument(
+        "--persist",
+        action="store_true",
+        help=(
+            "Persist the immutable report using build_validation.report_filename; "
+            "an existing report is never overwritten."
+        ),
     )
     return parser
 

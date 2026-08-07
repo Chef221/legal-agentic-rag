@@ -2046,3 +2046,23 @@ BM25 index. Independent post-build preflight observed a maximum of exactly 512
 tokens and zero violations across all persisted chunks. This authorizes vector
 construction from `uit-dsc-2026-task2-v0400`; it does not authorize reuse of any
 earlier vector artifact.
+
+---
+
+## D085 — Separate Immutable Build Identity From Serving Validation Policy
+
+**Status:** Accepted
+
+Không sửa `baseline.example.json` sau khi artifact M40 đã được tạo vì toàn bộ
+ApplicationConfig thuộc build identity. Full-corpus policy và online runtime
+được đặt trong `uit-dsc-2026-task2-serving.example.json`, trỏ tới cùng artifact
+root nhưng không dùng để resume build.
+
+Validation report mới phải được tạo bằng CLI với `--persist`, có tên riêng và
+không được ghi đè. Online dùng report này cùng `vector_serving` sidecar để tránh
+deep scan lặp lại lúc startup. Sidecar chỉ là metadata dẫn tới vector/chunk đã
+checksum; nó không thay đổi retrieval corpus hoặc lineage.
+
+Provider version là một phần compatibility contract của vector. Vector M40 được
+build bằng `sentence-transformers==5.4.1`, do đó runtime cũng pin đúng version
+này thay vì chấp nhận một range 5.x hoặc làm yếu kiểm tra manifest.

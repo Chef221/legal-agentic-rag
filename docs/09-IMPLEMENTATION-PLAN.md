@@ -1905,7 +1905,29 @@ Completion evidence:
 - independently retokenized all persisted E5 inputs;
 - observed maximum length 512 and zero inputs above the model window.
 
-## 44. Milestone Execution Rules
+## 44. Milestone 41 — Official Artifact Validation and Serving Readiness
+
+**Status:** Completed
+
+- persist một full-corpus validation report riêng cho artifact M40;
+- tạo và kiểm tra vector-serving metadata;
+- smoke test BM25, dense và hybrid trên câu hỏi public chính thức;
+- smoke test grounded answer bằng extractive generator không cần GPU;
+- không rebuild vector, không đánh giá retrieval quality khi chưa có relevance
+  labels.
+
+Completion evidence:
+
+- full-corpus report hợp lệ cho 8.532 context/8.512 context có nội dung;
+- vector sidecar tạo đủ 330.768 row và online startup bằng validated report;
+- public question `80189` trả 5 hit cho cả BM25, dense và hybrid;
+- measured local startup 0,08 giây, BM25 0,37 giây, cold dense 10,50 giây và
+  warm hybrid 0,26 giây;
+- extractive E2E kết thúc `answer_verified` với 5 citation trong 10,22 giây;
+- các số đo là smoke evidence trên máy phát triển, không phải quality benchmark
+  hoặc cam kết phần cứng BTC.
+
+## 45. Milestone Execution Rules
 
 Mỗi milestone phải:
 

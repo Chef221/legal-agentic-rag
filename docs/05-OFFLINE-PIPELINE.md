@@ -950,3 +950,14 @@ checkpoint đáng tin cậy và không được tự động tái sử dụng.
 Build state `0.20.0` schema `1.1` được phép nâng một chiều lên `0.20.1` chỉ cho
 thay đổi recovery này, sau khi canonical application-config hash vẫn khớp.
 Mọi code-version transition khác tiếp tục bị từ chối fail closed.
+
+## 18. M41 Full-corpus Validation Boundary
+
+Artifact M40 giữ nguyên cấu hình build và lineage đã tạo ra nó. Chính sách
+full-corpus dùng cho online được đặt trong cấu hình serving riêng, yêu cầu đúng
+8.532 context và 8.512 context có nội dung. `legal-rag-validate --persist` tạo
+một report bất biến với tên cấu hình; command từ chối ghi đè report có sẵn.
+
+Vector M40 được build từ 330.768 chunk chính thức với E5 revision đã pin. Việc
+tạo `vector_serving` chỉ sinh metadata tra cứu theo row/offset, không re-embed,
+không thay đổi vector và không tạo dữ liệu mới.

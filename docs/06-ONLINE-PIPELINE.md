@@ -988,3 +988,20 @@ Version `0.20.6` bổ sung exact GPU-resident dense scoring:
 - CUDA không khả dụng hoặc thiếu bộ nhớ làm startup fail rõ ràng, không silently
   fallback CPU;
 - không re-embed, rebuild artifact hoặc thêm vector database.
+
+## Official M40 Serving Profile
+
+`configs/uit-dsc-2026-task2-serving.example.json` là consumer profile của
+artifact M40, không phải cấu hình rebuild. Profile này yêu cầu full-corpus
+validation report và `vector_serving` sidecar tương thích, giữ vector search
+trên CPU mặc định và dùng extractive generator cho smoke test không cần GPU.
+
+Model-backed generation là profile thực nghiệm riêng và chỉ chạy khi model đã
+đăng ký/phê duyệt cùng tài nguyên phù hợp. Profile không dùng API, dữ liệu ngoài
+hoặc artifact AIO.
+
+Smoke test M41 trên public question `80189` xác nhận startup validated-report
+khoảng 0,08 giây, cả BM25/dense/hybrid đều trả đủ 5 hit và extractive workflow
+kết thúc `answer_verified` với 5 citation. Cold dense mất khoảng 10,50 giây do
+nạp E5; warm hybrid mất khoảng 0,26 giây. Đây chỉ là kiểm tra vận hành vì public
+data không có retrieval relevance labels.

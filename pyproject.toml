@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legal-agentic-rag"
-version = "0.40.0"
+version = "0.41.0"
 description = "Vietnamese legal RAG with immutable artifacts, API, and local UI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ dependencies = [
     "fastapi>=0.139,<1",
     "numpy>=1.26,<3",
     "pydantic>=2,<3",
-    "sentence-transformers>=5,<6",
+    "sentence-transformers==5.4.1",
     "transformers>=4.51,<6",
     "uvicorn>=0.30,<1",
 ]
