@@ -93,6 +93,26 @@ class _InvalidCitationVerifier:
         )
 
 
+class _AbstainingGenerator:
+    """Return a valid generator-level abstention despite sufficient context."""
+
+    def generate(
+        self,
+        query: RetrievalQuery,
+        evidence: Sequence[Evidence],
+        retrieval_strategy: RetrievalStrategy,
+        trace_id: str,
+    ) -> AnswerResponse:
+        return AnswerResponse(
+            question=query.original_question,
+            answer="Khong du can cu de tra loi.",
+            insufficient_evidence=True,
+            warnings=["model_reported_insufficient_evidence"],
+            retrieval_strategy=retrieval_strategy,
+            trace_id=trace_id,
+        )
+
+
 def _query() -> RetrievalQuery:
     return RetrievalQuery(
         query_id="agent-workflow",
@@ -108,11 +128,12 @@ def _workflow(
     *,
     config: AgentConfig | None = None,
     verifier: object | None = None,
+    generator: object | None = None,
 ) -> DeterministicAgentWorkflow:
     registry = build_fixed_tool_registry(
         retriever=retriever,
         context_grader=RuleBasedContextGrader(),
-        answer_generator=ExtractiveAnswerGenerator(),
+        answer_generator=generator or ExtractiveAnswerGenerator(),
         citation_verifier=verifier or RuleBasedCitationVerifier(),
     )
     return DeterministicAgentWorkflow(registry, agent_config=config)
@@ -239,6 +260,29 @@ def test_agent_fails_closed_when_citation_verification_rejects_answer() -> None:
     assert result.response.insufficient_evidence is True
     assert result.response.citations == []
     assert "forced_invalid_citation" in result.response.warnings
+
+
+def test_agent_preserves_generator_abstention_without_marking_it_verified() -> None:
+    """A model abstention is terminal and never masquerades as a verified answer."""
+    retriever = _SequencedRetriever(hit_calls={1})
+
+    result = _workflow(
+        retriever,
+        generator=_AbstainingGenerator(),
+    ).run(_query())
+
+    assert result.stop_reason == AgentStopReason.GENERATION_FAILED
+    assert result.response.insufficient_evidence is True
+    assert result.response.citations == []
+    assert "generator:insufficient_evidence" in result.response.warnings
+    assert [
+        item["tool_name"]
+        for item in result.state.metadata["tool_invocations"]
+    ] == [
+        ToolName.RERANK_SEARCH.value,
+        ToolName.CONTEXT_GRADING.value,
+        ToolName.ANSWER_GENERATION.value,
+    ]
 
 
 def test_agent_calls_only_the_retrieval_tool_present_in_closed_registry() -> None:

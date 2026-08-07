@@ -1971,6 +1971,16 @@ Prepared artifact:
 - chỉ chứa online artifacts M40, validation/provenance manifests và
   `public-official.json`; không chứa AIO hoặc offline intermediate payloads.
 
+### M43.1 — Generator Abstention Hotfix
+
+**Status:** Implemented; awaiting clean Kaggle batch rerun
+
+- giữ generator-level abstention là kết quả fail-closed;
+- không gửi abstention qua citation verifier rồi gắn nhầm `answer_verified`;
+- thêm regression test cho nhánh model tự báo evidence không đủ;
+- không resume checkpoint `0.43.0` bằng code `0.43.1`; batch mới phải dùng output
+  directory riêng để giữ đúng recovery identity.
+
 ## 47. Milestone Execution Rules
 
 Mỗi milestone phải:

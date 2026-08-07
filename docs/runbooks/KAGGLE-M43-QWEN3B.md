@@ -67,7 +67,7 @@ import transformers
 print("Project:", legal_agentic_rag.__version__)
 print("Sentence Transformers:", sentence_transformers.__version__)
 print("Transformers:", transformers.__version__)
-assert legal_agentic_rag.__version__ == "0.43.0"
+assert legal_agentic_rag.__version__ == "0.43.1"
 assert sentence_transformers.__version__ == "5.4.1"
 assert transformers.__version__ == "5.0.0"
 ```

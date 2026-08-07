@@ -321,6 +321,22 @@ class DeterministicAgentWorkflow:
                 self._abstention(query, strategy, ["generator:contract_mismatch"]),
                 AgentStopReason.GENERATION_FAILED,
             )
+        if response.insufficient_evidence:
+            return (
+                response.model_copy(
+                    update={
+                        "warnings": list(
+                            dict.fromkeys(
+                                [
+                                    *response.warnings,
+                                    "generator:insufficient_evidence",
+                                ]
+                            )
+                        )
+                    }
+                ),
+                AgentStopReason.GENERATION_FAILED,
+            )
         verification = self._invoke(
             query.query_id,
             attempt_number,

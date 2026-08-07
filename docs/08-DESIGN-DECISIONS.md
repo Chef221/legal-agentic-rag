@@ -2098,3 +2098,15 @@ Generation nhận tối đa 5 evidence trong context budget 3.072 token và sinh
 9.850 ký tự của M42; chưa được coi là candidate chính thức cho tới khi model
 registration/approval evidence được xác nhận. Không dùng output M43 để nộp nếu
 gate này chưa đạt.
+
+---
+
+## D088 — Generator Abstention Is a Fail-Closed Terminal Outcome
+
+**Status:** Accepted
+
+Khi generator trả về `insufficient_evidence=true`, workflow không gọi citation
+verifier và không gắn `answer_verified`. Kết quả được giữ là abstention, kết
+thúc với `generation_failed` và warning `generator:insufficient_evidence`.
+Quy tắc này ngăn output không có evidence bị hiểu nhầm là câu trả lời đã xác
+minh.
