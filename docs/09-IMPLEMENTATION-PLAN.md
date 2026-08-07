@@ -1927,7 +1927,31 @@ Completion evidence:
 - các số đo là smoke evidence trên máy phát triển, không phải quality benchmark
   hoặc cam kết phần cứng BTC.
 
-## 45. Milestone Execution Rules
+## 45. Milestone 42 — Public Extractive Baseline Submission
+
+**Status:** Completed
+
+- chạy đúng 1.000 public questions bằng hybrid retrieval;
+- checkpoint từng answer và log tiến độ mỗi 25 câu;
+- không gọi reranker, generator model, API hoặc dữ liệu ngoài;
+- xác nhận exact question-ID coverage;
+- đóng gói deterministic `submission.zip` theo scorer contract thực tế.
+
+Completion evidence:
+
+- xử lý đủ 1.000/1.000 public questions, 1.000 ID duy nhất và đúng source order;
+- source SHA-256
+  `5f68ca901cb20798559538bef60fa7c32bd7d0df59f5bf31a37eb220c9e00df5`;
+- batch records SHA-256
+  `1c5eebd64f493ad6a97a84e43ff8bafae10e0ed059113f2a7b946e4e81b1054e`;
+- 996 answer có evidence, 4 abstention, không answer rỗng;
+- deterministic ZIP chỉ chứa `submission.json`, đủ 1.000 answer string;
+- archive SHA-256
+  `3cddb19b23d9b296b725dd1ed0c69b9de7770651f31d5b2e67ecc6cf39fa76d6`;
+- answer extractive trung bình 9.850 ký tự và mọi record chạm context budget;
+  đây là format/operational baseline, chưa phải quality candidate tối ưu metric.
+
+## 46. Milestone Execution Rules
 
 Mỗi milestone phải:
 

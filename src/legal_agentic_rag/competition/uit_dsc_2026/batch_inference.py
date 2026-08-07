@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Callable, Protocol
@@ -25,6 +26,8 @@ from legal_agentic_rag.schemas import (
 BATCH_RECORDS_FILENAME = "results.jsonl"
 BATCH_STATE_FILENAME = "batch_state.json"
 BATCH_MANIFEST_FILENAME = "manifest.json"
+_PROGRESS_INTERVAL = 25
+_LOGGER = logging.getLogger(__name__)
 
 
 class CompetitionQuestionAnswerer(Protocol):
@@ -91,6 +94,13 @@ class CompetitionBatchRunner:
         )
         records = self._load_records(records_path) if records_path.exists() else []
         self._validate_prefix(records, question_ids)
+        _LOGGER.info(
+            "competition_batch_started",
+            extra={
+                "question_count": len(questions),
+                "completed_question_count": len(records),
+            },
+        )
         record_ids = [record.question_id for record in records]
         if state.completed_question_ids != record_ids:
             state = state.model_copy(
@@ -130,6 +140,17 @@ class CompetitionBatchRunner:
                 self._write_json_atomic(
                     state_path, state.model_dump(mode="json")
                 )
+                if (
+                    len(records) % _PROGRESS_INTERVAL == 0
+                    or len(records) == len(questions)
+                ):
+                    _LOGGER.info(
+                        "competition_batch_progress",
+                        extra={
+                            "question_count": len(questions),
+                            "completed_question_count": len(records),
+                        },
+                    )
 
         self._validate_prefix(records, question_ids)
         if len(records) != len(question_ids):
@@ -143,6 +164,13 @@ class CompetitionBatchRunner:
             records_sha256=self._sha256_file(records_path),
         )
         self._write_json_exclusive(manifest_path, manifest.model_dump(mode="json"))
+        _LOGGER.info(
+            "competition_batch_completed",
+            extra={
+                "question_count": len(questions),
+                "completed_question_count": len(records),
+            },
+        )
         return manifest
 
     def _prepare_state(

@@ -61,6 +61,11 @@
     },
     "generation": {
       "backend": "extractive"
+    },
+    "agent": {
+      "max_retry": 2,
+      "strategy_order": ["hybrid"],
+      "rewrite_query_on_retry": false
     }
   },
   "build_validation": {

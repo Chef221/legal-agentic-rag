@@ -2066,3 +2066,18 @@ checksum; nó không thay đổi retrieval corpus hoặc lineage.
 Provider version là một phần compatibility contract của vector. Vector M40 được
 build bằng `sentence-transformers==5.4.1`, do đó runtime cũng pin đúng version
 này thay vì chấp nhận một range 5.x hoặc làm yếu kiểm tra manifest.
+
+---
+
+## D086 — Public Extractive Baseline Uses Hybrid-only Agent Routing
+
+**Status:** Accepted
+
+Batch extractive đầu tiên dùng đúng một strategy `hybrid`. Không dùng
+`hybrid_rerank` mặc định vì M42 nhằm xác nhận full-corpus inference, checkpoint,
+ID coverage và submission boundary trên CPU; reranker làm batch chậm hơn nhưng
+chưa có relevance labels để chứng minh lợi ích chất lượng.
+
+Query understanding và tối đa ba biến thể vẫn được giữ. Mọi run dùng reranker
+hoặc model generator phải có config/output directory mới; không resume vào batch
+M42 vì config hash và code version là recovery identity.

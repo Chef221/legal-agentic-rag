@@ -994,7 +994,8 @@ Version `0.20.6` bổ sung exact GPU-resident dense scoring:
 `configs/uit-dsc-2026-task2-serving.example.json` là consumer profile của
 artifact M40, không phải cấu hình rebuild. Profile này yêu cầu full-corpus
 validation report và `vector_serving` sidecar tương thích, giữ vector search
-trên CPU mặc định và dùng extractive generator cho smoke test không cần GPU.
+trên CPU mặc định, giới hạn Agent ở đúng hybrid strategy và dùng extractive
+generator cho smoke test/batch baseline không cần GPU.
 
 Model-backed generation là profile thực nghiệm riêng và chỉ chạy khi model đã
 đăng ký/phê duyệt cùng tài nguyên phù hợp. Profile không dùng API, dữ liệu ngoài
