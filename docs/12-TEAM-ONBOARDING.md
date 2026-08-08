@@ -70,15 +70,31 @@ Hai nửa quan trọng:
 - evaluation, benchmark governance và comparison;
 - resumable competition build, batch inference và Codabench formatter.
 
-### Chưa thể hoàn tất
+### Baseline M43.1 đã chạy thật
 
-- đã có/audit `selected-contexts.zip`, `train.json` và public questions nhưng
-  chưa chạy full parser/index build;
-- chưa có private questions và chưa chốt leakage-safe train/dev strategy;
-- model open-source phải chờ Google Form của BTC để đăng ký tên và URL;
-- chưa chốt final model, GPU image và giới hạn runtime;
-- chưa implement local scorer tương thích source BTC; scorer chính thức dùng
-  NLTK/WordNet nhưng không pin exact dependency/resource versions trong ZIP.
+- official corpus đã được parse/chunk thành 330.768 chunk;
+- BM25, vector 384 chiều, vector-serving metadata và zero-edge graph đã build,
+  checksum và validation;
+- public batch đã hoàn tất 1.000/1.000 câu bằng hybrid + Qwen2.5-3B;
+- submission đã được Codabench chấm METEOR `0.07862292376534387` và ROUGE-L
+  `0.16735433212043324`;
+- model E5, mMARCO reranker và Qwen2.5-3B đã được người dùng xác nhận BTC duyệt.
+
+### Chưa hoàn tất về chất lượng
+
+- 425/1.000 câu abstain và 384 câu fail citation verification;
+- 100% câu chạm context budget;
+- answer median 92 ký tự, ngắn hơn nhiều so với reference train median 1.410;
+- approved reranker chưa active trong M43;
+- chưa chốt leakage-safe train/dev strategy;
+- chưa có local scorer parity tuyệt đối vì scorer chính thức không pin exact
+  NLTK/WordNet dependency/resource versions;
+- chưa chốt final model stack, GPU image và giới hạn runtime BTC.
+
+Đọc hậu kiểm và backlog trước khi sửa:
+
+- `docs/16-M43-BASELINE-POSTMORTEM.md`;
+- `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
 
 ### Ràng buộc BTC phải nhớ
 
@@ -86,7 +102,7 @@ Hai nửa quan trọng:
 - được preprocessing, indexing, retrieval và fine-tuning trên dữ liệu BTC;
 - cấm synthetic data, kể cả sinh từ dữ liệu BTC;
 - Codabench là nền tảng nộp Task 2;
-- model mã nguồn mở không có danh sách cố định nhưng phải đăng ký qua Form;
+- chỉ model đã đăng ký và được BTC duyệt mới được dùng;
 - không dùng lại corpus hoặc artifact AIO trong competition runtime.
 
 ## 4. Kiến trúc theo lớp
@@ -517,22 +533,22 @@ git diff --check
 
 Không commit dataset, artifact, model, token, `.env`, cache hoặc log.
 
-## 15. Lộ trình ngay khi BTC phát hành corpus
+## 15. Lộ trình cải thiện sau baseline M43.1
 
-1. Lưu nguyên bản `selected-contexts.zip`, tính SHA-256.
-2. Audit file/member/schema/encoding/duplicate/count; chưa sửa core.
-3. Cập nhật data statement và decision nếu raw thực tế khác overview.
-4. Chạy fixture/sample build trước.
-5. Chạy full official build và theo dõi RAM/time/checkpoint.
-6. Validate toàn bộ artifact và lineage.
-7. Tạo vector serving metadata nếu cần.
-8. Chạy benchmark retrieval/generation trên split chính thức.
-9. Đăng ký model candidates với BTC trước official use.
-10. Chạy batch, format `submission.zip`, local preflight rồi mới upload.
+1. Giữ M43.1 làm control, không sửa config/output cũ.
+2. Chốt leakage-safe train/dev manifest và evaluator.
+3. Tạo retrieval/error diagnostics theo từng question type.
+4. Benchmark hybrid với approved reranker trên cùng dev split.
+5. Đo context token allocation và giảm duplicate evidence.
+6. Benchmark prompt/output length, không đồng thời thay retrieval.
+7. Thêm claim-level repair hoặc grounded fallback, không tắt verifier.
+8. Chỉ fine-tune bằng official train sau khi split/evaluator được duyệt.
+9. Chạy full public candidate mới đúng một lần sau local gate.
+10. Ghi score, commit, config, checksum và error rates vào experiment ledger.
 
 ## 16. Những hiểu lầm cần tránh
 
-- Có code pipeline không có nghĩa đã có official index.
+- Có official index không có nghĩa retrieval đã đạt chất lượng tốt.
 - `warmup.json` không phải corpus.
 - Agent không thay thế retrieval; nó chỉ điều phối module đã kiểm thử.
 - Citation nội bộ giúp grounding nhưng không được đưa thành field submission.
@@ -544,13 +560,13 @@ Không commit dataset, artifact, model, token, `.env`, cache hoặc log.
 
 ## 17. Thứ tự tài liệu nên đọc tiếp
 
-1. `README.md` — trạng thái và lệnh chính.
-2. File này — bản đồ toàn hệ thống.
-3. `docs/04-SYSTEM-ARCHITECTURE.md` — boundary kiến trúc.
-4. `docs/05-OFFLINE-PIPELINE.md` — build corpus.
-5. `docs/06-ONLINE-PIPELINE.md` — xử lý query.
-6. `docs/07-UNIFIED-SCHEMA.md` — field contract.
-7. `docs/10-COMPETITION-ADAPTATION.md` — adapter/submission.
-8. `docs/11-COMPETITION-COMPLIANCE.md` — quy định BTC.
-9. `docs/08-DESIGN-DECISIONS.md` — lý do các quyết định.
-10. `docs/09-IMPLEMENTATION-PLAN.md` — lịch sử milestone.
+1. `docs/00-START-HERE.md` — điểm vào và cách nhận việc.
+2. `docs/16-M43-BASELINE-POSTMORTEM.md` — score và root cause.
+3. `docs/17-TEAM-IMPROVEMENT-BACKLOG.md` — workstream.
+4. File này — bản đồ thực hành.
+5. `docs/14-SYSTEM-ARCHITECTURE-REFERENCE.md` — I/O as-built.
+6. `docs/04-SYSTEM-ARCHITECTURE.md` — boundary kiến trúc.
+7. `docs/05-OFFLINE-PIPELINE.md` và `docs/06-ONLINE-PIPELINE.md`.
+8. `docs/07-UNIFIED-SCHEMA.md` — field contract.
+9. `docs/10-COMPETITION-ADAPTATION.md` và compliance/scoring docs.
+10. `docs/08-DESIGN-DECISIONS.md`, `docs/09-IMPLEMENTATION-PLAN.md`.

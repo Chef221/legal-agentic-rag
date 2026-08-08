@@ -22,15 +22,16 @@ Scorer BTC được mô tả tại
 | Unified schemas, configuration, contracts | Đã triển khai |
 | Competition loader/adapter/audit/cleaner | Đã triển khai và xác nhận trên 8.532 context thật |
 | Parser, chunker, BM25, vector index | Đã triển khai và có test fixture |
-| Official BTC corpus build | Adapter/cleaner audit đã chạy; parser/index build chưa chạy |
+| Official BTC corpus build | Đã build 330.768 chunk, BM25, vector và serving metadata |
 | Hybrid RRF và reranker | Đã triển khai |
 | Graph backend/retrieval | Đã triển khai generic; official graph hiện bắt buộc rỗng vì BTC chưa cung cấp relationships |
 | Grounded generation, grading, verification | Đã triển khai |
 | Bounded deterministic Agent | Đã triển khai, không phải autonomous/multi-agent |
 | API và local UI | Đã triển khai |
-| Batch, resume, submission ZIP, local scoring | Đã triển khai |
+| Batch, resume, submission ZIP, local scoring | Đã triển khai; public M43.1 chạy đủ 1.000 câu |
 | Official scorer source contract | Đã phân tích và checksum; local parity chưa implement |
-| Model registration và tổng tham số dưới 4B | Chưa hoàn tất inventory/đăng ký |
+| Model registration | E5, mMARCO reranker và Qwen2.5-3B được người dùng xác nhận BTC đã duyệt |
+| Public quality | METEOR 0,07862; ROUGE-L 0,16735; cần cải thiện |
 
 ## 3. Kiến trúc cấp cao
 
@@ -102,18 +103,18 @@ selected-contexts.zip
 
 ## 5. Technical statistics
 
-Số liệu được đo từ working tree ngày 2026-08-06:
+Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.36.0` |
+| Project version | `0.43.1` |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |
-| Source lines | 20,850 |
-| Test Python files | 100 |
-| Test lines | 11,190 |
-| Test functions | 383 |
+| Source lines | 21.378 |
+| Test Python files | 101 |
+| Test lines | 11.514 |
+| Test functions | 398 |
 | Public CLI commands | 9 |
 | Fixed Agent tools | 8 |
 
@@ -126,7 +127,7 @@ Các con số file/line/test là snapshot, sẽ thay đổi khi repository thay 
 | Python | Runtime chính | `>=3.11` |
 | Pydantic v2 | Schema và configuration validation | `>=2,<3` |
 | NumPy | Vector matrix và exact cosine search | `>=1.26,<3` |
-| Sentence Transformers | Embedding và cross-encoder integration | `>=5,<6` |
+| Sentence Transformers | Embedding và cross-encoder integration | `==5.4.1` |
 | Transformers | Local model-backed generation/verification | `>=4.51,<6` |
 | FastAPI | HTTP API | `>=0.139,<1` |
 | Uvicorn | ASGI server | `>=0.30,<1` |
@@ -180,21 +181,46 @@ trường tái lập cuối phải freeze đầy đủ transitive dependencies.
 
 Các giá trị trên là typed defaults, không phải competition tuning cuối cùng.
 
-### 5.4 Current model candidates
+### 5.4 Current model inventory
 
 | Vai trò | Candidate | Revision | Trạng thái |
 |---|---|---|---|
-| Embedding | `intfloat/multilingual-e5-small` | `614241f622f53c4eeff9890bdc4f31cfecc418b3` | Candidate, cần đăng ký BTC |
-| Reranker | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | `1427fd652930e4ba29e8149678df786c240d8825` | Candidate, cần đăng ký BTC |
-| Generator smoke | `Qwen/Qwen2.5-3B-Instruct` | `a1d308dfcc03e09da285d49d912439a655a571e8` | Candidate, chưa phải final stack |
+| Embedding | `intfloat/multilingual-e5-small` | `614241f622f53c4eeff9890bdc4f31cfecc418b3` | Người dùng xác nhận BTC đã duyệt; active M43 |
+| Reranker | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1` | `1427fd652930e4ba29e8149678df786c240d8825` | Người dùng xác nhận BTC đã duyệt; không active M43 |
+| Generator | `Qwen/Qwen2.5-3B-Instruct` | `a1d308dfcc03e09da285d49d912439a655a571e8` | Người dùng xác nhận BTC đã duyệt; active M43 |
 
 Generator mặc định trong config là `extractive`; semantic verifier mặc định
 `disabled`. Backend `openai_compatible` còn tồn tại trong generic code lịch sử,
 nhưng **không được cấu hình cho cuộc thi** vì BTC cấm mọi API.
 
-Tổng parameter count của toàn stack chưa được xác minh. Không được official-run
-cho tới khi inventory chứng minh tổng embedding + reranker + generator + mọi
-model phụ trợ nhỏ hơn `4_000_000_000` và hoàn tất đăng ký BTC.
+E5 + Qwen là active stack M43; reranker không được cộng như model active trong
+run này. Mọi candidate mới hoặc cấu hình kích hoạt thêm model vẫn phải kiểm kê
+tổng parameter dưới `4_000_000_000`. Bằng chứng BTC duyệt phải được giữ trong hồ
+sơ đội; xác nhận trong tài liệu không thay thế bằng chứng gốc.
+
+### 5.5 Active M43.1 profile và measured artifacts
+
+| Thành phần | Giá trị thực tế |
+|---|---|
+| Corpus | 8.532 context, 8.512 có nội dung |
+| Parser/chunker | 330.768 chunks, exact E5 maximum 512 token |
+| BM25 | SQLite FTS5, 330.768 records |
+| Dense | E5-small, 384 chiều, exact NumPy/Torch search |
+| Fusion | RRF hybrid, `candidate_k=60`, `top_k=8` |
+| Query variants | tối đa 3 |
+| Reranker | tắt |
+| Graph expansion | tắt; artifact zero-edge |
+| Evidence/context | tối đa 5 evidence, 3.072 token |
+| Generation | Qwen2.5-3B, fp16, 256 output token, temperature 0 |
+| Verification | rule/claim-based; semantic model tắt |
+| Agent | chỉ strategy `hybrid`, max retry 2, không query rewrite |
+
+Serving package M43 có SHA-256
+`90d4d211a20f6d3a6f894d8dd33c0f187fcf141c1bcbc3814d8dcc7e003e729c`.
+Vector matrix có shape `(330768, 384)`. Public batch cuối có 1.000 unique IDs,
+0 retrieval model error, 425 abstention và 33 generator model error. Đây là
+measured experiment snapshot, không phải default cho mọi config hoặc cam kết
+production.
 
 ## 6. Package architecture
 
@@ -560,16 +586,27 @@ service và invalid user input. Serving map chúng sang lỗi HTTP đã sanitize
 
 ## 17. Known gaps and next gates
 
-1. Official graph hiện zero-edge; không được kỳ vọng graph cải thiện retrieval.
-2. Chưa có official relevance labels nên chưa fine-tune retriever/reranker.
-3. Warm-up/train/public có overlap; train/dev strategy phải chống leakage.
-4. Full parser/chunker/BM25/vector artifact build chưa chạy trên corpus BTC.
-5. Model inventory, parameter count aggregate, license review và BTC registration
-   chưa hoàn tất.
-6. Chưa biết GPU/RAM/disk/time/network của môi trường chấm cuối.
-7. Source scorer đã rõ nhưng local METEOR/ROUGE-L chưa implement exact behavior;
-   exact NLTK/WordNet resource versions cũng chưa được khóa.
-8. PyTorch/transitive dependency freeze và final reproduction image chưa chốt.
+1. M43 official score thấp: METEOR `0.07862292376534387`, ROUGE-L
+   `0.16735433212043324`.
+2. 425/1.000 response abstain; 384 citation verification fail; 33 generator
+   model error.
+3. Mọi câu đều chạm context budget; prediction ngắn hơn reference train rất
+   nhiều.
+4. Approved reranker chưa active trong M43; fusion/top-k/context chưa có ablation
+   trên leakage-safe dev.
+5. Official graph zero-edge; không được kỳ vọng graph cải thiện retrieval khi
+   chưa có relationship evidence hợp lệ.
+6. Chưa có official relevance labels nên không được tuyên bố retrieval recall
+   hoặc tự tạo synthetic hard negative.
+7. Warm-up/train/public có overlap; train/dev strategy phải chống leakage.
+8. Chưa biết GPU/RAM/disk/time/network của môi trường chấm cuối.
+9. Exact NLTK/WordNet resource versions chưa được khóa; local scorer cần golden
+   parity tests.
+10. PyTorch/transitive dependency freeze và final reproduction image chưa chốt;
+    P100 từng tạo batch lỗi do incompatible CUDA capability.
+
+Phân tích đầy đủ nằm tại `16-M43-BASELINE-POSTMORTEM.md`; workstream và tiêu chí
+nghiệm thu nằm tại `17-TEAM-IMPROVEMENT-BACKLOG.md`.
 
 ## 18. Definition of one successful run
 

@@ -41,10 +41,9 @@ revision/checksum, config hash và code version.
 
 ## 3. Model registration gate
 
-BTC không ban hành danh sách model cố định. Mọi model mã nguồn mở đội muốn sử
-dụng phải đăng ký tên model và URL chính thức qua Google Form BTC sẽ gửi. Cho
-tới khi Form xuất hiện và registration evidence được lưu, repository áp dụng
-fail-closed:
+BTC yêu cầu mọi model phải đăng ký tên và URL chính thức qua Google Form; chỉ
+model được BTC duyệt mới được dùng. Người dùng đã xác nhận ba model baseline ở
+bảng dưới đã được duyệt. Repository vẫn áp dụng fail-closed:
 
 1. model candidate không đồng nghĩa model được phép thi;
 2. không chạy official competition batch bằng model có trạng thái approval
@@ -60,9 +59,9 @@ fail-closed:
 
 | Thành phần | Candidate và revision | License | BTC registration | Trạng thái |
 |---|---|---|---|---|
-| Embedding | `intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3` | MIT theo model card tại revision | Chờ Form | Không được dùng cho official run |
-| Reranker | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1@1427fd652930e4ba29e8149678df786c240d8825` | Apache-2.0 theo model card tại revision | Chờ Form | Không được dùng cho official run |
-| Generator smoke candidate | `Qwen/Qwen2.5-3B-Instruct@a1d308dfcc03e09da285d49d912439a655a571e8` | `qwen-research` tùy chỉnh | Chờ Form | Không được dùng cho official run; cần legal/BTC review |
+| Embedding | `intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3` | MIT theo model card tại revision | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt |
+| Reranker | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1@1427fd652930e4ba29e8149678df786c240d8825` | Apache-2.0 theo model card tại revision | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt |
+| Generator | `Qwen/Qwen2.5-3B-Instruct@a1d308dfcc03e09da285d49d912439a655a571e8` | `qwen-research` tùy chỉnh | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt; vẫn giữ license evidence |
 
 Nguồn model card theo exact revision:
 
@@ -70,7 +69,9 @@ Nguồn model card theo exact revision:
 - <https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1/tree/1427fd652930e4ba29e8149678df786c240d8825>;
 - <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/tree/a1d308dfcc03e09da285d49d912439a655a571e8>.
 
-Metadata license là bước kiểm kê đầu tiên, chưa thay thế việc đọc toàn văn
+Xác nhận trong repository không thay thế email/Form/spreadsheet approval gốc;
+đội phải lưu bằng chứng đó trong hồ sơ competition nhưng không commit dữ liệu
+nhạy cảm. Metadata license là bước kiểm kê đầu tiên, chưa thay thế việc đọc toàn văn
 license và kiểm tra dataset/base-model transitive obligations. Đặc biệt,
 `qwen-research` không được mặc định tương đương OSI open source hoặc tương
 thích yêu cầu BTC.
@@ -166,16 +167,14 @@ Repository áp dụng:
 
 ## 8. Open organizer clarifications
 
-1. Google Form đăng ký model được phát hành khi nào và registration có cần BTC
-   phản hồi chấp thuận riêng hay chỉ cần khai báo?
-2. Google Form yêu cầu khai báo parameter count theo nguồn nào và có cần BTC
-   phản hồi chấp thuận riêng không?
-3. Môi trường inference/chấm cuối có Internet không và model weights được
+1. Model fine-tuned hoặc revision khác model đã duyệt có phải đăng ký lại và
+   khai báo parameter count theo nguồn nào?
+2. Môi trường inference/chấm cuối có Internet không và model weights được
    cung cấp/mount thế nào?
-5. Docker command, CUDA, RAM, disk, timeout và interface chấm cuối cùng là gì?
-6. Data Statement và Model Card được nộp ở đâu, thời điểm nào và theo format
+3. Docker command, CUDA, RAM, disk, timeout và interface chấm cuối cùng là gì?
+4. Data Statement và Model Card được nộp ở đâu, thời điểm nào và theo format
    nào?
-7. Image public/private có dùng đúng scorer checksum đã phân tích và exact
+5. Image public/private có dùng đúng scorer checksum đã phân tích và exact
    NLTK/WordNet resource versions nào?
 
 Mọi điểm trên giữ trạng thái unresolved; code không được biến chúng thành giả

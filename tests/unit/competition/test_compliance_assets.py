@@ -42,14 +42,22 @@ def test_required_compliance_templates_are_present_and_actionable() -> None:
         assert marker in content
 
 
-def test_candidate_models_remain_blocked_until_registration() -> None:
-    """Documented candidates cannot be mistaken for registered competition use."""
+def test_model_inventory_records_approval_without_replacing_primary_evidence() -> None:
+    """Approved identities stay exact and still require organizer evidence."""
     compliance = (_ROOT / "docs" / "11-COMPETITION-COMPLIANCE.md").read_text(
         encoding="utf-8"
     )
 
-    assert "Không được dùng cho official run" in compliance
-    assert "Chờ Form" in compliance
+    for revision in (
+        "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+        "1427fd652930e4ba29e8149678df786c240d8825",
+        "a1d308dfcc03e09da285d49d912439a655a571e8",
+    ):
+        assert revision in compliance
+    assert compliance.count("Người dùng xác nhận BTC đã duyệt") == 3
+    assert "không thay thế email/Form/spreadsheet approval gốc" in compliance
+    assert "trạng thái approval" in compliance
+    assert "`pending` hoặc `unknown`" in compliance
 
 
 def test_team_onboarding_covers_all_pipeline_boundaries() -> None:
@@ -67,3 +75,36 @@ def test_team_onboarding_covers_all_pipeline_boundaries() -> None:
         "Quy trình làm việc cho thành viên",
     ):
         assert marker in guide
+
+
+def test_team_handoff_documents_keep_current_baseline_and_workstreams() -> None:
+    """The repository entry point must expose evidence and actionable ownership."""
+    readme = (_ROOT / "README.md").read_text(encoding="utf-8")
+    start = (_ROOT / "docs" / "00-START-HERE.md").read_text(encoding="utf-8")
+    postmortem = (
+        _ROOT / "docs" / "16-M43-BASELINE-POSTMORTEM.md"
+    ).read_text(encoding="utf-8")
+    backlog = (
+        _ROOT / "docs" / "17-TEAM-IMPROVEMENT-BACKLOG.md"
+    ).read_text(encoding="utf-8")
+
+    for filename in (
+        "docs/00-START-HERE.md",
+        "docs/16-M43-BASELINE-POSTMORTEM.md",
+        "docs/17-TEAM-IMPROVEMENT-BACKLOG.md",
+    ):
+        assert filename in readme
+    assert "0.07862292376534387" in start
+    assert "425" in postmortem
+    assert "384" in postmortem
+    for workstream in (
+        "WS-A",
+        "WS-B",
+        "WS-C",
+        "WS-D",
+        "WS-E",
+        "WS-F",
+        "WS-G",
+        "WS-H",
+    ):
+        assert workstream in backlog

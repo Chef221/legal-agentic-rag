@@ -5,17 +5,25 @@ Task 2 — Legal Question Answering.
 
 ## Trạng thái
 
-Milestone hiện tại là **M39 — Official Pre-GPU Quality Hardening** và đã hoàn
-thành phần CPU. `train.json`, `public-official.json` và
-`selected-contexts.zip` đã được audit; cleaner/parser/chunker đã được làm cứng
-trên corpus official-only và BM25 đã build/reload thành công. Cổng kế tiếp là
-exact tokenizer preflight của embedding model đã đăng ký trước khi dùng GPU để
-build vector.
+Baseline hiện tại là **M43.1 — Qwen3B public baseline**, code version `0.43.1`.
+Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
+tạo submission hợp lệ và được Codabench chấm:
 
-Thành viên mới nên bắt đầu tại
-[`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md). Tài liệu này giải
-thích toàn bộ offline/online pipeline, package map, CLI, artifact, evaluation và
-quy trình nộp Codabench bằng ngôn ngữ thực hành.
+- METEOR: `0.07862292376534387`;
+- ROUGE-L: `0.16735433212043324`;
+- 1.000/1.000 ID, không answer rỗng;
+- 425 abstention, 384 citation-verification failure và 33 generator model error.
+
+Đây là baseline vận hành hoàn chỉnh nhưng chất lượng còn yếu. Thành viên mới
+phải bắt đầu tại [`docs/00-START-HERE.md`](docs/00-START-HERE.md), sau đó đọc:
+
+- [`docs/16-M43-BASELINE-POSTMORTEM.md`](docs/16-M43-BASELINE-POSTMORTEM.md)
+  để hiểu score, lỗi và root cause;
+- [`docs/17-TEAM-IMPROVEMENT-BACKLOG.md`](docs/17-TEAM-IMPROVEMENT-BACKLOG.md)
+  để nhận workstream;
+- [`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md) và
+  [`docs/14-SYSTEM-ARCHITECTURE-REFERENCE.md`](docs/14-SYSTEM-ARCHITECTURE-REFERENCE.md)
+  để hiểu package, I/O và kiến trúc as-built.
 
 Repository giữ lại core độc lập dữ liệu:
 
@@ -35,8 +43,7 @@ nguồn ngoài BTC không còn được hỗ trợ.
 
 Các file thật đã xác nhận:
 
-- `warmup.json`, `train.json`, `public-official.json`,
-  `private-official.json`;
+- `warmup.json`, `train.json`, `public-official.json`;
 - `selected-contexts.zip` chứa các file `context_*.json`;
 - mỗi context có raw fields bắt buộc `id`, `link`, `passage`; `name` optional;
 - input là câu hỏi pháp luật tiếng Việt;
@@ -57,8 +64,10 @@ Raw field names của BTC chỉ nằm trong
 
 BTC xác nhận chỉ được dùng dữ liệu chính thức, cấm synthetic data kể cả sinh từ
 dữ liệu BTC, cho phép preprocessing/indexing/retrieval/fine-tuning trên dữ liệu
-chính thức, và yêu cầu đăng ký tên + URL model mã nguồn mở qua Form sắp công bố.
-Private test tối đa 3 submission/ngày, và Top 7
+chính thức, và chỉ cho phép model đã đăng ký/được duyệt. Ba model baseline E5,
+mMARCO MiniLM reranker và Qwen2.5-3B đã được người dùng xác nhận BTC duyệt; bằng
+chứng duyệt gốc phải được giữ trong hồ sơ đội. Private test tối đa 3
+submission/ngày, và Top 7
 phải cung cấp Docker image cùng mã nguồn MIT. Quy trình chi tiết, model approval
 register và các điểm cần BTC làm rõ nằm trong
 `docs/11-COMPETITION-COMPLIANCE.md`.
@@ -98,7 +107,7 @@ legal-rag-evaluate
 legal-rag-compare
 ```
 
-Build CLI mới chỉ nhận ZIP/thư mục context chính thức, persist theo stage và
+Build CLI nhận ZIP/thư mục context chính thức, persist theo stage và
 resume khi source/config/code identity khớp. Có thể dừng ngay sau parser/chunker
 mà không khởi tạo embedding model hoặc build index:
 
@@ -190,11 +199,18 @@ format.
 
 ## Việc còn lại
 
-- build parser/chunker/BM25/vector artifacts từ official corpus trong artifact
-  root mới và benchmark memory/latency;
-- implement và verify scorer METEOR/ROUGE-L tương thích source BTC;
-- chốt leakage-safe train/dev strategy trước fine-tuning;
-- model benchmark cuối cùng.
+Baseline không cần được một người tiếp tục “hoàn thiện hết” trước khi cả đội
+tham gia. Các việc ưu tiên hiện tại là:
+
+- chốt leakage-safe train/dev protocol và official-compatible evaluator;
+- phân tích retrieval theo branch và benchmark approved reranker;
+- sửa context selection vì 100% câu chạm budget;
+- tăng answer coverage nhưng vẫn giữ grounding;
+- giảm generic abstention bằng claim-level repair/fallback có kiểm chứng;
+- chỉ sau đó mới fine-tune bằng official train data.
+
+Chi tiết đầu vào, metric, file cần sửa và tiêu chí nghiệm thu của từng nhánh nằm
+trong `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
 
 Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
 cache hoặc token.

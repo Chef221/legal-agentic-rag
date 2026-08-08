@@ -2110,3 +2110,37 @@ verifier và không gắn `answer_verified`. Kết quả được giữ là abst
 thúc với `generation_failed` và warning `generator:insufficient_evidence`.
 Quy tắc này ngăn output không có evidence bị hiểu nhầm là câu trả lời đã xác
 minh.
+
+---
+
+## D089 — M43.1 Is the Operational Control, Not the Quality Target
+
+**Status:** Accepted
+
+M43.1 tại commit `96e6d5a` đã chạy đủ 1.000 public questions bằng official-only
+artifacts, hybrid retrieval và local Qwen2.5-3B. Submission được Codabench chấm
+METEOR `0.07862292376534387` và ROUGE-L `0.16735433212043324`. Batch có đủ ID,
+không answer rỗng và không retrieval model error, nhưng có 425 abstention, 384
+citation-verification failure, 33 generator model error và mọi câu đều chạm
+context budget.
+
+Vì vậy M43.1 được giữ làm immutable operational control cho mọi ablation tiếp
+theo, nhưng không được mô tả là quality-complete baseline. Team improvement phải
+bắt đầu bằng leakage-safe dev/evaluator, sau đó thay một nhóm biến tại một thời
+điểm và so sánh quality, error rate, latency cùng compliance.
+
+Fail-closed grounding vẫn là invariant. Không được giảm abstention bằng cách tắt
+verifier hoặc cho phép unsupported claim. Các hướng hợp lệ gồm retrieval/rerank
+tốt hơn, context selection, verifier-guided regeneration, giữ claim supported và
+grounded extractive fallback có giới hạn.
+
+Lần resume P100 tạo 615 retrieval model error do PyTorch build không hỗ trợ
+`sm_60`; suffix đó bị loại và chạy lại trên T4. Kể từ quyết định này, batch
+completion chỉ là structural gate. Official candidate còn phải qua post-run
+quality gate đếm retrieval/generator errors, abstention, verification failures
+và exact ID coverage trước khi format submission.
+
+Chi tiết bằng chứng và workstream nằm tại:
+
+- `docs/16-M43-BASELINE-POSTMORTEM.md`;
+- `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.

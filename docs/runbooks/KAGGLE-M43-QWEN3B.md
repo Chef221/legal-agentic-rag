@@ -1,13 +1,15 @@
 # Kaggle M43 — Qwen2.5-3B Public Batch
 
-## 1. Compliance gate
+## 1. Baseline identity và compliance gate
 
-Chỉ dùng output M43 để nộp chính thức sau khi BTC đã duyệt đúng ba model/revision
-đang active hoặc được cấu hình trong hệ thống:
+Baseline tái lập tại code version `0.43.1`, commit `96e6d5a`. Người dùng đã xác
+nhận BTC duyệt ba model/revision trong inventory; M43 chỉ active embedding và
+generator:
 
 - `intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3`;
 - `Qwen/Qwen2.5-3B-Instruct@a1d308dfcc03e09da285d49d912439a655a571e8`;
-- reranker không được gọi trong profile M43.
+- `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1@1427fd652930e4ba29e8149678df786c240d8825`
+  đã được duyệt nhưng **không được gọi** trong profile M43.
 
 Không thêm dataset, model hoặc API khác. Archive input phải có SHA-256:
 
@@ -24,21 +26,35 @@ uit-dsc-2026-task2-serving-v0430.tar.gz
 uit-dsc-2026-task2-serving-v0430.tar.gz.sha256
 ```
 
-Không upload artifact AIO hoặc dataset ngoài BTC. Sau khi dataset xử lý xong,
-tạo notebook mới, add dataset này làm Input, bật Internet và chọn GPU.
+Không upload artifact AIO hoặc dataset ngoài BTC. Kaggle có thể hiển thị input
+theo một trong hai dạng: giữ nguyên hai file archive/checksum, hoặc tự bung nội
+dung thành một thư mục lồng. Runbook hỗ trợ cả hai dạng. Sau khi dataset xử lý
+xong, tạo notebook mới, add dataset này làm Input, bật Internet và chọn GPU.
 
-## 3. Cài môi trường
+## 3. Chọn GPU và cài môi trường
 
-P100 cần PyTorch còn hỗ trợ CUDA capability 6.0. Chạy cell sau một lần:
+Ưu tiên **một Tesla T4** cho baseline. T4 x2 vẫn chạy được nhưng code M43 hiện
+chỉ sử dụng GPU0, nên GPU thứ hai không làm batch nhanh gấp đôi.
+
+Kaggle từng cung cấp PyTorch `2.10.0+cu128` không hỗ trợ P100 `sm_60`. Nếu vẫn
+dùng P100, bắt buộc cài PyTorch còn hỗ trợ capability 6.0 trước khi chạy:
 
 ```bash
 !pip uninstall -y torch torchvision torchaudio torchcodec
 !pip install -q --no-cache-dir torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+```
+
+Sau khi thay PyTorch trên P100, chọn **Restart Session**, không chọn Factory
+Reset. Trên cả T4 và P100, cài đúng provider versions sau khi runtime cuối đã
+sẵn sàng:
+
+```bash
 !pip install -q --no-cache-dir "transformers==5.0.0" "sentence-transformers==5.4.1"
 ```
 
-Sau đó chọn **Restart Session**, không chọn Factory Reset. Sau khi reconnect,
-không chạy lại cell cài đặt nếu version check đã đúng.
+Không chạy lại cell cài đặt nếu version check đã đúng. Với T4, vẫn phải kiểm tra
+`torch.cuda.is_available()` và chạy một operation CUDA thực, không chỉ nhìn
+Kaggle UI.
 
 ## 4. Verify GPU và clone source
 
@@ -56,6 +72,7 @@ assert torch.cuda.is_available()
 %cd /kaggle/working
 !git clone https://github.com/Chef221/legal-agentic-rag.git
 %cd /kaggle/working/legal-agentic-rag
+!git checkout 96e6d5a
 !python -m pip install -q -e . --no-deps
 ```
 
@@ -72,32 +89,46 @@ assert sentence_transformers.__version__ == "5.4.1"
 assert transformers.__version__ == "5.0.0"
 ```
 
-## 5. Verify và giải nén artifact
+## 5. Xác định artifact input
+
+Cell này nhận cả archive và thư mục Kaggle đã tự giải nén:
 
 ```python
 from hashlib import sha256
 from pathlib import Path
+import os
 import subprocess
 
 EXPECTED = "90d4d211a20f6d3a6f894d8dd33c0f187fcf141c1bcbc3814d8dcc7e003e729c"
 archives = list(Path("/kaggle/input").rglob("uit-dsc-2026-task2-serving-v0430.tar.gz"))
-assert len(archives) == 1, archives
-archive = archives[0]
-
-digest = sha256()
-with archive.open("rb") as stream:
-    for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
-        digest.update(block)
-actual = digest.hexdigest()
-print("Archive:", archive)
-print("SHA-256:", actual)
-assert actual == EXPECTED
-
 root = Path("/kaggle/working/uit-dsc-2026-task2-serving-v0430")
 assert not root.exists(), root
-root.mkdir()
-subprocess.run(["tar", "-xzf", str(archive), "-C", str(root)], check=True)
-print("Extracted:", root)
+
+if len(archives) == 1:
+    archive = archives[0]
+    digest = sha256()
+    with archive.open("rb") as stream:
+        for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    actual = digest.hexdigest()
+    print("Archive:", archive)
+    print("SHA-256:", actual)
+    assert actual == EXPECTED
+    root.mkdir()
+    subprocess.run(["tar", "-xzf", str(archive), "-C", str(root)], check=True)
+else:
+    candidates = [
+        path.parent
+        for path in Path("/kaggle/input").rglob("build_validation_full_corpus.json")
+        if (path.parent / "public-official.json").is_file()
+        and (path.parent / "vector/vectors.npy").is_file()
+        and (path.parent / "bm25/index.sqlite3").is_file()
+    ]
+    assert len(candidates) == 1, candidates
+    # Symlink tránh copy thêm nhiều GB vào /kaggle/working.
+    os.symlink(candidates[0], root, target_is_directory=True)
+
+print("Artifact root:", root)
 ```
 
 ```python
@@ -186,7 +217,8 @@ toàn batch. Không chạy hai batch song song.
 ```
 
 CLI checkpoint sau từng câu và log tiến độ mỗi 25 câu. Nếu cell bị dừng nhưng
-session còn sống, chạy lại nguyên cell trên để resume.
+session còn sống, chạy lại nguyên cell trên để resume. Không resume bằng commit,
+config, question source hoặc output identity khác.
 
 ## 8. Kiểm tra batch và tạo submission
 
@@ -208,9 +240,11 @@ print("Manifest records:", manifest["record_count"])
 print("Insufficient:", sum(item["insufficient_evidence"] for item in responses))
 print("Average answer chars:", round(sum(len(item["answer"]) for item in responses) / len(responses), 1))
 print("Model errors:", sum("generator:model_error" in item["warnings"] for item in responses))
+print("Retrieval errors:", sum("retrieval:model_error" in item["warnings"] for item in responses))
 assert len(records) == 1000
 assert len({record["question_id"] for record in records}) == 1000
 assert manifest["record_count"] == 1000
+assert sum("retrieval:model_error" in item["warnings"] for item in responses) == 0
 ```
 
 ```bash
@@ -237,7 +271,7 @@ assert len(payload) == 1000
 assert all(isinstance(value.get("answer"), str) for value in payload.values())
 ```
 
-## 9. Lưu output trước khi tắt GPU
+## 9. Lưu output/checkpoint trước khi tắt GPU
 
 Sau khi tất cả cell hoàn tất:
 
@@ -248,7 +282,55 @@ Sau khi tất cả cell hoàn tất:
 4. kiểm tra có `m43-submission/submission.zip`;
 5. chỉ sau đó mới Stop Session/GPU.
 
-Nếu session chết trước khi Save Version thì `/kaggle/working` bị mất. Nếu muốn
-dừng chủ động giữa batch, interrupt cell, nén riêng thư mục
-`m43-public-qwen3b`, Save Version, rồi ở session mới giải nén nó về đúng path và
-chạy lại cell batch với cùng commit/config.
+Nếu session chết trước khi Save Version thì `/kaggle/working` bị mất. Save
+Version có thể fail hoặc không giữ output của interactive session. Cách bền hơn:
+
+1. dừng process sạch nếu cần;
+2. nén riêng thư mục batch có `results.jsonl` và `batch_state.json`;
+3. tải archive về máy hoặc tạo **private Kaggle Dataset** từ archive;
+4. session mới add dataset checkpoint làm Input;
+5. copy hai file checkpoint vào đúng output directory;
+6. checkout đúng `96e6d5a`, dùng đúng config/source rồi chạy lại CLI.
+
+Không tìm file `.zip` nếu Kaggle đã tự bung dataset. Hãy `rglob("results.jsonl")`
+và xác minh file đi cùng `batch_state.json`.
+
+## 10. Theo dõi process
+
+Nếu chạy batch nền, theo dõi bằng checkpoint thay vì chỉ nhìn GPU utilization:
+
+```python
+from datetime import datetime, timezone
+from pathlib import Path
+import json
+import subprocess
+
+run = Path("/kaggle/working/m43-public-qwen3b")
+results = run / "results.jsonl"
+completed = sum(1 for line in results.open(encoding="utf-8") if line.strip()) if results.exists() else 0
+print("Completed:", completed, "/ 1000")
+print("Manifest:", (run / "manifest.json").exists())
+print("Checked:", datetime.now(timezone.utc).isoformat())
+print(subprocess.run(["bash", "-lc", "ps aux | grep '[l]egal-rag-batch'"], capture_output=True, text=True).stdout)
+print(subprocess.run(["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used", "--format=csv,noheader"], capture_output=True, text=True).stdout)
+```
+
+GPU utilization 0% tại đúng thời điểm kiểm tra không kết luận process hỏng: BM25
+và orchestration chạy CPU, còn CUDA theo đợt. Dấu hiệu đáng tin hơn là số record
+tăng và log có stage completion. Nếu record đứng lâu, đọc log/traceback trước
+khi restart.
+
+## 11. Quality gate sau batch
+
+Không format submission chỉ vì manifest tồn tại. Bắt buộc kiểm tra:
+
+- đủ 1.000 unique IDs và đúng source order;
+- không answer rỗng;
+- `retrieval:model_error == 0`;
+- thống kê `generator:model_error`, abstention và verification failures;
+- đọc mẫu câu thành công/thất bại;
+- lưu code/config/data/model/output checksums.
+
+Sự cố đã biết: một lần P100 incompatible vẫn tạo đủ 1.000 records nhưng 615 câu
+suffix đều có `retrieval:model_error`. Batch đó không hợp lệ và đã bị loại; suffix
+được chạy lại trên T4.

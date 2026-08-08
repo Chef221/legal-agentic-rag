@@ -1953,7 +1953,7 @@ Completion evidence:
 
 ## 46. Milestone 43 — Qwen3B Kaggle Generation Candidate
 
-**Status:** Ready to run; blocked for official submission pending model approval evidence
+**Status:** Completed as operational baseline; quality improvement required
 
 - pin Kaggle GPU config cho E5 + Qwen2.5-3B, tổng model dưới 4B;
 - giữ hybrid-only retrieval, không load reranker hoặc semantic verifier;
@@ -1973,7 +1973,7 @@ Prepared artifact:
 
 ### M43.1 — Generator Abstention Hotfix
 
-**Status:** Implemented; awaiting clean Kaggle batch rerun
+**Status:** Completed and verified on clean T4 suffix rerun
 
 - giữ generator-level abstention là kết quả fail-closed;
 - không gửi abstention qua citation verifier rồi gắn nhầm `answer_verified`;
@@ -1981,7 +1981,40 @@ Prepared artifact:
 - không resume checkpoint `0.43.0` bằng code `0.43.1`; batch mới phải dùng output
   directory riêng để giữ đúng recovery identity.
 
-## 47. Milestone Execution Rules
+Completion evidence:
+
+- model E5 và Qwen2.5-3B active trong run đã được người dùng xác nhận BTC duyệt;
+- 1.000/1.000 unique public IDs, không answer rỗng;
+- 0 retrieval model error, 33 generator model error;
+- 425 insufficient-evidence responses, 384 citation-verification failures;
+- official Codabench METEOR `0.07862292376534387`, ROUGE-L
+  `0.16735433212043324`;
+- invalid P100 suffix với 615 retrieval errors bị loại; suffix 386–1.000 được
+  chạy lại trên T4;
+- batch archive SHA-256
+  `d68c165366169fd0c567938682078025c49db71face7baa96a2d8a31e5fa7af5`.
+
+## 47. Milestone 44 — Team Quality Improvement Program
+
+**Status:** Ready for parallel implementation
+
+Milestone này không phải một thay đổi end-to-end duy nhất. Nó là tập workstream
+có control M43.1 chung:
+
+1. leakage-safe dev split và official-compatible evaluator;
+2. retrieval diagnostics và reranker ablation;
+3. context selection/token telemetry;
+4. prompt/output coverage và generator error reduction;
+5. claim-level verification repair cùng grounded fallback;
+6. official-only fine-tuning sau khi evaluator được chốt;
+7. GPU compatibility, recovery và post-run quality gates.
+
+Phạm vi, metric, file bắt đầu và tiêu chí nghiệm thu nằm tại
+`docs/17-TEAM-IMPROVEMENT-BACKLOG.md`. Không merge thay đổi quality nếu thiếu
+đối chứng trên cùng split hoặc vi phạm official-only/no-synthetic/no-API/model
+approval gates.
+
+## 48. Milestone Execution Rules
 
 Mỗi milestone phải:
 
