@@ -2144,3 +2144,57 @@ Chi tiết bằng chứng và workstream nằm tại:
 
 - `docs/16-M43-BASELINE-POSTMORTEM.md`;
 - `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
+
+---
+
+## D090 — M44 Uses Group-wise Leakage Quarantine and Dual Scoring Modes
+
+**Status:** Accepted
+
+Local development split được tạo từ official `train.json` theo nhóm câu hỏi.
+Exact duplicate và near-duplicate heuristic không được phép nằm hai partition;
+mọi training group giao với warm-up/public holdout bị đưa vào `quarantined`.
+Thuật toán, seed, threshold, source hash, partition IDs và output hashes đều
+được ghi trong manifest. Đây là protocol local, không phải gold retrieval split
+và không tạo synthetic data.
+
+Evaluator giữ hai mode tách biệt. `diagnostic` bảo toàn metric Unicode cũ;
+`official_compatible` tái tạo METEOR NLTK 3.7 và ASCII ROUGE-L từ scorer BTC
+checksum `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`.
+Mode này fail closed nếu thiếu NLTK 3.7/WordNet và không tự tải network resource.
+Không tuyên bố absolute parity khi chưa pin exact WordNet/OMW bytes hoặc BTC đổi
+scorer ở phase sau.
+
+---
+
+## D091 — Retrieval Diagnostics Remain Content-free and Non-gold
+
+**Status:** Accepted
+
+M44.2 chạy BM25, dense và hybrid độc lập trên cùng official question để quan
+sát overlap, diversity, explicit-reference match, latency và warning/error.
+Khi development source có reference answer, lexical answer-term coverage được
+phép dùng làm diagnostic hypothesis nhưng không được gọi là relevance, recall
+hoặc ground truth.
+
+Persisted report chỉ chứa question ID, retrieval identities và số liệu; không
+chứa question text, reference answer hay legal passage. Output immutable và
+khóa source/config/code identity. Diagnostics không thay đổi runtime strategy,
+index, reranker, context builder hay generator; mọi ablation sau phải dùng config
+và output riêng.
+
+---
+
+## D092 — Reranker Uses a Retrieval-only Gate Before Generation Ablation
+
+**Status:** Accepted
+
+M44.3 không chạy ngay 991 câu qua Qwen cho mọi candidate count. Trước tiên,
+approved mMARCO MiniLM reranker được đánh giá read-only với candidate-k 20/40/60
+trên cùng M44.1 development split. Mỗi run giữ cùng official artifacts, model
+revision, top-k và query policy; chỉ candidate-k thay đổi.
+
+Gate ghi rank churn, hybrid/reranked overlap, diversity, latency và non-gold
+answer-term coverage delta. Không metric nào được gọi là retrieval relevance.
+Chỉ candidate có behavior/cost hợp lý mới chạy full generation rồi chấm bằng
+official-compatible METEOR/ROUGE-L. Baseline mặc định không đổi trước kết quả đó.

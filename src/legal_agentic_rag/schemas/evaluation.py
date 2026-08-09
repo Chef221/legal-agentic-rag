@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from enum import StrEnum
 
@@ -483,5 +484,225 @@ class EvaluationComparisonReport(BaseModel):
         ):
             raise ValueError(
                 "trusted comparison requires benchmark label provenance"
+            )
+        return self
+
+
+class RetrievalDiagnosticSignal(StrEnum):
+    """Observable retrieval risk signals that do not claim gold relevance."""
+
+    NO_BM25_HITS = "no_bm25_hits"
+    NO_DENSE_HITS = "no_dense_hits"
+    NO_HYBRID_HITS = "no_hybrid_hits"
+    ZERO_BRANCH_OVERLAP = "zero_branch_overlap"
+    LOW_DOCUMENT_DIVERSITY = "low_document_diversity"
+    EXPLICIT_REFERENCE_NOT_RETRIEVED = "explicit_reference_not_retrieved"
+    LOW_ANSWER_TERM_COVERAGE = "low_answer_term_coverage"
+    RETRIEVAL_WARNING = "retrieval_warning"
+    RETRIEVAL_ERROR = "retrieval_error"
+
+
+class RetrievalBranchDiagnostic(BaseModel):
+    """Content-free identity and count projection of one retrieval branch."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    strategy: RetrievalStrategy
+    hit_count: int = Field(ge=0)
+    unique_document_count: int = Field(ge=0)
+    latency_ms: float = Field(ge=0)
+    chunk_ids: list[str] = Field(default_factory=list)
+    document_ids: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_counts(self) -> "RetrievalBranchDiagnostic":
+        if self.hit_count != len(self.chunk_ids):
+            raise ValueError("diagnostic hit count must match chunk IDs")
+        if self.hit_count != len(self.document_ids):
+            raise ValueError("diagnostic hit count must match document IDs")
+        if self.unique_document_count != len(set(self.document_ids)):
+            raise ValueError("diagnostic document count must match document IDs")
+        if len(self.chunk_ids) != len(set(self.chunk_ids)):
+            raise ValueError("diagnostic chunk IDs must be unique")
+        return self
+
+
+class RetrievalDiagnosticCase(BaseModel):
+    """Per-question retrieval observations without a relevance judgment."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    question_id: str = Field(min_length=1)
+    success: bool
+    reranker_included: bool = False
+    query_intent: str | None = None
+    query_variant_count: int = Field(default=0, ge=0)
+    branches: list[RetrievalBranchDiagnostic] = Field(default_factory=list)
+    bm25_dense_overlap_count: int = Field(default=0, ge=0)
+    bm25_dense_jaccard: float = Field(default=0, ge=0, le=1)
+    hybrid_document_diversity: float = Field(default=0, ge=0, le=1)
+    explicit_reference_match: bool | None = None
+    answer_term_coverage: float | None = Field(default=None, ge=0, le=1)
+    hybrid_rerank_overlap_count: int | None = Field(default=None, ge=0)
+    hybrid_rerank_jaccard: float | None = Field(default=None, ge=0, le=1)
+    hybrid_rerank_document_diversity: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+    )
+    reranked_explicit_reference_match: bool | None = None
+    hybrid_rerank_answer_term_coverage: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+    )
+    hybrid_rerank_answer_term_coverage_delta: float | None = Field(
+        default=None,
+        ge=-1,
+        le=1,
+    )
+    mean_absolute_rank_change: float | None = Field(default=None, ge=0)
+    signals: list[RetrievalDiagnosticSignal] = Field(default_factory=list)
+    error_type: str | None = None
+
+    @model_validator(mode="after")
+    def validate_outcome(self) -> "RetrievalDiagnosticCase":
+        if self.success == (self.error_type is not None):
+            raise ValueError("diagnostic error type must match failed outcome")
+        expected_branch_count = 4 if self.reranker_included else 3
+        if self.success and len(self.branches) != expected_branch_count:
+            raise ValueError(
+                "successful diagnostic has an incompatible branch count"
+            )
+        reranker_metrics = (
+            self.hybrid_rerank_overlap_count,
+            self.hybrid_rerank_jaccard,
+            self.hybrid_rerank_document_diversity,
+        )
+        if self.success and self.reranker_included != all(
+            value is not None for value in reranker_metrics
+        ):
+            raise ValueError(
+                "reranker diagnostic metrics must match reranker inclusion"
+            )
+        if not self.reranker_included and any(
+            value is not None
+            for value in (
+                *reranker_metrics,
+                self.reranked_explicit_reference_match,
+                self.hybrid_rerank_answer_term_coverage,
+                self.hybrid_rerank_answer_term_coverage_delta,
+                self.mean_absolute_rank_change,
+            )
+        ):
+            raise ValueError(
+                "non-reranker diagnostic cannot contain reranker metrics"
+            )
+        if (self.hybrid_rerank_answer_term_coverage is None) != (
+            self.hybrid_rerank_answer_term_coverage_delta is None
+        ):
+            raise ValueError(
+                "reranked answer coverage and delta must be present together"
+            )
+        if len(self.signals) != len(set(self.signals)):
+            raise ValueError("diagnostic signals must be unique")
+        return self
+
+
+class RetrievalDiagnosticsReport(BaseModel):
+    """Immutable aggregate for answer-level, non-gold retrieval diagnostics."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    schema_version: str = "1.1"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    question_source_sha256: str = Field(min_length=64, max_length=64)
+    application_config_sha256: str = Field(min_length=64, max_length=64)
+    question_count: int = Field(gt=0)
+    successful_case_count: int = Field(ge=0)
+    failed_case_count: int = Field(ge=0)
+    top_k: int = Field(gt=0)
+    candidate_k: int = Field(gt=0)
+    include_reranker: bool = False
+    max_cases: int | None = Field(default=None, gt=0)
+    low_document_diversity_threshold: float = Field(ge=0, le=1)
+    low_answer_term_coverage_threshold: float = Field(ge=0, le=1)
+    mean_bm25_dense_jaccard: float = Field(ge=0, le=1)
+    mean_hybrid_document_diversity: float = Field(ge=0, le=1)
+    mean_answer_term_coverage: float | None = Field(default=None, ge=0, le=1)
+    mean_hybrid_rerank_jaccard: float | None = Field(default=None, ge=0, le=1)
+    mean_hybrid_rerank_document_diversity: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+    )
+    mean_hybrid_rerank_answer_term_coverage_delta: float | None = Field(
+        default=None,
+        ge=-1,
+        le=1,
+    )
+    mean_absolute_rank_change: float | None = Field(default=None, ge=0)
+    signal_counts: dict[RetrievalDiagnosticSignal, int] = Field(default_factory=dict)
+    cases: list[RetrievalDiagnosticCase] = Field(min_length=1)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("question_source_sha256", "application_config_sha256")
+    @classmethod
+    def validate_hash(cls, value: str) -> str:
+        return _sha256(value)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_created_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("diagnostic timestamp must include timezone")
+        return value
+
+    @model_validator(mode="after")
+    def validate_case_counts(self) -> "RetrievalDiagnosticsReport":
+        if self.question_count != len(self.cases):
+            raise ValueError("diagnostic question count must match cases")
+        if self.successful_case_count + self.failed_case_count != self.question_count:
+            raise ValueError("diagnostic outcome counts must match cases")
+        identities = [case.question_id for case in self.cases]
+        if len(identities) != len(set(identities)):
+            raise ValueError("diagnostic question IDs must be unique")
+        if self.top_k > self.candidate_k:
+            raise ValueError("diagnostic top_k cannot exceed candidate_k")
+        observed_signal_counts = Counter(
+            signal for case in self.cases for signal in case.signals
+        )
+        if self.signal_counts != dict(observed_signal_counts):
+            raise ValueError("diagnostic signal counts must match cases")
+        if any(
+            case.reranker_included != self.include_reranker
+            for case in self.cases
+            if case.success
+        ):
+            raise ValueError(
+                "diagnostic report and successful cases disagree on reranker"
+            )
+        required_reranker_means = (
+            self.mean_hybrid_rerank_jaccard,
+            self.mean_hybrid_rerank_document_diversity,
+        )
+        if self.include_reranker != all(
+            value is not None for value in required_reranker_means
+        ):
+            raise ValueError(
+                "reranker aggregate metrics must match reranker inclusion"
+            )
+        if not self.include_reranker and any(
+            value is not None
+            for value in (
+                *required_reranker_means,
+                self.mean_hybrid_rerank_answer_term_coverage_delta,
+                self.mean_absolute_rank_change,
+            )
+        ):
+            raise ValueError(
+                "non-reranker report cannot contain reranker aggregates"
             )
         return self

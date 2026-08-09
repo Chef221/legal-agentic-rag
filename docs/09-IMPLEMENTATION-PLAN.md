@@ -2028,3 +2028,65 @@ Mỗi milestone phải:
 8. cập nhật docs nếu có decision mới;
 9. báo rõ phần chưa làm;
 10. không đánh dấu hoàn thành nếu test thất bại.
+
+## 49. Milestone 44.1 — Leakage-safe Dev and Scorer-compatible Evaluation
+
+**Status:** Completed
+
+- `legal-rag-prepare-dev` tạo deterministic group-wise train/dev;
+- quarantine training groups exact/near-duplicate với warm-up/public holdout;
+- bảo toàn official record, không tạo label hoặc synthetic data;
+- persist source/partition checksums, IDs, policy và warnings;
+- thêm `official_compatible` mode với optional `nltk==3.7`;
+- tái tạo ASCII ROUGE-L và whitespace-token NLTK METEOR theo scorer BTC;
+- giữ `diagnostic` mode cũ và fail closed khi thiếu local WordNet.
+
+Chưa thuộc M44.1: retrieval labels, reranker/context/generator/verifier changes,
+bootstrap interval và phân tầng score theo question type.
+
+Official-data smoke evidence với seed `2026`, dev fraction `0.15`, threshold
+`0.92`: 7.000 train records → 5.617 training, 991 development và 392
+quarantined; detector ghi 449 exact duplicate pairs và 1 near-duplicate pair.
+Train SHA-256 là
+`2a52501cc065d266f2f832475950bcf1e7c75c386efa9b2f568f251d745f5988`;
+warm-up/public hashes khớp contract đã audit. Generated split chỉ được giữ local,
+không commit vào repository.
+
+## 50. Milestone 44.2 — Non-gold Retrieval Diagnostics
+
+**Status:** Completed in code; full official dev run pending
+
+- thêm typed, content-free retrieval diagnostic schemas;
+- chạy riêng BM25, dense và hybrid với query identity validation;
+- đo branch overlap/Jaccard, hybrid document diversity, explicit legal-reference
+  match, latency và warning/error taxonomy;
+- hỗ trợ optional lexical answer-term coverage nhưng đánh dấu rõ không phải
+  relevance gold;
+- persist report bất biến với source/config/code SHA identity;
+- thêm `legal-rag-diagnose-retrieval` CLI và unit tests cho success, runtime
+  error, immutable output và question-only source.
+
+M44.2 không thay đổi retrieval ranking, không bật reranker, không chạy generator,
+không tạo manual/synthetic labels và không có dependency mới. Bước thực nghiệm
+tiếp theo là chạy CLI trên leakage-safe development split cùng official artifacts,
+sau đó mới thiết kế M44.3 reranker ablation dựa trên report.
+
+Full M44.2 control đã chạy local trên 991 development questions, official M40
+artifacts, top-k 20/candidate-k 100: 991 success, 0 failure, mean BM25/dense
+Jaccard `0.1578`, mean hybrid document diversity `0.5012`, 293 low-diversity
+case, 144 zero-overlap case và 1 explicit-reference miss. Report source SHA-256
+`8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`;
+config SHA-256
+`b530b785c63b0a53a8f1a3058b05ebc78a2ccf0585b42a7b9976d4ba72c7e08d`.
+
+## 51. Milestone 44.3 — Retrieval-only Reranker Gate
+
+**Status:** Implemented; GPU experiment pending
+
+- optional fourth `hybrid_rerank` branch trong diagnostics;
+- typed top-k overlap/Jaccard, reranked diversity, explicit-reference match,
+  answer-term coverage delta và rank-change metrics;
+- `--include-reranker` CLI flag;
+- Kaggle CUDA experiment config với exact approved E5 và mMARCO revisions;
+- một report immutable cho mỗi candidate-k 20/40/60;
+- chưa đổi baseline strategy và chưa chạy generator trong gate này.

@@ -241,14 +241,104 @@ class CompetitionWarmupCaseScore(BaseModel):
     rouge_l: float = Field(ge=0, le=1)
 
 
-class CompetitionWarmupScoreReport(BaseModel):
-    """Reproducible answer-only diagnostic report for one submission archive."""
+class CompetitionMetricMode(StrEnum):
+    """Supported local answer-scoring contracts."""
+
+    DIAGNOSTIC = "diagnostic"
+    OFFICIAL_COMPATIBLE = "official_compatible"
+
+
+class CompetitionSplitSource(BaseModel):
+    """Immutable identity of one official split input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1)
+    sha256: str
+    question_count: int = Field(gt=0)
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_hash(cls, value: str) -> str:
+        return _validate_sha256(value)
+
+
+class CompetitionSplitPartition(BaseModel):
+    """One deterministic local development partition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    filename: str = Field(min_length=1)
+    question_count: int = Field(ge=0)
+    sha256: str
+    question_ids: list[StrictStr]
+
+    @field_validator("sha256")
+    @classmethod
+    def validate_hash(cls, value: str) -> str:
+        return _validate_sha256(value)
+
+    @model_validator(mode="after")
+    def validate_identities(self) -> "CompetitionSplitPartition":
+        if self.question_count != len(self.question_ids):
+            raise ValueError("split partition count must match question IDs")
+        if len(self.question_ids) != len(set(self.question_ids)):
+            raise ValueError("split partition question IDs must be unique")
+        return self
+
+
+class CompetitionDevelopmentSplitManifest(BaseModel):
+    """Reproducible proof of a leakage-aware official development split."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     schema_version: str = "1.0"
     created_at: datetime
     code_version: str = Field(min_length=1)
+    training_source: CompetitionSplitSource
+    holdout_sources: list[CompetitionSplitSource]
+    seed: int
+    dev_fraction: float = Field(gt=0, lt=1)
+    near_duplicate_threshold: float = Field(ge=0.5, le=1)
+    exact_duplicate_pair_count: int = Field(ge=0)
+    near_duplicate_pair_count: int = Field(ge=0)
+    partitions: list[CompetitionSplitPartition] = Field(min_length=3, max_length=3)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+    @model_validator(mode="after")
+    def validate_partitions(self) -> "CompetitionDevelopmentSplitManifest":
+        names = [partition.filename for partition in self.partitions]
+        if len(names) != len(set(names)):
+            raise ValueError("split partition filenames must be unique")
+        identities = [
+            identity
+            for partition in self.partitions
+            for identity in partition.question_ids
+        ]
+        if len(identities) != len(set(identities)):
+            raise ValueError("question IDs cannot cross split partitions")
+        if len(self.warnings) != len(set(self.warnings)):
+            raise ValueError("split warnings must be unique")
+        return self
+
+
+class CompetitionWarmupScoreReport(BaseModel):
+    """Reproducible answer-only diagnostic report for one submission archive."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    schema_version: str = "1.1"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    metric_mode: CompetitionMetricMode = CompetitionMetricMode.DIAGNOSTIC
+    official_scorer_sha256: str | None = None
+    nltk_version: str | None = None
+    numpy_version: str | None = None
     reference_source_sha256: str
     submission_archive_sha256: str
     submission_json_sha256: str
@@ -285,4 +375,21 @@ class CompetitionWarmupScoreReport(BaseModel):
             raise ValueError("warm-up score question IDs must be unique")
         if len(self.warnings) != len(set(self.warnings)):
             raise ValueError("warm-up score warnings must be unique")
+        if self.metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE:
+            if (
+                self.official_scorer_sha256 is None
+                or self.nltk_version is None
+                or self.numpy_version is None
+            ):
+                raise ValueError("official-compatible scoring identity is required")
+            _validate_sha256(self.official_scorer_sha256)
+        elif any(
+            value is not None
+            for value in (
+                self.official_scorer_sha256,
+                self.nltk_version,
+                self.numpy_version,
+            )
+        ):
+            raise ValueError("diagnostic scoring cannot claim official identity")
         return self

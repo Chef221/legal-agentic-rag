@@ -16,6 +16,7 @@ from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.evaluation import (
     EvaluationComparisonService,
     EvaluationRunner,
+    RetrievalDiagnosticsRunner,
     StandardGenerationEvaluator,
     evaluation_runtime_provenance,
     load_benchmark_bundle,
@@ -222,6 +223,39 @@ def compare_main() -> None:
     )
 
 
+def retrieval_diagnostics_main() -> None:
+    """Run non-gold BM25/dense/hybrid diagnostics over official questions."""
+    arguments = _retrieval_diagnostics_parser().parse_args()
+    config = load_application_config(arguments.config)
+    configure_logging(config.logging)
+    runtime = OnlineRuntimeFactory(config).build()
+    report = RetrievalDiagnosticsRunner(
+        runtime,
+        application_config_sha256=canonical_sha256(config),
+    ).run(
+        arguments.questions,
+        arguments.output,
+        top_k=arguments.top_k,
+        candidate_k=arguments.candidate_k,
+        max_cases=arguments.max_cases,
+        include_reranker=arguments.include_reranker,
+        low_document_diversity_threshold=(
+            arguments.low_document_diversity_threshold
+        ),
+        low_answer_term_coverage_threshold=(
+            arguments.low_answer_term_coverage_threshold
+        ),
+    )
+    _LOGGER.info(
+        "retrieval_diagnostics_command_completed",
+        extra={
+            "question_count": report.question_count,
+            "failed_case_count": report.failed_case_count,
+            "output_path": str(arguments.output),
+        },
+    )
+
+
 def _parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument(
@@ -322,5 +356,26 @@ def _comparison_parser() -> argparse.ArgumentParser:
         type=Path,
         required=True,
         help="New directory for the immutable comparison report.",
+    )
+    return parser
+
+
+def _retrieval_diagnostics_parser() -> argparse.ArgumentParser:
+    parser = _parser("Diagnose BM25, dense, and hybrid retrieval without gold labels")
+    parser.add_argument("--questions", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--top-k", type=int, default=20)
+    parser.add_argument("--candidate-k", type=int, default=100)
+    parser.add_argument("--max-cases", type=int)
+    parser.add_argument(
+        "--include-reranker",
+        action="store_true",
+        help="Also run hybrid_rerank for a retrieval-only M44.3 ablation.",
+    )
+    parser.add_argument(
+        "--low-document-diversity-threshold", type=float, default=0.4
+    )
+    parser.add_argument(
+        "--low-answer-term-coverage-threshold", type=float, default=0.25
     )
     return parser

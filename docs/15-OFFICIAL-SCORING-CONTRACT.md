@@ -237,3 +237,18 @@ aggregation. Các điểm còn thiếu để tái lập tuyệt đối:
 - Codabench leaderboard configuration ngoài `scores.json`.
 
 Mọi scorer artifact mới phải được checksum và diff trước khi dùng.
+
+## 10. M44 Local Official-compatible Mode
+
+M44 triển khai mode `official_compatible` tách khỏi diagnostic evaluator:
+
+- METEOR gọi NLTK 3.7 `meteor_score([reference.split()], prediction.split())`;
+- ROUGE-L dùng lowercase + regex ASCII `[^a-z0-9]` + LCS F1;
+- report pin scorer SHA-256, code version, NLTK/NumPy versions và input hashes;
+- thiếu NLTK 3.7 hoặc WordNet local là lỗi khởi tạo backend;
+- không tự download resource và không silently fallback.
+
+Implementation tương thích thuật toán/source đã audit. Absolute parity vẫn phụ
+thuộc exact WordNet/OMW bytes và việc phase scorer sau giữ nguyên checksum. Mô
+tả “local evaluator chưa có official mode” ở phần lịch sử phía trên chỉ áp dụng
+M29/M30 và được mục này thay thế từ M44.

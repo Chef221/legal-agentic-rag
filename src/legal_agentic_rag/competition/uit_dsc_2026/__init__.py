@@ -27,6 +27,9 @@ from legal_agentic_rag.competition.uit_dsc_2026.submission import (
 from legal_agentic_rag.competition.uit_dsc_2026.warmup_scoring import (
     CompetitionWarmupScorer,
 )
+from legal_agentic_rag.competition.uit_dsc_2026.development_split import (
+    CompetitionDevelopmentSplitter,
+)
 
 __all__ = [
     "ContextSourceIdentity",
@@ -37,6 +40,7 @@ __all__ = [
     "render_competition_answer",
     "load_submission_archive",
     "CompetitionWarmupScorer",
+    "CompetitionDevelopmentSplitter",
     "PassageCleaningResult",
     "UitDsc2026DataLoader",
     "UitDsc2026PassageCleaner",

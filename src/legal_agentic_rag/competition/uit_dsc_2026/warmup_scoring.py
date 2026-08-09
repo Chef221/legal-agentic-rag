@@ -9,16 +9,24 @@ from pathlib import Path
 from statistics import fmean
 from typing import Callable
 
+import numpy as np
+
 from legal_agentic_rag import __version__
 from legal_agentic_rag.competition.uit_dsc_2026.loader import UitDsc2026DataLoader
 from legal_agentic_rag.competition.uit_dsc_2026.submission import (
     load_submission_archive,
 )
 from legal_agentic_rag.evaluation import score_text_answer
+from legal_agentic_rag.competition.uit_dsc_2026.official_scoring import (
+    OFFICIAL_NLTK_VERSION,
+    OFFICIAL_SCORER_SHA256,
+    score_official_compatible_answer,
+)
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, DataValidationError
 from legal_agentic_rag.schemas import (
     CompetitionWarmupCaseScore,
     CompetitionWarmupScoreReport,
+    CompetitionMetricMode,
 )
 
 WARMUP_SCORE_REPORT_FILENAME = "warmup_score.json"
@@ -35,15 +43,20 @@ class CompetitionWarmupScorer:
         loader: UitDsc2026DataLoader | None = None,
         *,
         clock: Callable[[], datetime] | None = None,
+        official_meteor_scorer: Callable[[list[list[str]], list[str]], float]
+        | None = None,
     ) -> None:
         self._loader = loader or UitDsc2026DataLoader()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._official_meteor_scorer = official_meteor_scorer
 
     def score(
         self,
         reference_source: Path,
         submission_archive: Path,
         output_directory: Path,
+        *,
+        metric_mode: CompetitionMetricMode = CompetitionMetricMode.DIAGNOSTIC,
     ) -> CompetitionWarmupScoreReport:
         """Persist a content-free immutable diagnostic scoring report."""
         reference_hash = self._sha256_file(reference_source)
@@ -67,10 +80,17 @@ class CompetitionWarmupScorer:
         for reference, submission in zip(references, submissions, strict=True):
             if reference.reference_answer is None:
                 raise DataValidationError("Warm-up reference answer is missing")
-            metrics = score_text_answer(
-                submission.answer,
-                reference.reference_answer,
-            )
+            if metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE:
+                metrics = score_official_compatible_answer(
+                    submission.answer,
+                    reference.reference_answer,
+                    meteor_scorer=self._official_meteor_scorer,
+                )
+            else:
+                metrics = score_text_answer(
+                    submission.answer,
+                    reference.reference_answer,
+                )
             if (
                 metrics.exact_match is None
                 or metrics.meteor is None
@@ -89,15 +109,44 @@ class CompetitionWarmupScorer:
         report = CompetitionWarmupScoreReport(
             created_at=self._clock(),
             code_version=__version__,
+            metric_mode=metric_mode,
+            official_scorer_sha256=(
+                OFFICIAL_SCORER_SHA256
+                if metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE
+                else None
+            ),
+            nltk_version=(
+                OFFICIAL_NLTK_VERSION
+                if metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE
+                else None
+            ),
+            numpy_version=(
+                np.__version__
+                if metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE
+                else None
+            ),
             reference_source_sha256=reference_hash,
             submission_archive_sha256=self._sha256_file(submission_archive),
             submission_json_sha256=sha256(submission_payload).hexdigest(),
             question_count=len(case_scores),
-            exact_match=fmean(score.exact_match for score in case_scores),
-            meteor=fmean(score.meteor for score in case_scores),
-            rouge_l=fmean(score.rouge_l for score in case_scores),
+            exact_match=_aggregate(
+                [score.exact_match for score in case_scores], metric_mode
+            ),
+            meteor=_aggregate(
+                [score.meteor for score in case_scores], metric_mode
+            ),
+            rouge_l=_aggregate(
+                [score.rouge_l for score in case_scores], metric_mode
+            ),
             cases=case_scores,
-            warnings=[_DIAGNOSTIC_WARNING],
+            warnings=(
+                [
+                    "official_metric_parity_depends_on_exact_wordnet_resource_bytes",
+                    "official_scorer_may_change_in_later_competition_phases",
+                ]
+                if metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE
+                else [_DIAGNOSTIC_WARNING]
+            ),
         )
         self._persist_report(output_directory, report)
         return report
@@ -155,3 +204,9 @@ class CompetitionWarmupScorer:
             raise ArtifactCompatibilityError(
                 "Warm-up scoring input is unreadable"
             ) from error
+
+
+def _aggregate(values: list[float], mode: CompetitionMetricMode) -> float:
+    if mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE:
+        return float(np.mean(np.asarray(values, dtype=float)))
+    return fmean(values)

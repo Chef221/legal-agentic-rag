@@ -959,6 +959,45 @@ Các giới hạn execution nằm tại `online.vector_runtime`:
 - `prefer_serving_metadata`;
 - `require_serving_metadata`.
 
+---
+
+## 22. M44.2 Non-gold Retrieval Diagnostics
+
+`RetrievalDiagnosticsRunner` là đường chạy evaluation read-only, không nằm
+trong request path của API. Với mỗi question, runner gọi đúng ba strategy:
+
+```text
+BM25
+Dense
+Hybrid RRF
+```
+
+Mỗi response phải trả đúng strategy và query ID được yêu cầu. Report ghi:
+
+- ordered chunk/document identities của từng branch;
+- hit count, unique-document count và latency;
+- BM25/dense overlap và Jaccard;
+- document diversity của hybrid;
+- kết quả khớp tham chiếu Điều/Khoản/Điểm/số văn bản nếu query nêu rõ;
+- warning/error taxonomy;
+- optional lexical answer-term coverage khi source có reference answer.
+
+Coverage chỉ là diagnostic hypothesis, không phải gold relevance. Runner không
+gọi generator/reranker/Agent workflow, không sửa artifact và không persist nội
+dung question, answer hoặc legal passage. Source và application config được
+khóa bằng SHA-256; output là immutable directory.
+
+### 22.1 M44.3 optional reranker branch
+
+Khi CLI nhận `--include-reranker`, runner gọi thêm `hybrid_rerank` với cùng
+question, top-k và candidate-k. Report so sánh hybrid trước rerank với output
+sau rerank bằng top-k overlap/Jaccard, document diversity, mean absolute rank
+change, explicit-reference match và optional answer-term coverage delta.
+
+Đây là retrieval-only gate. Nó không gọi generator và coverage delta vẫn không
+phải relevance metric. Candidate-k 20/40/60 được chạy thành ba report immutable;
+chỉ cấu hình có cost/behavior hợp lý mới chuyển sang full answer scoring.
+
 Version `0.20.4` bổ sung optional persisted `vector_serving` sidecar:
 
 - `legal-rag-prepare-serving` scan validated `vector/chunks.jsonl` đúng một lần;

@@ -316,3 +316,21 @@ M31 thêm compliance source of truth tại
 `legal-rag-submit` và `legal-rag-score-warmup` được tách khỏi serving CLI để
 không yêu cầu FastAPI/Uvicorn khi chỉ đóng gói hoặc chấm file local. Docker M31
 không chứa dữ liệu/model và chưa phải final GPU image.
+
+## 15. M44 Local Development Protocol
+
+```text
+official train + warm-up/public question holdouts
+→ normalize/group exact + deterministic near-duplicate
+→ quarantine groups giao holdout
+→ group-wise train/dev assignment
+→ immutable split manifest + preserved official records
+```
+
+`legal-rag-prepare-dev` là entry point nhẹ. Generated directory nằm ngoài Git,
+không phải online artifact và không chứa relevance labels. Near-duplicate
+detection là heuristic có warning, không phải bảo đảm semantic dedup đầy đủ.
+
+`legal-rag-score-warmup --metric-mode official_compatible` dùng scorer contract
+đã audit. Cài riêng bằng `python -m pip install -e ".[official-scoring]"`; tool
+không tự tải WordNet và từ chối chạy nếu runtime không đúng NLTK 3.7.

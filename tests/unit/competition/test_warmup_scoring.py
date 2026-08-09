@@ -12,6 +12,7 @@ from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     DataValidationError,
 )
+from legal_agentic_rag.schemas import CompetitionMetricMode
 
 
 def _references(path: Path) -> None:
@@ -120,3 +121,24 @@ def test_warmup_scorer_rejects_submission_with_extra_member(
             submission,
             tmp_path / "score",
         )
+
+
+def test_warmup_scorer_records_official_compatible_identity(tmp_path: Path) -> None:
+    references = tmp_path / "warmup.json"
+    submission = tmp_path / "submission.zip"
+    _references(references)
+    _submission(submission)
+
+    report = CompetitionWarmupScorer(
+        official_meteor_scorer=lambda _references, _prediction: 0.5,
+    ).score(
+        references,
+        submission,
+        tmp_path / "official-score",
+        metric_mode=CompetitionMetricMode.OFFICIAL_COMPATIBLE,
+    )
+
+    assert report.metric_mode == CompetitionMetricMode.OFFICIAL_COMPATIBLE
+    assert report.nltk_version == "3.7"
+    assert report.official_scorer_sha256 is not None
+    assert "diagnostic" not in " ".join(report.warnings)

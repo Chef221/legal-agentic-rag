@@ -5,7 +5,10 @@ Task 2 — Legal Question Answering.
 
 ## Trạng thái
 
-Baseline hiện tại là **M43.1 — Qwen3B public baseline**, code version `0.43.1`.
+Baseline chất lượng đối chứng vẫn là **M43.1 — Qwen3B public baseline**. Code
+hiện tại là `0.44.2`, bổ sung evaluator, development protocol và retrieval
+diagnostics M44 nhưng chưa
+thay đổi retrieval/model của baseline.
 Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
 tạo submission hợp lệ và được Codabench chấm:
 
@@ -100,6 +103,8 @@ legal-rag-build-competition
 legal-rag-batch
 legal-rag-submit
 legal-rag-score-warmup
+legal-rag-prepare-dev
+legal-rag-diagnose-retrieval
 legal-rag-validate
 legal-rag-prepare-serving
 legal-rag-serve
@@ -139,15 +144,35 @@ ROUGE-L dùng vendored ASCII-only default tokenizer và cả hai được macro 
 PyVi không chạy. Local score vẫn chưa tương đương official vì dùng tokenizer và
 METEOR matching khác. Scorer ZIP cũng chưa pin exact NLTK/WordNet versions.
 
-Chấm trực tiếp một bài nộp trên warm-up có đáp án:
+Tạo local train/dev split chống leakage từ dữ liệu chính thức:
+
+```text
+legal-rag-prepare-dev \
+  --train <train.json> \
+  --holdout <warmup.json> \
+  --holdout <public-official.json> \
+  --output <new-split-directory>
+```
+
+Lệnh giữ nguyên từng question/answer, gom exact/near-duplicate theo nhóm, cách ly
+mọi train record trùng holdout vào `quarantined.json`, và ghi checksum/ID vào
+`split_manifest.json`. Output là dữ liệu local bị `.gitignore` loại trừ, không
+phải retrieval labels và không được commit.
+
+Chấm trực tiếp một bài nộp trên warm-up/dev có đáp án:
 
 ```text
 legal-rag-score-warmup \
   --references <warmup.json> \
   --submission <submission.zip> \
-  --output <new-report-directory>
+  --output <new-report-directory> \
+  --metric-mode official_compatible
 ```
 
+Chế độ `official_compatible` cần cài `.[official-scoring]`, dùng NLTK 3.7
+METEOR trên whitespace tokens và ROUGE-L ASCII đúng scorer đã audit. Không tự
+tải WordNet; report ghi scorer checksum và cảnh báo parity tuyệt đối còn phụ
+thuộc exact WordNet bytes. Mặc định `diagnostic` cũ vẫn tồn tại để tương thích.
 Lệnh không cần GPU, model hay index. Report không lưu nội dung câu hỏi, gold
 answer hoặc prediction.
 
@@ -211,6 +236,29 @@ tham gia. Các việc ưu tiên hiện tại là:
 
 Chi tiết đầu vào, metric, file cần sửa và tiêu chí nghiệm thu của từng nhánh nằm
 trong `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
+
+Chạy retrieval diagnostics trên cùng một tập câu hỏi mà không tạo relevance
+label giả:
+
+```text
+legal-rag-diagnose-retrieval \
+  --config <online-config.json> \
+  --questions <development.json> \
+  --output <new-diagnostics-directory> \
+  --top-k 20 \
+  --candidate-k 100
+```
+
+Lệnh chạy riêng BM25, dense và hybrid, rồi ghi branch overlap, document
+diversity, explicit-reference match, latency, warning/error và optional
+answer-term coverage. Answer-term coverage chỉ là dấu hiệu chẩn đoán ở mức từ;
+nó không phải retrieval relevance label hay Recall@k. Report không chứa câu hỏi,
+đáp án tham chiếu hoặc toàn văn pháp luật và không ghi đè output cũ.
+
+M44.3 retrieval-only reranker ablation dùng cùng lệnh với
+`--include-reranker`. Mỗi candidate count 20/40/60 phải dùng output directory
+riêng. Chỉ candidate qua gate diagnostics mới được chạy full generation và chấm
+METEOR/ROUGE-L.
 
 Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
 cache hoặc token.

@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.43.1` |
+| Project version | `0.44.2` (M44 evaluator/dev/reranker diagnostics) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |
@@ -115,7 +115,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 | Test Python files | 101 |
 | Test lines | 11.514 |
 | Test functions | 398 |
-| Public CLI commands | 9 |
+| Public CLI commands | 11 |
 | Fixed Agent tools | 8 |
 
 Các con số file/line/test là snapshot, sẽ thay đổi khi repository thay đổi.
@@ -550,6 +550,8 @@ mean; exact NLTK/WordNet versions vẫn chưa được ZIP pin.
 | `legal-rag-batch` | Config + question file + output dir | Resumable internal predictions |
 | `legal-rag-submit` | Questions + completed batch | `submission.zip` |
 | `legal-rag-score-warmup` | References + submission | Warm-up diagnostic report |
+| `legal-rag-prepare-dev` | Official train + holdout questions | Leakage-aware local split |
+| `legal-rag-diagnose-retrieval` | Online config + official questions | Content-free non-gold retrieval report |
 | `legal-rag-validate` | Config/artifact root | Build validation report |
 | `legal-rag-prepare-serving` | Valid artifacts | Serving metadata artifact |
 | `legal-rag-serve` | Application config | API/UI process |

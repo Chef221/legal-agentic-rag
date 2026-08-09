@@ -440,3 +440,18 @@ cho debugging và evaluation.
 - Answer generation phải có abstention behavior.
 - Mọi artifact phải có manifest.
 - Online pipeline phải fail rõ ràng khi artifact không tương thích.
+
+---
+
+## 11. Retrieval Diagnostics Boundary
+
+M44.2 bổ sung một consumer evaluation độc lập với serving. Consumer này gửi
+cùng một official question qua ba strategy BM25, dense và hybrid, sau đó chỉ
+persist identity/count/latency và các dấu hiệu quan sát được. Nó không thay đổi
+index, không gọi generator, không thêm nhãn relevance và không đưa question,
+reference answer hay legal text vào report.
+
+Answer-term coverage, nếu source có answer, chỉ hỗ trợ tìm ca cần xem lại. Nó
+không chứng minh hit liên quan và không được báo cáo như Recall@k. Mọi kết luận
+chất lượng retrieval vẫn cần relevance label hợp lệ hoặc review protocol được
+đội và thể lệ cho phép.

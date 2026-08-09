@@ -1312,3 +1312,36 @@ citations, or model prompts.
 D080/source analysis does not change this schema: M29/M30 values still use the
 local diagnostic algorithm and remain non-equivalent to the BTC scorer described
 in `docs/15-OFFICIAL-SCORING-CONTRACT.md`.
+
+M44 nâng persisted score report lên schema `1.1` với `metric_mode`, optional
+`official_scorer_sha256`, `nltk_version` và `numpy_version`. Các field identity bắt buộc ở
+`official_compatible` và bị cấm ở `diagnostic`.
+
+`CompetitionDevelopmentSplitManifest` gồm source identities, seed, dev fraction,
+near-duplicate threshold, duplicate counts, ba partition (`training`,
+`development`, `quarantined`) cùng ordered IDs/checksums và warnings. Manifest
+bảo đảm một question ID không xuất hiện ở nhiều partition.
+
+### 21.8 Retrieval diagnostic records
+
+M44.2 thêm ba persisted schema không chứa legal/question content:
+
+- `RetrievalBranchDiagnostic`: strategy, hit/document counts, latency, ordered
+  chunk/document IDs và warnings của một branch;
+- `RetrievalDiagnosticCase`: question ID, query intent/variant count, ba branch,
+  branch overlap, hybrid diversity, explicit-reference match, optional
+  answer-term coverage, signals và error type;
+- `RetrievalDiagnosticsReport`: source/config/code identity, thresholds,
+  aggregate means, signal counts, ordered cases và warnings.
+
+Report schema `1.1` thêm `include_reranker` và optional M44.3 metrics:
+hybrid/reranked top-k overlap/Jaccard, reranked document diversity,
+explicit-reference result, answer-term coverage/delta và mean absolute rank
+change. Khi tắt reranker các field này bắt buộc rỗng; khi bật, successful case
+có bốn branch thay vì ba.
+
+`RetrievalDiagnosticSignal` chỉ mô tả hiện tượng quan sát được như empty branch,
+zero overlap, low diversity, explicit reference không xuất hiện, low lexical
+answer coverage, warning hoặc error. Signal không phải relevance judgment.
+Successful case bắt buộc đủ đúng số branch đã khai báo; failed case bắt buộc có error type;
+aggregate counts phải khớp tuyệt đối với case payload.

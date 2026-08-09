@@ -12,6 +12,10 @@ from legal_agentic_rag.competition.uit_dsc_2026.submission import (
 from legal_agentic_rag.competition.uit_dsc_2026.warmup_scoring import (
     CompetitionWarmupScorer,
 )
+from legal_agentic_rag.competition.uit_dsc_2026.development_split import (
+    CompetitionDevelopmentSplitter,
+)
+from legal_agentic_rag.schemas import CompetitionMetricMode
 from legal_agentic_rag.configuration.observability import LoggingConfig
 from legal_agentic_rag.observability import configure_logging
 
@@ -45,6 +49,7 @@ def warmup_score_main() -> None:
         arguments.references,
         arguments.submission,
         arguments.output,
+        metric_mode=CompetitionMetricMode(arguments.metric_mode),
     )
     _LOGGER.info(
         "competition_warmup_score_completed",
@@ -53,6 +58,27 @@ def warmup_score_main() -> None:
             "meteor": report.meteor,
             "rouge_l": report.rouge_l,
             "exact_match": report.exact_match,
+            "output_path": str(arguments.output),
+        },
+    )
+
+
+def development_split_main() -> None:
+    """Create one immutable leakage-aware local development split."""
+    arguments = _development_split_parser().parse_args()
+    configure_logging(LoggingConfig())
+    manifest = CompetitionDevelopmentSplitter().split(
+        arguments.train,
+        arguments.holdout,
+        arguments.output,
+        dev_fraction=arguments.dev_fraction,
+        seed=arguments.seed,
+        near_duplicate_threshold=arguments.near_duplicate_threshold,
+    )
+    _LOGGER.info(
+        "competition_development_split_completed",
+        extra={
+            "question_count": manifest.training_source.question_count,
             "output_path": str(arguments.output),
         },
     )
@@ -88,6 +114,12 @@ def _warmup_score_parser() -> argparse.ArgumentParser:
         description="Score submission.zip against official warmup.json"
     )
     parser.add_argument(
+        "--metric-mode",
+        choices=[mode.value for mode in CompetitionMetricMode],
+        default=CompetitionMetricMode.DIAGNOSTIC.value,
+        help="Diagnostic metrics or audited BTC scorer-compatible metrics.",
+    )
+    parser.add_argument(
         "--references",
         type=Path,
         required=True,
@@ -105,4 +137,20 @@ def _warmup_score_parser() -> argparse.ArgumentParser:
         required=True,
         help="New directory for immutable warm-up score output.",
     )
+    return parser
+
+
+def _development_split_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Create a leakage-aware UIT DSC 2026 Task 2 development split"
+    )
+    parser.add_argument("--train", type=Path, required=True)
+    parser.add_argument(
+        "--holdout", type=Path, action="append", default=[],
+        help="Repeat for each warm-up/public source excluded from local dev.",
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--dev-fraction", type=float, default=0.15)
+    parser.add_argument("--seed", type=int, default=2026)
+    parser.add_argument("--near-duplicate-threshold", type=float, default=0.92)
     return parser

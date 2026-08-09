@@ -283,3 +283,37 @@ guard fail-fast ngay khi có thời gian.
 Không cần một người “hoàn thành hết” trước khi nhóm tham gia. Ngược lại, M43.1
 đã là điểm bàn giao phù hợp: baseline, score, checksums, lỗi và workstream đều đã
 có định nghĩa.
+
+## 13. Cập nhật thực thi M44.1
+
+Core của WS-A đã hoàn thành: group-wise split, holdout quarantine, immutable
+manifest và dual scoring mode. Các phần WS-A còn lại là bootstrap confidence
+interval, phân tầng theo question type/answer length và golden parity bằng exact
+BTC WordNet/OMW resource bytes. Các workstream WS-B trở đi có thể dùng split M44
+làm control, nhưng không được gọi answer supervision là retrieval relevance gold.
+
+## 14. Cập nhật thực thi M44.2
+
+WS-B core đã hoàn thành ở code version `0.44.1`. CLI
+`legal-rag-diagnose-retrieval` chạy BM25/dense/hybrid riêng biệt và persist
+content-free branch identities, overlap, diversity, explicit-reference match,
+latency, warning/error và optional answer-term coverage.
+
+Phần còn lại của WS-B là chạy report thật trên M44.1 development split, phân
+tầng signal và review định tính theo policy hợp lệ. Chưa có relevance gold nên
+không được đổi các signal này thành Recall@k hoặc dùng làm synthetic training
+label. WS-C reranker ablation chỉ bắt đầu sau khi report control này được lưu với
+đúng source/config/code identity.
+
+## 15. Cập nhật thực thi M44.3
+
+Control WS-B đã chạy đủ 991/991 development questions, không retrieval error.
+BM25/dense Jaccard trung bình `0.1578`; hybrid document diversity trung bình
+`0.5012`; 293 case dưới diversity threshold 0,4 và 144 case zero branch overlap.
+`bm25_query_terms_limited` xuất hiện ở 989 case, cần được xem là telemetry về
+query policy chứ không tự động coi là retrieval failure.
+
+WS-C stage 1 đã có optional `hybrid_rerank` diagnostics và CUDA config. Ba run
+candidate-k 20/40/60 phải giữ cùng dev source/top-k/model revisions. Sau khi so
+latency, rank churn, diversity và non-gold coverage delta mới chọn tối đa một
+candidate cho stage 2 full generation + official-compatible scoring.

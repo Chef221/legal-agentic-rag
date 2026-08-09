@@ -16,9 +16,13 @@ from legal_agentic_rag.evaluation.report_store import (
     persist_report,
 )
 from legal_agentic_rag.evaluation.runner import EvaluationRunner
+from legal_agentic_rag.evaluation.retrieval_diagnostics import (
+    RetrievalDiagnosticsRunner,
+)
 
 __all__ = [
     "EvaluationRunner",
+    "RetrievalDiagnosticsRunner",
     "EvaluationComparisonService",
     "StandardGenerationEvaluator",
     "StandardRetrievalEvaluator",
