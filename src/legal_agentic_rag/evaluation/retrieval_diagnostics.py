@@ -32,7 +32,12 @@ _REPORT_FILENAME = "retrieval_diagnostics.json"
 
 
 class _DiagnosticRuntime(Protocol):
-    def retrieve(self, query: RetrievalQuery) -> RetrievalResponse: ...
+    def retrieve_comparison(
+        self,
+        query: RetrievalQuery,
+        *,
+        include_reranker: bool = False,
+    ) -> list[RetrievalResponse]: ...
 
 
 class RetrievalDiagnosticsRunner:
@@ -123,7 +128,6 @@ class RetrievalDiagnosticsRunner:
         low_answer_term_coverage_threshold: float,
     ) -> RetrievalDiagnosticCase:
         normalized = unicodedata.normalize("NFC", " ".join(question.question.split()))
-        responses: list[RetrievalResponse] = []
         try:
             strategies = [
                 RetrievalStrategy.BM25,
@@ -132,19 +136,23 @@ class RetrievalDiagnosticsRunner:
             ]
             if include_reranker:
                 strategies.append(RetrievalStrategy.HYBRID_RERANK)
-            for strategy in strategies:
-                query_id = f"diagnostic:{question.question_id}:{strategy.value}"
-                response = self._runtime.retrieve(
-                    RetrievalQuery(
-                        query_id=query_id,
-                        original_question=question.question,
-                        normalized_question=normalized,
-                        top_k=top_k,
-                        candidate_k=candidate_k,
-                        requested_strategy=strategy,
-                        metadata={"source": "retrieval_diagnostics"},
-                    )
+            query_id = f"diagnostic:{question.question_id}"
+            responses = self._runtime.retrieve_comparison(
+                RetrievalQuery(
+                    query_id=query_id,
+                    original_question=question.question,
+                    normalized_question=normalized,
+                    top_k=top_k,
+                    candidate_k=candidate_k,
+                    metadata={"source": "retrieval_diagnostics"},
+                ),
+                include_reranker=include_reranker,
+            )
+            if len(responses) != len(strategies):
+                raise DataValidationError(
+                    "Diagnostic runtime returned an incompatible response count"
                 )
+            for strategy, response in zip(strategies, responses, strict=True):
                 if (
                     response.strategy != strategy
                     or response.query.query_id != query_id
@@ -152,7 +160,6 @@ class RetrievalDiagnosticsRunner:
                     raise DataValidationError(
                         "Diagnostic runtime returned an incompatible response"
                     )
-                responses.append(response)
         except Exception as error:
             return RetrievalDiagnosticCase(
                 question_id=question.question_id,

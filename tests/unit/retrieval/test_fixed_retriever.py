@@ -204,3 +204,19 @@ def test_fixed_retriever_honors_configured_default_strategy() -> None:
     )
 
     assert retriever.search(_query(None)).strategy == RetrievalStrategy.BM25
+
+
+def test_fixed_comparison_reuses_one_sparse_and_dense_search() -> None:
+    """Comparison projects shared candidates without repeating branch work."""
+    bm25, dense = _branches()
+    responses = FixedRetriever(bm25, dense).search_comparison(_query(None))
+
+    assert len(bm25.calls) == len(dense.calls) == 1
+    assert bm25.calls[0].top_k == dense.calls[0].top_k == 5
+    assert [response.strategy for response in responses] == [
+        RetrievalStrategy.BM25,
+        RetrievalStrategy.DENSE,
+        RetrievalStrategy.HYBRID,
+    ]
+    assert all(response.query.top_k == 2 for response in responses)
+    assert all(len(response.hits) <= 2 for response in responses)

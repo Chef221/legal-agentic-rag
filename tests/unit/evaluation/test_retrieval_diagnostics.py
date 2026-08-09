@@ -22,9 +22,30 @@ from legal_agentic_rag.schemas import (
 
 
 class _Runtime:
-    def retrieve(self, query: RetrievalQuery) -> RetrievalResponse:
-        strategy = query.requested_strategy
-        assert strategy is not None
+    def __init__(self) -> None:
+        self.comparison_calls = 0
+
+    def retrieve_comparison(
+        self,
+        query: RetrievalQuery,
+        *,
+        include_reranker: bool = False,
+    ) -> list[RetrievalResponse]:
+        self.comparison_calls += 1
+        strategies = [
+            RetrievalStrategy.BM25,
+            RetrievalStrategy.DENSE,
+            RetrievalStrategy.HYBRID,
+        ]
+        if include_reranker:
+            strategies.append(RetrievalStrategy.HYBRID_RERANK)
+        return [self._response(query, strategy) for strategy in strategies]
+
+    @staticmethod
+    def _response(
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+    ) -> RetrievalResponse:
         identities = {
             RetrievalStrategy.BM25: [("chunk-a", "doc-a"), ("chunk-b", "doc-b")],
             RetrievalStrategy.DENSE: [("chunk-b", "doc-b"), ("chunk-c", "doc-b")],
@@ -93,8 +114,9 @@ def test_diagnostics_reports_branch_overlap_and_non_gold_signals(
     output = tmp_path / "diagnostics"
     _questions(questions)
 
+    runtime = _Runtime()
     report = RetrievalDiagnosticsRunner(
-        _Runtime(), application_config_sha256="a" * 64
+        runtime, application_config_sha256="a" * 64
     ).run(questions, output, top_k=2, candidate_k=4)
 
     case = report.cases[0]
@@ -110,11 +132,17 @@ def test_diagnostics_reports_branch_overlap_and_non_gold_signals(
     assert "Ba mươi ngày" not in persisted
     assert "quy định về hồ sơ" not in persisted
     assert "answer_term_coverage_is_not_retrieval_relevance_gold" in persisted
+    assert runtime.comparison_calls == 1
 
 
 def test_diagnostics_is_immutable_and_records_runtime_errors(tmp_path: Path) -> None:
     class _FailingRuntime:
-        def retrieve(self, query: RetrievalQuery) -> RetrievalResponse:
+        def retrieve_comparison(
+            self,
+            query: RetrievalQuery,
+            *,
+            include_reranker: bool = False,
+        ) -> list[RetrievalResponse]:
             raise RuntimeError("backend failed")
 
     questions = tmp_path / "development.json"

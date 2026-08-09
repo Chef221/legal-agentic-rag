@@ -60,6 +60,15 @@ class _Retriever(Protocol):
         """Return one unified retrieval response."""
         ...
 
+    def search_comparison(
+        self,
+        query: RetrievalQuery,
+        *,
+        include_reranker: bool = False,
+    ) -> list[RetrievalResponse]:
+        """Return fixed branch observations with shared backend work."""
+        ...
+
 
 class OnlineRuntime:
     """Ready online application boundary backed only by loaded artifacts."""
@@ -103,6 +112,18 @@ class OnlineRuntime:
     def retrieve(self, query: RetrievalQuery) -> RetrievalResponse:
         """Run one fixed retrieval strategy without exposing backend clients."""
         return self._retriever.search(self._understand(query))
+
+    def retrieve_comparison(
+        self,
+        query: RetrievalQuery,
+        *,
+        include_reranker: bool = False,
+    ) -> list[RetrievalResponse]:
+        """Compare fixed strategies while understanding and retrieving once."""
+        return self._retriever.search_comparison(
+            self._understand(query),
+            include_reranker=include_reranker,
+        )
 
     def _understand(self, query: RetrievalQuery) -> RetrievalQuery:
         enriched = self._query_understanding.enrich(query)

@@ -15,6 +15,11 @@ candidate_k = 40
 candidate_k = 60
 ```
 
+Candidate-k 20 control đã hoàn tất trên code `0.44.2`. Từ `0.44.3`, runtime
+tái sử dụng một sparse/dense execution cho direct branch, fusion và reranking;
+run tiếp theo chỉ chạy candidate-k 40. Candidate-k 60 chỉ được chạy nếu report
+40 cho tín hiệu/cost hợp lý.
+
 Mọi candidate giữ `top_k=20`, cùng code, dev source, official artifacts, E5 và
 reranker revision. Mỗi run dùng output directory mới.
 
@@ -43,7 +48,7 @@ Xác minh:
 ```python
 import legal_agentic_rag
 print(legal_agentic_rag.__version__)
-assert legal_agentic_rag.__version__ == "0.44.2"
+assert legal_agentic_rag.__version__ == "0.44.3"
 ```
 
 ## 4. Tìm development source
@@ -86,7 +91,7 @@ Chỉ tiếp tục khi report có một successful case, zero failed case và b�
 ## 6. Chạy ba candidate
 
 ```python
-for candidate_k in (20, 40, 60):
+for candidate_k in (40,):
     output = Path(f"/kaggle/working/m44-rerank-k{candidate_k}")
     subprocess.run(
         [

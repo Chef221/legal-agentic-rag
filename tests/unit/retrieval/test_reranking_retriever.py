@@ -127,6 +127,31 @@ def test_reranking_service_requests_candidates_and_preserves_provenance() -> Non
     assert response.latency_ms >= 0
 
 
+def test_reranking_service_accepts_precomputed_hybrid_candidates() -> None:
+    """Diagnostics can rerank a shared candidate response without retrieval."""
+    candidates = [
+        _hit("one", 1, RetrievalStrategy.HYBRID),
+        _hit("two", 2, RetrievalStrategy.HYBRID),
+        _hit("three", 3, RetrievalStrategy.HYBRID),
+    ]
+    base = _CandidateRetriever(candidates)
+    service = RerankingRetriever(base, _FixtureReranker())
+    candidate_response = RetrievalResponse(
+        query=_query().model_copy(
+            update={"requested_strategy": RetrievalStrategy.HYBRID}
+        ),
+        strategy=RetrievalStrategy.HYBRID,
+        hits=candidates,
+        latency_ms=12.0,
+    )
+
+    response = service.rerank_candidates(_query(), candidate_response)
+
+    assert base.calls == []
+    assert response.strategy == RetrievalStrategy.HYBRID_RERANK
+    assert response.latency_ms >= 12.0
+
+
 def test_reranking_service_rejects_unbounded_query_before_retrieval() -> None:
     """Candidate limits are enforced before expensive retrieval or model calls."""
     base = _CandidateRetriever([])

@@ -70,6 +70,18 @@ class HybridRetriever:
 
     def search(self, query: RetrievalQuery) -> RetrievalResponse:
         """Return deterministic hybrid hits with per-branch RRF contributions."""
+        return self.search_with_primary_branches(query)[2]
+
+    def search_with_primary_branches(
+        self,
+        query: RetrievalQuery,
+    ) -> tuple[RetrievalResponse, RetrievalResponse, RetrievalResponse]:
+        """Return primary sparse/dense responses with their fused response.
+
+        The comparison path uses this method to observe the branches and fusion
+        without repeating the same backend searches. Additional bounded query
+        variants are still executed exactly once when multi-query is enabled.
+        """
         if query.requested_strategy not in (None, RetrievalStrategy.HYBRID):
             raise RetrievalError("Hybrid retriever received a non-hybrid request")
         _ = self.source_artifact_identity
@@ -163,7 +175,7 @@ class HybridRetriever:
                 "latency_ms": latency_ms,
             },
         )
-        return RetrievalResponse(
+        hybrid_response = RetrievalResponse(
             query=query.model_copy(
                 update={"requested_strategy": RetrievalStrategy.HYBRID}
             ),
@@ -173,6 +185,8 @@ class HybridRetriever:
             warnings=warnings,
             artifact_versions=artifact_versions,
         )
+        _, primary_bm25, primary_dense = response_pairs[0]
+        return primary_bm25, primary_dense, hybrid_response
 
     def _active_variants(self, query: RetrievalQuery) -> list[QueryVariant]:
         effective_query = query.rewritten_question or query.normalized_question
@@ -326,3 +340,52 @@ class FixedRetriever:
                 )
             return self._graph.search(routed_query)
         raise RetrievalError(f"Fixed retrieval strategy is not implemented: {strategy}")
+
+    def search_comparison(
+        self,
+        query: RetrievalQuery,
+        *,
+        include_reranker: bool = False,
+    ) -> list[RetrievalResponse]:
+        """Compare fixed branches while executing each backend search once.
+
+        Sparse and dense branches are requested at ``candidate_k`` so the same
+        results can feed RRF and reranking. Their diagnostic projections are
+        then truncated to ``top_k`` without changing rank order or provenance.
+        """
+        candidate_query = query.model_copy(
+            update={
+                "top_k": query.candidate_k,
+                "requested_strategy": RetrievalStrategy.HYBRID,
+            }
+        )
+        bm25_candidates, dense_candidates, hybrid_candidates = (
+            self._hybrid.search_with_primary_branches(candidate_query)
+        )
+        responses = [
+            _truncate_response(bm25_candidates, query, RetrievalStrategy.BM25),
+            _truncate_response(dense_candidates, query, RetrievalStrategy.DENSE),
+            _truncate_response(hybrid_candidates, query, RetrievalStrategy.HYBRID),
+        ]
+        if include_reranker:
+            if self._hybrid_rerank is None:
+                raise RetrievalError("Fixed comparison has no reranker")
+            responses.append(
+                self._hybrid_rerank.rerank_candidates(query, hybrid_candidates)
+            )
+        return responses
+
+
+def _truncate_response(
+    response: RetrievalResponse,
+    query: RetrievalQuery,
+    strategy: RetrievalStrategy,
+) -> RetrievalResponse:
+    """Project a candidate response to the caller's final comparison limit."""
+    return response.model_copy(
+        update={
+            "query": query.model_copy(update={"requested_strategy": strategy}),
+            "strategy": strategy,
+            "hits": response.hits[: query.top_k],
+        }
+    )

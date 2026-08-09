@@ -2081,7 +2081,7 @@ config SHA-256
 
 ## 51. Milestone 44.3 — Retrieval-only Reranker Gate
 
-**Status:** Implemented; GPU experiment pending
+**Status:** Implemented; candidate-k 20 completed, candidate-k 40 pending
 
 - optional fourth `hybrid_rerank` branch trong diagnostics;
 - typed top-k overlap/Jaccard, reranked diversity, explicit-reference match,
@@ -2089,4 +2089,13 @@ config SHA-256
 - `--include-reranker` CLI flag;
 - Kaggle CUDA experiment config với exact approved E5 và mMARCO revisions;
 - một report immutable cho mỗi candidate-k 20/40/60;
+- comparison runtime tái sử dụng một sparse/dense execution cho direct branch,
+  RRF và reranker thay vì gọi backend ba lần;
 - chưa đổi baseline strategy và chưa chạy generator trong gate này.
+
+Candidate-k 20 control trên 991 development cases đạt 991 success, 0 failure.
+Vì `top_k == candidate_k == 20`, reranker chỉ đảo rank (mean absolute rank
+change `5.0894`) mà không đổi membership: hybrid/rerank Jaccard `1.0`, diversity
+delta `0` và non-gold answer-term coverage delta `0`. Candidate-k 40 là run đầu
+tiên có thể đo candidate replacement; candidate-k 60 chỉ chạy nếu 40 có
+tín hiệu/cost hợp lý.

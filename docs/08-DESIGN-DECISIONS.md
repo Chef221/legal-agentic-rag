@@ -2198,3 +2198,20 @@ Gate ghi rank churn, hybrid/reranked overlap, diversity, latency và non-gold
 answer-term coverage delta. Không metric nào được gọi là retrieval relevance.
 Chỉ candidate có behavior/cost hợp lý mới chạy full generation rồi chấm bằng
 official-compatible METEOR/ROUGE-L. Baseline mặc định không đổi trước kết quả đó.
+
+---
+
+## D093 — Retrieval Comparison Reuses Shared Branch Work
+
+**Status:** Accepted
+
+M44.3 comparison không gọi BM25/dense lặp lại cho BM25, hybrid và
+hybrid-rerank observations. Runtime enrich query một lần, lấy sparse/dense
+candidate tối đa `candidate_k` một lần cho mỗi active query variant, fuse cùng
+responses và rerank hybrid candidate đã có. Direct branch và pre-rerank hybrid
+diagnostics chỉ project final `top_k` từ candidate response.
+
+Đây là execution optimization, không phải thay đổi ranking policy. Nó không
+thêm cache persisted, không đổi artifact/model/config contract và không dùng
+answer text trong retrieval. Latency hybrid-rerank vẫn biểu diễn candidate
+retrieval cộng reranker latency để so sánh end-to-end.

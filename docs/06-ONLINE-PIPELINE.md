@@ -994,6 +994,12 @@ question, top-k và candidate-k. Report so sánh hybrid trước rerank với ou
 sau rerank bằng top-k overlap/Jaccard, document diversity, mean absolute rank
 change, explicit-reference match và optional answer-term coverage delta.
 
+Comparison runtime enrich query đúng một lần. Sparse và dense mỗi nhánh chạy
+đúng một lần ở `candidate_k`; primary branch output được chiếu về final `top_k`,
+trong khi cùng candidate pool được fusion và chuyển thẳng cho reranker.
+Multi-query variant bổ sung vẫn chạy đúng một lần cho từng variant. Runner
+không gọi lại BM25/dense chỉ để quan sát từng strategy.
+
 Đây là retrieval-only gate. Nó không gọi generator và coverage delta vẫn không
 phải relevance metric. Candidate-k 20/40/60 được chạy thành ba report immutable;
 chỉ cấu hình có cost/behavior hợp lý mới chuyển sang full answer scoring.

@@ -55,7 +55,6 @@ class RerankingRetriever:
             raise RetrievalError("Reranking retriever received an incompatible request")
         if query.candidate_k > self._config.max_candidates:
             raise RetrievalError("Query candidate-k exceeds the reranker limit")
-        started = perf_counter()
         candidate_query = query.model_copy(
             update={
                 "top_k": query.candidate_k,
@@ -69,6 +68,28 @@ class RerankingRetriever:
             or len(candidate_response.hits) > query.candidate_k
         ):
             raise RetrievalError("Candidate retriever returned an incompatible response")
+        return self.rerank_candidates(query, candidate_response)
+
+    def rerank_candidates(
+        self,
+        query: RetrievalQuery,
+        candidate_response: RetrievalResponse,
+    ) -> RetrievalResponse:
+        """Rerank an already retrieved compatible hybrid candidate response."""
+        if query.requested_strategy not in (
+            None,
+            RetrievalStrategy.HYBRID_RERANK,
+        ):
+            raise RetrievalError("Reranking retriever received an incompatible request")
+        if query.candidate_k > self._config.max_candidates:
+            raise RetrievalError("Query candidate-k exceeds the reranker limit")
+        if (
+            candidate_response.strategy != RetrievalStrategy.HYBRID
+            or candidate_response.query.query_id != query.query_id
+            or len(candidate_response.hits) > query.candidate_k
+        ):
+            raise RetrievalError("Candidate retriever returned an incompatible response")
+        started = perf_counter()
         rerank_query = query.model_copy(
             update={"requested_strategy": RetrievalStrategy.RERANK}
         )
@@ -84,7 +105,8 @@ class RerankingRetriever:
         ]
         warnings = list(candidate_response.warnings)
         warnings.extend(f"reranker:{warning}" for warning in reranked.warnings)
-        latency_ms = (perf_counter() - started) * 1000
+        reranker_latency_ms = (perf_counter() - started) * 1000
+        latency_ms = candidate_response.latency_ms + reranker_latency_ms
         _LOGGER.info(
             "hybrid_rerank_completed",
             extra={
