@@ -6,7 +6,7 @@ Task 2 — Legal Question Answering.
 ## Trạng thái
 
 Baseline chất lượng đối chứng vẫn là **M43.1 — Qwen3B public baseline**. Code
-hiện tại là `0.44.4`, bổ sung evaluator, development protocol và retrieval
+hiện tại là `0.44.5`, bổ sung evaluator, development protocol và retrieval
 diagnostics M44 nhưng chưa
 thay đổi retrieval/model của baseline.
 Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
@@ -259,6 +259,11 @@ M44.3 retrieval-only reranker ablation dùng cùng lệnh với
 `--include-reranker`. Mỗi candidate count 20/40/60 phải dùng output directory
 riêng. Chỉ candidate qua gate diagnostics mới được chạy full generation và chấm
 METEOR/ROUGE-L.
+
+Từ `0.44.5`, local Transformers provider dùng `accelerate` low-memory loading
+trước khi chuyển Qwen sang CUDA và log riêng tokenizer, weights và device transfer.
+Điều này xử lý bottleneck startup đã quan sát trên Kaggle, không thay model,
+prompt, ranking hay output contract.
 
 Từ `0.44.3`, comparison runtime enrich query một lần, chạy sparse/dense branch
 một lần ở `candidate_k`, rồi tái sử dụng cùng candidate cho RRF và reranker.

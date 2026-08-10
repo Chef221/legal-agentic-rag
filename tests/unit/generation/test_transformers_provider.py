@@ -135,6 +135,19 @@ def test_provider_classifies_lazy_initialization_failure() -> None:
         provider.complete(system_instruction="system", user_prompt="user")
 
 
+def test_provider_marks_production_model_load_as_low_memory() -> None:
+    """Large local models must avoid a second full CPU-weight copy on startup."""
+    provider = TransformersChatProvider(
+        _config(),
+        runtime_loader=lambda: (torch, _Tokenizer(), _Model()),
+    )
+
+    assert provider._model_load_options(torch.float32) == {
+        "torch_dtype": torch.float32,
+        "low_cpu_mem_usage": True,
+    }
+
+
 def test_factory_selects_model_generator_for_transformers_backend() -> None:
     """The core factory remains backend-neutral and configuration-driven."""
     assert isinstance(

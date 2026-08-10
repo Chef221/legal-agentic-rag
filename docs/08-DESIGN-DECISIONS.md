@@ -2239,3 +2239,20 @@ Candidate-k 40 chỉ được promote nếu METEOR chính tăng trên cùng sour
 abstention, model error, citation verification và latency là guardrail phụ. Mỗi
 run có output/checkpoint/config hash riêng. Public baseline M43.1 không bị thay
 đổi trước khi A/B hoàn tất và được review.
+
+---
+
+## D095 — Qwen Startup Uses Low-memory Loading Before CUDA Transfer
+
+**Status:** Accepted
+
+M44.4 Kaggle run stall trước câu trả lời đầu tiên khi Qwen đang materialize
+weights (`173/434`), CPU/GPU đều gần zero và chưa có batch record. Provider dùng
+`accelerate` với `low_cpu_mem_usage=true` để tránh tạo thêm full CPU copy của
+model 3B trước khi chuyển sang CUDA. Startup log được tách thành tokenizer,
+weights và device-transfer phases.
+
+Đây là runtime-loading safeguard, không thay Qwen identity, number of parameters,
+artifact, retrieval, prompt, generation policy hay answer content. `accelerate`
+là dependency runtime nhẹ để kích hoạt API chính thức của Transformers; không
+phải model, dữ liệu hoặc external service.

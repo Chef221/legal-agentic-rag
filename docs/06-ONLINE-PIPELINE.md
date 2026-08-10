@@ -492,6 +492,9 @@ config và phải có endpoint cùng model name/revision đã pin.
 cầu pin model/revision cùng device và dtype rõ ràng. Provider:
 
 - lazy-load tokenizer/model ở lần dùng đầu tiên;
+- dùng `accelerate` low-memory loading cho model weights trước CUDA transfer;
+- log riêng từng phase tokenizer, weights và device transfer để phân biệt network,
+  disk/weight materialization và CUDA startup stall;
 - serialize inference trên một shared model instance;
 - dùng deterministic decoding khi `temperature = 0`;
 - chỉ decode token mới sinh, không lẫn prompt vào completion;

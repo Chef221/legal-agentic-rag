@@ -198,23 +198,68 @@ class TransformersChatProvider:
 
         dtype = getattr(torch, self._torch_dtype)
         try:
+            _LOGGER.info(
+                "transformers_chat_tokenizer_load_started",
+                extra={
+                    "model_name": self.model_name,
+                    "model_revision": self.model_revision,
+                },
+            )
             tokenizer = AutoTokenizer.from_pretrained(
                 self.model_name,
                 revision=self.model_revision,
                 local_files_only=self._local_files_only,
                 trust_remote_code=False,
             )
+            _LOGGER.info(
+                "transformers_chat_tokenizer_load_completed",
+                extra={
+                    "model_name": self.model_name,
+                    "model_revision": self.model_revision,
+                },
+            )
+            _LOGGER.info(
+                "transformers_chat_weights_load_started",
+                extra={
+                    "model_name": self.model_name,
+                    "model_revision": self.model_revision,
+                    "low_cpu_mem_usage": True,
+                },
+            )
             model = AutoModelForCausalLM.from_pretrained(
                 self.model_name,
                 revision=self.model_revision,
                 local_files_only=self._local_files_only,
                 trust_remote_code=False,
-                torch_dtype=dtype,
+                **self._model_load_options(dtype),
+            )
+            _LOGGER.info(
+                "transformers_chat_weights_load_completed",
+                extra={
+                    "model_name": self.model_name,
+                    "model_revision": self.model_revision,
+                },
+            )
+            _LOGGER.info(
+                "transformers_chat_device_transfer_started",
+                extra={"device": self._device},
             )
             model.to(self._device)
             model.eval()
+            _LOGGER.info(
+                "transformers_chat_device_transfer_completed",
+                extra={"device": self._device},
+            )
         except (OSError, RuntimeError, ValueError) as error:
             raise BackendInitializationError(
                 "Transformers model initialization failed"
             ) from error
         return torch, tokenizer, model
+
+    @staticmethod
+    def _model_load_options(dtype: Any) -> dict[str, Any]:
+        """Keep large local weight loading bounded before transfer to CUDA."""
+        return {
+            "torch_dtype": dtype,
+            "low_cpu_mem_usage": True,
+        }

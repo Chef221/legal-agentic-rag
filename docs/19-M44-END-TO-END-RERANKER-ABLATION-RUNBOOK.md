@@ -34,13 +34,14 @@ Notebook dùng accelerator Tesla T4. Không chạy hai batch song song.
 !git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
 %cd /kaggle/working/legal-agentic-rag
 !git checkout <M44.4_COMMIT>
+!python -m pip install -q "accelerate>=1,<2"
 !python -m pip install -q -e . --no-deps
 ```
 
 ```python
 import legal_agentic_rag
 print(legal_agentic_rag.__version__)
-assert legal_agentic_rag.__version__ == "0.44.4"
+assert legal_agentic_rag.__version__ == "0.44.5"
 ```
 
 ## 4. Xác minh source và artifacts

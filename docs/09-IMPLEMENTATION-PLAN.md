@@ -2123,3 +2123,7 @@ qua answer-level A/B.
 M44.4 không fine-tune, không tạo dữ liệu, không dùng public labels, không đổi
 artifact và không chạy candidate-k 60. Runbook thực thi nằm tại
 `docs/19-M44-END-TO-END-RERANKER-ABLATION-RUNBOOK.md`.
+
+M44.4.1 bổ sung low-memory Qwen startup qua `accelerate` sau khi run Kaggle stall
+trước batch record đầu tiên. Thay đổi chỉ ảnh hưởng cách materialize weights và
+thêm phase logs; không ảnh hưởng A/B variable hoặc answer contract.
