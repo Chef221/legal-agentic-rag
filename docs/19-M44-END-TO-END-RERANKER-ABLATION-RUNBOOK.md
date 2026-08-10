@@ -33,7 +33,7 @@ Notebook dùng accelerator Tesla T4. Không chạy hai batch song song.
 ```python
 !git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
 %cd /kaggle/working/legal-agentic-rag
-!git checkout <M44.4_COMMIT>
+!git checkout edc5a350af513fffd72e5a8d4400363603994c19
 !python -m pip install -q "accelerate>=1,<2"
 !python -m pip install -q -e . --no-deps
 ```
