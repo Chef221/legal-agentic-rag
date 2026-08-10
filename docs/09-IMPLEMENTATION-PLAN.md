@@ -2054,7 +2054,7 @@ không commit vào repository.
 
 ## 50. Milestone 44.2 — Non-gold Retrieval Diagnostics
 
-**Status:** Completed in code; full official dev run pending
+**Status:** Completed
 
 - thêm typed, content-free retrieval diagnostic schemas;
 - chạy riêng BM25, dense và hybrid với query identity validation;
@@ -2081,7 +2081,7 @@ config SHA-256
 
 ## 51. Milestone 44.3 — Retrieval-only Reranker Gate
 
-**Status:** Implemented; candidate-k 20 completed, candidate-k 40 pending
+**Status:** Completed; candidate-k 20 and 40 reviewed
 
 - optional fourth `hybrid_rerank` branch trong diagnostics;
 - typed top-k overlap/Jaccard, reranked diversity, explicit-reference match,
@@ -2099,3 +2099,27 @@ change `5.0894`) mà không đổi membership: hybrid/rerank Jaccard `1.0`, dive
 delta `0` và non-gold answer-term coverage delta `0`. Candidate-k 40 là run đầu
 tiên có thể đo candidate replacement; candidate-k 60 chỉ chạy nếu 40 có
 tín hiệu/cost hợp lý.
+
+Candidate-k 40 trên 991 cases đạt 991 success, 0 failure và zero log error.
+Reranker thay trung bình `7.5409/20` kết quả, hybrid/rerank Jaccard trung bình
+`0.4600`, coverage delta trung bình `+0.0052875` và diversity delta trung bình
+`-0.0191726`. Backend reuse giảm BM25/dense completions từ 2.977 xuống 993.
+Vì quality signal nhỏ và không phải gold, candidate-k 60 bị dừng; k=40 đi tiếp
+qua answer-level A/B.
+
+## 52. Milestone 44.4 — End-to-end Reranker Answer A/B
+
+**Status:** Implemented in config/tests/docs; GPU runs pending
+
+- hai Kaggle profile Qwen `hybrid_rerank` cho candidate-k 20 và 40;
+- giữ `top_k=8`, model revisions, context, verification và generation giống nhau;
+- unit test fail nếu hai profile drift ngoài hai candidate-k fields;
+- mỗi profile dùng batch directory/checkpoint/config hash riêng;
+- tạo submission nội bộ cho đúng 991 development IDs;
+- chấm `official_compatible` METEOR/ROUGE-L trên cùng references;
+- candidate-k 40 chỉ được promote khi METEOR tăng và guardrails không regression
+  nghiêm trọng.
+
+M44.4 không fine-tune, không tạo dữ liệu, không dùng public labels, không đổi
+artifact và không chạy candidate-k 60. Runbook thực thi nằm tại
+`docs/19-M44-END-TO-END-RERANKER-ABLATION-RUNBOOK.md`.

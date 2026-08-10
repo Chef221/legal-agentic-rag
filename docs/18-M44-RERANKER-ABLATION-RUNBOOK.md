@@ -137,8 +137,13 @@ Không chọn candidate chỉ vì coverage delta cao. Candidate được đưa s
 generation phải có zero model error, latency/memory phù hợp và không làm giảm
 explicit-reference behavior.
 
-## 8. Output cần giữ
+## 8. Kết quả gate và output cần giữ
 
-Quick Save notebook sau khi cả ba report hoàn tất. Tải hoặc publish đúng ba
-thư mục report cùng notebook log. Không cần đóng gói model/index vì chúng đã là
-input dataset riêng.
+Candidate-k 20 và 40 đã hoàn tất trên cùng 991-question source. K=40 đạt 991
+success/0 failure, thay trung bình `7.5409/20` membership, coverage delta
+`+0.0052875` và diversity delta `-0.0191726`. Tín hiệu không đủ để chạy k=60;
+bước tiếp theo là answer-level A/B theo
+`docs/19-M44-END-TO-END-RERANKER-ABLATION-RUNBOOK.md`.
+
+Giữ hai thư mục report k=20/k=40 cùng notebook log. Không cần đóng gói
+model/index vì chúng đã là input dataset riêng.

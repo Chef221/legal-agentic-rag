@@ -1,5 +1,6 @@
 """Tests for explicit JSON application configuration loading."""
 
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,35 @@ def test_kaggle_qwen_configuration_is_bounded_and_local() -> None:
     assert config.online.generation.max_output_tokens == 256
     assert config.online.semantic_verification.backend == "disabled"
     assert config.competition.allow_external_data is False
+
+
+def test_kaggle_qwen_reranker_ablation_changes_only_candidate_k() -> None:
+    """M44.4 end-to-end profiles must isolate the candidate-pool variable."""
+    root = Path(__file__).parents[3] / "configs"
+    control = load_application_config(
+        root / "uit-dsc-2026-task2-qwen3b-rerank-k20-kaggle.example.json"
+    )
+    treatment = load_application_config(
+        root / "uit-dsc-2026-task2-qwen3b-rerank-k40-kaggle.example.json"
+    )
+
+    assert control.online.retrieval.top_k == treatment.online.retrieval.top_k == 8
+    assert control.online.retrieval.candidate_k == 20
+    assert treatment.online.retrieval.candidate_k == 40
+    assert control.online.agent.strategy_order == ["hybrid_rerank"]
+    assert treatment.online.agent.strategy_order == ["hybrid_rerank"]
+    assert control.online.reranker.device == treatment.online.reranker.device == "cuda"
+    assert control.online.generation.model_revision == (
+        treatment.online.generation.model_revision
+    )
+
+    control_payload = deepcopy(control.model_dump(mode="json"))
+    treatment_payload = deepcopy(treatment.model_dump(mode="json"))
+    for payload in (control_payload, treatment_payload):
+        payload["online"]["retrieval"]["candidate_k"] = 0
+        payload["evaluation"]["candidate_k"] = 0
+
+    assert control_payload == treatment_payload
 
 
 def test_config_loader_wraps_invalid_json_without_leaking_details(

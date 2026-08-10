@@ -6,7 +6,7 @@ Task 2 — Legal Question Answering.
 ## Trạng thái
 
 Baseline chất lượng đối chứng vẫn là **M43.1 — Qwen3B public baseline**. Code
-hiện tại là `0.44.3`, bổ sung evaluator, development protocol và retrieval
+hiện tại là `0.44.4`, bổ sung evaluator, development protocol và retrieval
 diagnostics M44 nhưng chưa
 thay đổi retrieval/model của baseline.
 Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
@@ -264,6 +264,11 @@ Từ `0.44.3`, comparison runtime enrich query một lần, chạy sparse/dense 
 một lần ở `candidate_k`, rồi tái sử dụng cùng candidate cho RRF và reranker.
 Phép tối ưu chỉ loại bỏ backend work trùng lặp; ranking contract, model,
 artifact và persisted diagnostic schema không đổi.
+
+M44.4 đưa candidate-k 20 và 40 qua A/B end-to-end trên cùng 991 development
+questions. Hai profile Qwen `hybrid_rerank` giữ nguyên mọi tham số ngoài
+`candidate_k`; quyết định cuối chỉ dựa trên METEOR chính và ROUGE-L phụ theo
+scorer-compatible mode, không dựa riêng vào retrieval diagnostics.
 
 Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
 cache hoặc token.

@@ -2215,3 +2215,27 @@ diagnostics chỉ project final `top_k` từ candidate response.
 thêm cache persisted, không đổi artifact/model/config contract và không dùng
 answer text trong retrieval. Latency hybrid-rerank vẫn biểu diễn candidate
 retrieval cộng reranker latency để so sánh end-to-end.
+
+---
+
+## D094 — Candidate-k 40 Must Win an End-to-end Answer A/B Before Promotion
+
+**Status:** Accepted
+
+Retrieval-only gate trên 991 development cases cho candidate-k 40 đạt 991
+success, zero model error, thay trung bình `7.5409/20` membership so với hybrid
+và tăng non-gold answer-term coverage trung bình `0.0052875`. Tuy nhiên document
+diversity giảm trung bình `0.0191726`, 303 cases giảm coverage và các metric này
+không phải relevance gold. Vì vậy không chạy candidate-k 60 và không thay
+baseline chỉ từ retrieval diagnostics.
+
+M44.4 chạy hai batch full generation độc lập trên cùng leakage-safe 991-question
+development source. Cả hai dùng cùng code, official artifacts, query policy,
+`top_k=8`, approved E5, approved mMARCO reranker, approved Qwen generator,
+context builder và verifier. Hai profile chỉ khác `candidate_k=20` hoặc `40`;
+agent bắt buộc dùng `hybrid_rerank` để thí nghiệm thật sự quan sát reranker.
+
+Candidate-k 40 chỉ được promote nếu METEOR chính tăng trên cùng source; ROUGE-L,
+abstention, model error, citation verification và latency là guardrail phụ. Mỗi
+run có output/checkpoint/config hash riêng. Public baseline M43.1 không bị thay
+đổi trước khi A/B hoàn tất và được review.

@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.44.3` (M44 evaluator/dev/reranker diagnostics) |
+| Project version | `0.44.4` (M44 end-to-end reranker A/B profiles) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |

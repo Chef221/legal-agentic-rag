@@ -1,0 +1,133 @@
+{
+  "artifacts": {
+    "root_path": "/kaggle/input/datasets/khoanguyn221/uit-dsc-2026-task2-serving-v0430/uit-dsc-2026-task2-serving-v0430"
+  },
+  "competition": {
+    "competition_id": "uit-dsc-2026-task2",
+    "corpus_dataset_name": "uit-dsc-2026-task2-selected-contexts",
+    "qa_dataset_name": "uit-dsc-2026-task2-legalqa",
+    "data_policy": "competition_only",
+    "allow_external_data": false,
+    "require_official_artifact_lineage": true,
+    "source_authority": "UIT Data Science Challenge 2026 Task 2 organizers"
+  },
+  "offline": {
+    "embedding": {
+      "model_name": "intfloat/multilingual-e5-small",
+      "model_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+      "expected_dimension": 384,
+      "max_sequence_length": 512,
+      "device": "cuda",
+      "local_files_only": false,
+      "document_prefix": "passage:",
+      "query_prefix": "query:",
+      "normalize_embeddings": true
+    },
+    "chunking": {
+      "max_tokens": 448,
+      "max_search_tokens": 512,
+      "min_tokens": 50,
+      "overlap_tokens": 50,
+      "tokenizer_name": "embedding_model_v1"
+    }
+  },
+  "online": {
+    "retrieval": {
+      "top_k": 8,
+      "candidate_k": 20,
+      "default_strategy": "hybrid_rerank",
+      "timeout_seconds": 180.0
+    },
+    "startup_validation": {
+      "mode": "validated_report"
+    },
+    "vector_runtime": {
+      "prefer_serving_metadata": true,
+      "require_serving_metadata": true,
+      "search_device": "cuda",
+      "device_transfer_batch_size": 32768
+    },
+    "query_understanding": {
+      "enabled": true,
+      "multi_query_enabled": true,
+      "adaptive_routing_enabled": true,
+      "max_variants": 3
+    },
+    "reranker": {
+      "model_name": "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+      "model_revision": "1427fd652930e4ba29e8149678df786c240d8825",
+      "device": "cuda",
+      "batch_size": 32,
+      "max_length": 512,
+      "max_candidates": 100,
+      "local_files_only": false,
+      "input_mode": "legal_context"
+    },
+    "evidence_selection": {
+      "enabled": true,
+      "reference_match_boost": 2.0,
+      "lexical_overlap_weight": 1.0,
+      "inactive_penalty": 2.0
+    },
+    "claim_verification": {
+      "enabled": true,
+      "require_inline_citations": true,
+      "minimum_lexical_support": 0.25,
+      "minimum_claim_tokens": 2,
+      "require_numeric_match": true,
+      "require_negation_match": true,
+      "max_claims": 20
+    },
+    "semantic_verification": {
+      "backend": "disabled"
+    },
+    "generation": {
+      "max_context_tokens": 3072,
+      "max_evidence": 5,
+      "timeout_seconds": 180.0,
+      "backend": "transformers",
+      "model_name": "Qwen/Qwen2.5-3B-Instruct",
+      "model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8",
+      "device": "cuda",
+      "torch_dtype": "float16",
+      "local_files_only": false,
+      "max_input_tokens": 6144,
+      "temperature": 0.0,
+      "max_output_tokens": 256,
+      "max_structured_output_retries": 1
+    },
+    "context_grading": {
+      "minimum_evidence_count": 1,
+      "require_document_number": false,
+      "require_article_number": false
+    },
+    "agent": {
+      "max_retry": 2,
+      "strategy_order": ["hybrid_rerank"],
+      "rewrite_query_on_retry": false
+    }
+  },
+  "build_validation": {
+    "require_pinned_dataset_revision": true,
+    "require_full_corpus": true,
+    "expected_record_counts": {
+      "contexts": 8532,
+      "contexts_with_content": 8512
+    },
+    "report_filename": "build_validation_full_corpus.json"
+  },
+  "logging": {
+    "level": "INFO"
+  },
+  "serving": {
+    "host": "127.0.0.1",
+    "port": 8000,
+    "ui_enabled": false
+  },
+  "evaluation": {
+    "cutoffs": [1, 5, 8],
+    "strategy": "hybrid_rerank",
+    "candidate_k": 20,
+    "run_generation": true
+  }
+}
