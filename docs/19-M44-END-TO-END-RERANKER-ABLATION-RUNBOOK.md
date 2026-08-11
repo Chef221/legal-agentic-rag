@@ -81,6 +81,12 @@ for relative in (
 REPO = Path("/kaggle/working/legal-agentic-rag")
 CONTROL_CONFIG = REPO / "configs/uit-dsc-2026-task2-qwen3b-rerank-k20-kaggle.example.json"
 CONTROL_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k20-v0446")
+
+import os
+
+os.environ["CONTROL_CONFIG"] = str(CONTROL_CONFIG)
+os.environ["DEVELOPMENT"] = str(DEVELOPMENT)
+os.environ["CONTROL_OUTPUT"] = str(CONTROL_OUTPUT)
 ```
 
 Chạy cell shell **trực tiếp** sau đây. Nó không chạy nền: cell chỉ kết thúc khi
@@ -89,7 +95,7 @@ hiển thị log tải model cùng một dòng durable progress sau từng câu 
 an toàn vào checkpoint.
 
 ```python
-!PYTHONUNBUFFERED=1 legal-rag-batch --config {CONTROL_CONFIG} --questions {DEVELOPMENT} --output {CONTROL_OUTPUT} --progress-interval 1 2>&1
+!PYTHONUNBUFFERED=1 legal-rag-batch --config "$CONTROL_CONFIG" --questions "$DEVELOPMENT" --output "$CONTROL_OUTPUT" --progress-interval 1 2>&1
 ```
 
 Nếu session ngắt, chạy lại đúng cell shell này với đúng output directory. Batch
@@ -102,10 +108,13 @@ Chỉ chạy sau khi control có `manifest.json`.
 ```python
 TREATMENT_CONFIG = REPO / "configs/uit-dsc-2026-task2-qwen3b-rerank-k40-kaggle.example.json"
 TREATMENT_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k40-v0446")
+
+os.environ["TREATMENT_CONFIG"] = str(TREATMENT_CONFIG)
+os.environ["TREATMENT_OUTPUT"] = str(TREATMENT_OUTPUT)
 ```
 
 ```python
-!PYTHONUNBUFFERED=1 legal-rag-batch --config {TREATMENT_CONFIG} --questions {DEVELOPMENT} --output {TREATMENT_OUTPUT} --progress-interval 1 2>&1
+!PYTHONUNBUFFERED=1 legal-rag-batch --config "$TREATMENT_CONFIG" --questions "$DEVELOPMENT" --output "$TREATMENT_OUTPUT" --progress-interval 1 2>&1
 ```
 
 ## 7. Kiểm tra completeness
