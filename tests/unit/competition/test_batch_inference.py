@@ -8,6 +8,7 @@ import pytest
 from legal_agentic_rag.competition.uit_dsc_2026.batch_inference import (
     CompetitionBatchRunner,
 )
+from legal_agentic_rag.competition.uit_dsc_2026 import batch_inference
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.schemas import AnswerResponse, RetrievalStrategy
 
@@ -90,3 +91,33 @@ def test_batch_rejects_changed_question_bytes(tmp_path: Path) -> None:
 
     with pytest.raises(ArtifactCompatibilityError, match="incompatible"):
         runner.run(questions, output)
+
+
+def test_batch_logs_each_durable_record_when_requested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    questions = tmp_path / "public.json"
+    output = tmp_path / "batch"
+    _questions(questions)
+
+    progress_updates: list[int] = []
+
+    def record_info(message: str, *, extra: dict[str, object]) -> None:
+        if message == "competition_batch_progress":
+            progress_updates.append(int(extra["completed_question_count"]))
+
+    monkeypatch.setattr(batch_inference._LOGGER, "info", record_info)
+    CompetitionBatchRunner(
+        _Answerer(),
+        application_config_hash="d" * 64,
+        progress_interval=1,
+    ).run(questions, output)
+
+    assert progress_updates == [1, 2]
+
+
+def test_batch_rejects_non_positive_progress_interval() -> None:
+    with pytest.raises(ValueError, match="positive"):
+        CompetitionBatchRunner(
+            _Answerer(), application_config_hash="e" * 64, progress_interval=0
+        )

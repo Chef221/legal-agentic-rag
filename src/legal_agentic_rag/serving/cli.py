@@ -76,6 +76,7 @@ def competition_batch_main() -> None:
     manifest = CompetitionBatchRunner(
         service,
         application_config_hash=canonical_sha256(config),
+        progress_interval=arguments.progress_interval,
     ).run(arguments.questions, arguments.output)
     _LOGGER.info(
         "competition_batch_command_completed",
@@ -338,7 +339,24 @@ def _competition_batch_parser() -> argparse.ArgumentParser:
         required=True,
         help="New or compatible resumable internal batch directory.",
     )
+    parser.add_argument(
+        "--progress-interval",
+        type=_positive_integer,
+        default=25,
+        help=(
+            "Log durable completed-question progress after this many answers; "
+            "use 1 for live notebook monitoring."
+        ),
+    )
     return parser
+
+
+def _positive_integer(value: str) -> int:
+    """Parse a strictly positive command-line integer."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
 
 
 def _comparison_parser() -> argparse.ArgumentParser:

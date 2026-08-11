@@ -33,7 +33,7 @@ Notebook dùng accelerator Tesla T4. Không chạy hai batch song song.
 ```python
 !git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
 %cd /kaggle/working/legal-agentic-rag
-!git checkout edc5a350af513fffd72e5a8d4400363603994c19
+!git checkout main
 !python -m pip install -q "accelerate>=1,<2"
 !python -m pip install -q -e . --no-deps
 ```
@@ -41,7 +41,7 @@ Notebook dùng accelerator Tesla T4. Không chạy hai batch song song.
 ```python
 import legal_agentic_rag
 print(legal_agentic_rag.__version__)
-assert legal_agentic_rag.__version__ == "0.44.5"
+assert legal_agentic_rag.__version__ == "0.44.6"
 ```
 
 ## 4. Xác minh source và artifacts
@@ -78,25 +78,22 @@ for relative in (
 ## 5. Chạy control k=20
 
 ```python
-import subprocess
-
 REPO = Path("/kaggle/working/legal-agentic-rag")
 CONTROL_CONFIG = REPO / "configs/uit-dsc-2026-task2-qwen3b-rerank-k20-kaggle.example.json"
-CONTROL_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k20-v0444")
-
-subprocess.run(
-    [
-        "legal-rag-batch",
-        "--config", str(CONTROL_CONFIG),
-        "--questions", str(DEVELOPMENT),
-        "--output", str(CONTROL_OUTPUT),
-    ],
-    check=True,
-)
+CONTROL_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k20-v0446")
 ```
 
-Nếu session ngắt, chạy lại đúng cell này với đúng output directory. Batch chỉ
-resume khi source hash, config hash và code version vẫn khớp.
+Chạy cell shell **trực tiếp** sau đây. Nó không chạy nền: cell chỉ kết thúc khi
+batch xong. `PYTHONUNBUFFERED=1`, `2>&1` và `--progress-interval 1` khiến Kaggle
+hiển thị log tải model cùng một dòng durable progress sau từng câu đã được ghi
+an toàn vào checkpoint.
+
+```python
+!PYTHONUNBUFFERED=1 legal-rag-batch --config {CONTROL_CONFIG} --questions {DEVELOPMENT} --output {CONTROL_OUTPUT} --progress-interval 1 2>&1
+```
+
+Nếu session ngắt, chạy lại đúng cell shell này với đúng output directory. Batch
+chỉ resume khi source hash, config hash và code version vẫn khớp.
 
 ## 6. Chạy treatment k=40
 
@@ -104,17 +101,11 @@ Chỉ chạy sau khi control có `manifest.json`.
 
 ```python
 TREATMENT_CONFIG = REPO / "configs/uit-dsc-2026-task2-qwen3b-rerank-k40-kaggle.example.json"
-TREATMENT_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k40-v0444")
+TREATMENT_OUTPUT = Path("/kaggle/working/m44-e2e-rerank-k40-v0446")
+```
 
-subprocess.run(
-    [
-        "legal-rag-batch",
-        "--config", str(TREATMENT_CONFIG),
-        "--questions", str(DEVELOPMENT),
-        "--output", str(TREATMENT_OUTPUT),
-    ],
-    check=True,
-)
+```python
+!PYTHONUNBUFFERED=1 legal-rag-batch --config {TREATMENT_CONFIG} --questions {DEVELOPMENT} --output {TREATMENT_OUTPUT} --progress-interval 1 2>&1
 ```
 
 ## 7. Kiểm tra completeness

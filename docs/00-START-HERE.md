@@ -13,7 +13,7 @@ Không đọc riêng README rồi sửa code. Tùy vai trò, hãy theo lộ trì
 
 | Hạng mục | Trạng thái |
 |---|---|
-| Code | `0.44.5`; quality control baseline remains `0.43.1` at `96e6d5a` |
+| Code | `0.44.6`; quality control baseline remains `0.43.1` at `96e6d5a` |
 | Corpus | 8.532 context chính thức, competition-only |
 | Retrieval units | 330.768 legal chunks, exact E5 window tối đa 512 token |
 | Index | SQLite FTS5 BM25 + exact dense vector 384 chiều |

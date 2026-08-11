@@ -48,11 +48,15 @@ class CompetitionBatchRunner:
         application_config_hash: str,
         loader: UitDsc2026DataLoader | None = None,
         clock: Callable[[], datetime] | None = None,
+        progress_interval: int = _PROGRESS_INTERVAL,
     ) -> None:
+        if progress_interval <= 0:
+            raise ValueError("progress_interval must be positive")
         self._answerer = answerer
         self._config_hash = application_config_hash
         self._loader = loader or UitDsc2026DataLoader()
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._progress_interval = progress_interval
 
     def run(
         self,
@@ -141,7 +145,7 @@ class CompetitionBatchRunner:
                     state_path, state.model_dump(mode="json")
                 )
                 if (
-                    len(records) % _PROGRESS_INTERVAL == 0
+                    len(records) % self._progress_interval == 0
                     or len(records) == len(questions)
                 ):
                     _LOGGER.info(

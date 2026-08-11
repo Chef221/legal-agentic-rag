@@ -2256,3 +2256,20 @@ weights và device-transfer phases.
 artifact, retrieval, prompt, generation policy hay answer content. `accelerate`
 là dependency runtime nhẹ để kích hoạt API chính thức của Transformers; không
 phải model, dữ liệu hoặc external service.
+
+---
+
+## D096 — Competition Batch Progress Is a Durable, Foreground Signal
+
+**Status:** Accepted
+
+`legal-rag-batch` retains its default progress interval of 25 durable answers
+for ordinary command-line use, but accepts `--progress-interval` for an explicit
+operator choice. The Kaggle A/B runbook invokes it directly in the notebook cell
+with `PYTHONUNBUFFERED=1`, merged stderr/stdout, and interval `1`.
+
+Each progress message is emitted only after the corresponding result has been
+flushed, fsynced and reflected in `batch_state.json`; it is therefore a
+checkpoint signal, not an optimistic "started" counter. This changes only
+observability. It does not run work in the background, alter inference,
+retrieval, model identity, artifacts, answers or recovery identity.

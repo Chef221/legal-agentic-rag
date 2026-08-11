@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.44.5` (M44 A/B profiles and low-memory Qwen startup) |
+| Project version | `0.44.6` (M44 A/B profiles, low-memory Qwen startup, and live batch progress) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |
