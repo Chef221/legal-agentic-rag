@@ -1037,6 +1037,28 @@ Version `0.20.6` bổ sung exact GPU-resident dense scoring:
   fallback CPU;
 - không re-embed, rebuild artifact hoặc thêm vector database.
 
+## 23. Citation Coverage and Context-selection Telemetry
+
+Before an answer reaches citation verification, model-backed generation validates
+each deterministic claim boundary used by the rule-based verifier. Each sentence,
+list item, or semicolon-delimited legal claim must contain an inline `[E#]`
+marker. A draft that cites valid evidence globally but leaves one claim uncited
+is rejected for the existing bounded structured-output correction attempt; no
+marker is fabricated or copied across claims.
+
+The final `AnswerResponse.metadata` records a content-free context summary:
+
+- input, selected, omitted and duplicate hit counts;
+- estimated token count, truncation and context warnings;
+- `EvidenceSelectionTrace` for every selected or omitted unique hit;
+- selected `{evidence_id, chunk_id}` pairs.
+
+The trace does not include legal passage text. It is an observability boundary
+for controlled evidence-selection experiments, not a relevance label.
+`context_budget_exhausted` means at least one whole chunk exceeded the token
+budget; `context_max_evidence_reached:<n>` means omission was caused only by the
+configured evidence-count cap.
+
 ## Official M40 Serving Profile
 
 `configs/uit-dsc-2026-task2-serving.example.json` là consumer profile của

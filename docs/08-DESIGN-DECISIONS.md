@@ -2240,6 +2240,36 @@ abstention, model error, citation verification và latency là guardrail phụ. 
 run có output/checkpoint/config hash riêng. Public baseline M43.1 không bị thay
 đổi trước khi A/B hoàn tất và được review.
 
+**Kết quả M44.4 (2026-08-12):** Hai output `v0446` đã được kiểm tra checksum,
+đóng gói lại qua `legal-rag-submit` và chấm bằng
+`legal-rag-score-warmup --metric-mode official_compatible` trên đúng 991 records
+của development source SHA-256
+`8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`. Runtime
+chấm dùng source scorer BTC SHA-256
+`4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`,
+NLTK `3.7`, NumPy `2.1.3`, WordNet ZIP SHA-256
+`cbda5ea6eef7f36a97a43d4a75f85e07fccbb4f23657d27b4ccbc93e2646ab59` và
+OMW 1.4 ZIP SHA-256
+`3b941e664852f3297b6040236626065796a2aaf7d7f9eec8779a3beaa1096c2d`.
+
+| Metric/guardrail | k=20 | k=40 | Delta k40 − k20 |
+|---|---:|---:|---:|
+| METEOR (primary) | 0.07470770 | 0.07683363 | +0.00212592 |
+| ROUGE-L | 0.16222435 | 0.16459483 | +0.00237049 |
+| `answer_verified` | 507 | 512 | +5 |
+| `insufficient_evidence` | 484 | 479 | -5 |
+| `generator:model_error` | 48 | 47 | -1 |
+| `citation_verification_failed` | 424 | 424 | 0 |
+| mean agent latency | 18.59 s | 19.45 s | +0.86 s (+4.6%) |
+
+Ở paired comparison, k=40 tốt hơn/kém hơn/hòa lần lượt ở 166/158/667 câu theo
+METEOR và 161/160/670 theo ROUGE-L. Vì METEOR chính và ROUGE-L đều tăng, các
+reliability guardrail không xấu đi và latency vẫn nằm trong khả năng chạy của
+T4, k=40 được chọn làm **development candidate mặc định** cho thí nghiệm quality
+kế tiếp. Điều này không thay public submission hoặc artifact; k=20 được giữ làm
+control tái lập. Parity cuối cùng với container Codabench vẫn phụ thuộc exact
+WordNet bytes/image của BTC, nên report giữ cảnh báo tương ứng.
+
 ---
 
 ## D095 — Qwen Startup Uses Low-memory Loading Before CUDA Transfer
@@ -2273,3 +2303,32 @@ flushed, fsynced and reflected in `batch_state.json`; it is therefore a
 checkpoint signal, not an optimistic "started" counter. This changes only
 observability. It does not run work in the background, alter inference,
 retrieval, model identity, artifacts, answers or recovery identity.
+
+---
+
+## D097 — Citation Coverage Must Be Repaired Before Changing Evidence Policy
+
+**Status:** Accepted
+
+The k=40 end-to-end batch contained 424 `citation_verification_failed` cases.
+All 424 stopped fail-closed at verification, while all draft citation identities
+were structurally valid: 294 drafts cited one valid evidence item, 81 cited two,
+and the remaining 49 cited three to five; none contained an invalid citation.
+The dominant claim-level failures were `missing_inline_evidence` and
+`no_linked_evidence` (910 each), followed by numeric mismatch (330) and negation
+mismatch (145). This is evidence that incomplete claim-to-marker coverage is the
+first repair target, not evidence that a citation ID or corpus chunk is invalid.
+
+`ModelBackedAnswerGenerator` must therefore validate the same sentence/list-item
+boundaries as the rule-based claim verifier before returning a draft. A legal
+claim without a visible inline `[E#]` marker is rejected and may use the existing
+single bounded structured-output retry; the system must not fabricate or copy a
+marker onto an uncited claim. This keeps the citation verifier fail-closed.
+
+The batch did not preserve context-selection decisions, so it does not justify a
+ranking-policy change yet. Every Agent final response now records content-free
+context count/budget telemetry, selected evidence identities and the existing
+`EvidenceSelectionTrace`. `context_budget_exhausted` is emitted only for an
+actual token-budget omission; `context_max_evidence_reached:<n>` distinguishes a
+count cap. The next controlled k=40 run must use these traces to determine
+whether a context/evidence-selection policy experiment is warranted.

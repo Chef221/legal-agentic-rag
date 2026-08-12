@@ -43,6 +43,8 @@ class ContextBuilder:
         unique_hits, duplicate_count = self._deduplicate(response.hits)
         selected: list[Evidence] = []
         omitted_count = 0
+        max_evidence_omitted_count = 0
+        token_budget_omitted_count = 0
         estimated_tokens = 0
         warnings: list[str] = []
         selection_trace: list[EvidenceSelectionTrace] = []
@@ -51,6 +53,7 @@ class ContextBuilder:
             token_count = self._token_count(hit)
             if len(selected) >= self._config.max_evidence:
                 omitted_count += 1
+                max_evidence_omitted_count += 1
                 selection_trace.append(
                     self._trace(
                         candidate,
@@ -63,6 +66,7 @@ class ContextBuilder:
                 > self._config.max_context_tokens
             ):
                 omitted_count += 1
+                token_budget_omitted_count += 1
                 selection_trace.append(
                     self._trace(
                         candidate,
@@ -103,8 +107,17 @@ class ContextBuilder:
             )
         ):
             warnings.append("explicit_reference_not_selected")
-        if omitted_count:
+        if max_evidence_omitted_count:
+            warnings.append(
+                "context_max_evidence_reached:"
+                f"{max_evidence_omitted_count}"
+            )
+        if token_budget_omitted_count:
             warnings.append("context_budget_exhausted")
+            warnings.append(
+                "context_token_budget_exhausted:"
+                f"{token_budget_omitted_count}"
+            )
         if duplicate_count:
             warnings.append(f"duplicate_retrieval_hits_removed:{duplicate_count}")
         if not selected:

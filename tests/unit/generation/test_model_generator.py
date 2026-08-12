@@ -289,6 +289,56 @@ def test_model_generator_retries_one_invalid_structured_completion() -> None:
     assert "OUTPUT TRƯỚC KHÔNG HỢP LỆ" in provider.calls[1][1]
 
 
+def test_model_generator_retries_partial_inline_citation_coverage() -> None:
+    """A marker on one list item cannot silently ground the other claims."""
+    provider = _SequenceProvider(
+        [
+            _completion(
+                answer=(
+                    "First legal claim [E1]; "
+                    "second legal claim."
+                )
+            ),
+            _completion(
+                answer=(
+                    "First legal claim [E1]; "
+                    "second legal claim [E1]."
+                )
+            ),
+        ]
+    )
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1].")
+    assert len(provider.calls) == 2
+
+
+def test_model_generator_rejects_partial_inline_citation_without_retry() -> None:
+    """Strict single-attempt mode surfaces incomplete claim grounding."""
+    provider = _FixtureProvider(
+        _completion(
+            answer="First legal claim [E1]; second legal claim."
+        )
+    )
+
+    with pytest.raises(ModelError, match="without inline evidence"):
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+
 def test_model_generator_can_disable_structured_output_retry() -> None:
     """Configuration can preserve single-attempt behavior for strict consumers."""
     provider = _SequenceProvider(["không phải JSON", _completion()])

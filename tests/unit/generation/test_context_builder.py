@@ -174,3 +174,5 @@ def test_context_builder_records_applicability_and_budget_decisions() -> None:
     ]
     assert result.selection_trace[0].selected is True
     assert result.selection_trace[1].reason == "max_evidence"
+    assert "context_max_evidence_reached:1" in result.warnings
+    assert "context_budget_exhausted" not in result.warnings

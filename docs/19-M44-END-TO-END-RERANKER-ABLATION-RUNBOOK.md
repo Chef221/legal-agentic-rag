@@ -195,3 +195,24 @@ Quick Save notebook và giữ:
 - exact commit hash và GPU identity.
 
 Không commit các output này vào Git.
+
+## 11. Kết quả đã xác nhận
+
+Ngày 2026-08-12, hai archive `m44-e2e-rerank-k20-v0446.zip` và
+`m44-e2e-rerank-k40-v0446.zip` đã được checksum, extract vào local ignored
+artifact directory, re-package bằng `legal-rag-submit` và chấm bằng
+`official_compatible` mode. Cả hai report có 991 cases, cùng reference SHA-256,
+scorer SHA-256 và NLTK `3.7`.
+
+| Metric | k=20 | k=40 |
+|---|---:|---:|
+| METEOR | 0.07470770 | **0.07683363** |
+| ROUGE-L | 0.16222435 | **0.16459483** |
+| Mean agent latency | **18.59 s** | 19.45 s |
+| `insufficient_evidence` | 484 | **479** |
+| `citation_verification_failed` | 424 | 424 |
+
+Vì metric chính tăng và guardrail không regression nghiêm trọng, k=40 là
+development candidate được chọn theo D094. Không chạy k=60; ưu tiên tiếp theo là
+phân loại/cải thiện citation verification và context selection, là các bottleneck
+lớn hơn candidate count.

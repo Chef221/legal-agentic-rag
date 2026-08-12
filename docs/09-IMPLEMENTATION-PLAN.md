@@ -2109,7 +2109,7 @@ qua answer-level A/B.
 
 ## 52. Milestone 44.4 — End-to-end Reranker Answer A/B
 
-**Status:** Implemented in config/tests/docs; GPU runs pending
+**Status:** Completed; k=40 selected for subsequent development experiments
 
 - hai Kaggle profile Qwen `hybrid_rerank` cho candidate-k 20 và 40;
 - giữ `top_k=8`, model revisions, context, verification và generation giống nhau;
@@ -2127,3 +2127,34 @@ artifact và không chạy candidate-k 60. Runbook thực thi nằm tại
 M44.4.1 bổ sung low-memory Qwen startup qua `accelerate` sau khi run Kaggle stall
 trước batch record đầu tiên. Thay đổi chỉ ảnh hưởng cách materialize weights và
 thêm phase logs; không ảnh hưởng A/B variable hoặc answer contract.
+
+Hai full-generation batch `v0446` đã hoàn tất trên cùng 991 development records,
+được kiểm tra checksum/manifest, đóng gói qua submission formatter và chấm lại
+với mode `official_compatible` (NLTK 3.7). k=40 đạt METEOR `0.07683363` so với
+`0.07470770` của k=20, ROUGE-L `0.16459483` so với `0.16222435`, tăng 5
+`answer_verified`, giảm 5 abstention, giữ nguyên 424 citation failures và tăng
+mean latency `0.86 s` (+4.6%). Theo D094, k=40 được chọn làm development
+candidate cho bước context/citation tiếp theo; k=20 vẫn là control. Raw batches,
+submissions và score reports là local ignored artifacts, không commit vào Git.
+
+## 53. Milestone 45 — Citation Failure Taxonomy and Evidence-selection Observability
+
+**Status:** Completed; controlled k=40 quality candidate is ready to run
+
+- audited all 424 `citation_verification_failed` records from the selected k=40
+  development batch without using new data or labels;
+- confirmed that failure was caused primarily by missing per-claim inline
+  evidence markers, not invalid citation identities;
+- made model-backed generation reject incomplete inline marker coverage before
+  the fail-closed citation verifier, reusing only its existing one retry;
+- made Context Builder distinguish count-cap omissions from actual token-budget
+  omissions;
+- persisted content-free context and `EvidenceSelectionTrace` metadata on Agent
+  responses so the next batch can attribute failures to selection decisions;
+- added focused unit coverage for partial marker correction/rejection, truthful
+  context warnings and trace persistence.
+
+M45 does not change corpus, artifacts, retrieval rank, evidence-selection score,
+model identity, parameter inventory, data policy or submission output. A fresh
+same-split k=40 run and official-compatible scoring are required before any
+quality claim or evidence-selection policy change.

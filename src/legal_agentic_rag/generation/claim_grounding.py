@@ -70,7 +70,7 @@ class RuleBasedClaimGroundingVerifier:
 
         evidence_by_id = {item.evidence_id: item for item in evidence}
         citation_ids = {item.evidence_id for item in response.citations}
-        segments = self._claims(response.answer)
+        segments = split_answer_claims(response.answer)
         errors: list[str] = []
         if len(segments) > self._config.max_claims:
             errors.append("claim_count_exceeded")
@@ -118,7 +118,7 @@ class RuleBasedClaimGroundingVerifier:
         evidence_by_id: dict[str, Evidence],
         citation_ids: set[str],
     ) -> ClaimVerification:
-        marker_ids = self._marker_ids(segment)
+        marker_ids = extract_inline_evidence_ids(segment)
         claim_text = self._claim_text(segment)
         errors: list[str] = []
         if self._config.require_inline_citations and not marker_ids:
@@ -189,30 +189,6 @@ class RuleBasedClaimGroundingVerifier:
         )
 
     @staticmethod
-    def _claims(answer: str) -> list[str]:
-        segments: list[str] = []
-        for line in answer.splitlines():
-            normalized = line.strip()
-            if not normalized:
-                continue
-            for match in _SENTENCE_PATTERN.finditer(normalized):
-                value = match.group(0).strip()
-                if not value:
-                    continue
-                if _MARKER_ONLY_PATTERN.fullmatch(value) and segments:
-                    segments[-1] = f"{segments[-1]} {value}"
-                else:
-                    segments.append(value)
-        return segments
-
-    @staticmethod
-    def _marker_ids(value: str) -> list[str]:
-        markers: list[str] = []
-        for content in _BRACKET_CONTENT_PATTERN.findall(value):
-            markers.extend(_EVIDENCE_ID_PATTERN.findall(content))
-        return list(dict.fromkeys(markers))
-
-    @staticmethod
     def _claim_text(value: str) -> str:
         without_markers = _BRACKET_CONTENT_PATTERN.sub("", value).strip()
         without_prefix = _LEADING_LIST_PATTERN.sub("", without_markers)
@@ -248,3 +224,29 @@ class RuleBasedClaimGroundingVerifier:
             )
             if value is not None
         )
+
+
+def split_answer_claims(answer: str) -> list[str]:
+    """Split an answer with the same deterministic boundaries as verification."""
+    segments: list[str] = []
+    for line in answer.splitlines():
+        normalized = line.strip()
+        if not normalized:
+            continue
+        for match in _SENTENCE_PATTERN.finditer(normalized):
+            value = match.group(0).strip()
+            if not value:
+                continue
+            if _MARKER_ONLY_PATTERN.fullmatch(value) and segments:
+                segments[-1] = f"{segments[-1]} {value}"
+            else:
+                segments.append(value)
+    return segments
+
+
+def extract_inline_evidence_ids(value: str) -> list[str]:
+    """Return ordered, de-duplicated evidence IDs visibly cited in one claim."""
+    markers: list[str] = []
+    for content in _BRACKET_CONTENT_PATTERN.findall(value):
+        markers.extend(_EVIDENCE_ID_PATTERN.findall(content))
+    return list(dict.fromkeys(markers))

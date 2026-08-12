@@ -260,6 +260,13 @@ def test_agent_fails_closed_when_citation_verification_rejects_answer() -> None:
     assert result.response.insufficient_evidence is True
     assert result.response.citations == []
     assert "forced_invalid_citation" in result.response.warnings
+    assert result.response.metadata["context"]["selected_count"] == 1
+    assert result.response.metadata["selected_evidence"] == [
+        {"evidence_id": "E1", "chunk_id": "chunk-1"}
+    ]
+    assert result.response.metadata["context"]["selection_trace"][0][
+        "reason"
+    ] == "selected"
 
 
 def test_agent_preserves_generator_abstention_without_marking_it_verified() -> None:

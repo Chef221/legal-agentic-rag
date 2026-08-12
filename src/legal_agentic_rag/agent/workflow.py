@@ -415,6 +415,26 @@ class DeterministicAgentWorkflow:
             dict.fromkeys([*warnings, *response.warnings, *context.warnings])
         )
         response_metadata = dict(response.metadata)
+        response_metadata["context"] = {
+            "input_hit_count": context.input_hit_count,
+            "selected_count": context.selected_count,
+            "omitted_hit_count": context.omitted_hit_count,
+            "duplicate_hit_count": context.duplicate_hit_count,
+            "estimated_token_count": context.estimated_token_count,
+            "truncated": context.truncated,
+            "warnings": context.warnings,
+            "selection_trace": [
+                item.model_dump(mode="json")
+                for item in context.selection_trace
+            ],
+        }
+        response_metadata["selected_evidence"] = [
+            {
+                "evidence_id": item.evidence_id,
+                "chunk_id": item.chunk_id,
+            }
+            for item in context.evidence
+        ]
         response_metadata["agent"] = {
             "stop_reason": stop_reason.value,
             "attempt_count": len(history),
