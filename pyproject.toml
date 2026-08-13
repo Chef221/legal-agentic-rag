@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "legal-agentic-rag"
-version = "0.45.0"
+version = "0.48.0"
 description = "Vietnamese legal RAG with immutable artifacts, API, and local UI"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -30,8 +30,12 @@ official-scoring = [
 [project.scripts]
 legal-rag-build-competition = "legal_agentic_rag.serving.cli:competition_build_main"
 legal-rag-batch = "legal_agentic_rag.serving.cli:competition_batch_main"
+legal-rag-analyze-batch = "legal_agentic_rag.serving.cli:competition_batch_analysis_main"
+legal-rag-compare-batches = "legal_agentic_rag.serving.cli:competition_batch_comparison_main"
+legal-rag-check-batch = "legal_agentic_rag.competition.uit_dsc_2026.cli:batch_readiness_main"
 legal-rag-submit = "legal_agentic_rag.competition.uit_dsc_2026.cli:submission_main"
 legal-rag-score-warmup = "legal_agentic_rag.competition.uit_dsc_2026.cli:warmup_score_main"
+legal-rag-compare-scores = "legal_agentic_rag.competition.uit_dsc_2026.cli:warmup_score_comparison_main"
 legal-rag-prepare-dev = "legal_agentic_rag.competition.uit_dsc_2026.cli:development_split_main"
 legal-rag-diagnose-retrieval = "legal_agentic_rag.serving.cli:retrieval_diagnostics_main"
 legal-rag-compare = "legal_agentic_rag.serving.cli:compare_main"

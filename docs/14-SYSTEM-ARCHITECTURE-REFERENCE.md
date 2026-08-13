@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.45.0` (M45 citation-coverage gate and context-selection telemetry) |
+| Project version | `0.48.0` (M48 bounded context document-diversity ablation) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |
@@ -548,8 +548,12 @@ mean; exact NLTK/WordNet versions vẫn chưa được ZIP pin.
 |---|---|---|
 | `legal-rag-build-competition` | Config + official context source | Complete/resumed artifact set |
 | `legal-rag-batch` | Config + question file + output dir | Resumable internal predictions |
+| `legal-rag-analyze-batch` | Completed internal batch | Content-free failure/quality report |
+| `legal-rag-compare-batches` | Two compatible completed batches | Content-free per-question outcome comparison |
+| `legal-rag-check-batch` | Questions + completed batch + explicit policy | Fail-closed content-free readiness report |
 | `legal-rag-submit` | Questions + completed batch | `submission.zip` |
 | `legal-rag-score-warmup` | References + submission | Warm-up diagnostic report |
+| `legal-rag-compare-scores` | Two compatible warm-up score reports | Paired per-ID and aggregate metric deltas |
 | `legal-rag-prepare-dev` | Official train + holdout questions | Leakage-aware local split |
 | `legal-rag-diagnose-retrieval` | Online config + official questions | Content-free non-gold retrieval report |
 | `legal-rag-validate` | Config/artifact root | Build validation report |

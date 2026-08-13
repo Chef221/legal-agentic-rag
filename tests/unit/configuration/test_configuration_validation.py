@@ -223,12 +223,21 @@ def test_evidence_selection_defaults_are_bounded_and_optional() -> None:
     assert selection.reference_match_boost == 2.0
     assert selection.lexical_overlap_weight == 1.0
     assert selection.inactive_penalty == 2.0
+    assert selection.max_evidence_per_document is None
+    assert (
+        EvidenceSelectionConfig(
+            max_evidence_per_document=2
+        ).max_evidence_per_document
+        == 2
+    )
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(reference_match_boost=-1)
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(lexical_overlap_weight=11)
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(inactive_penalty=float("inf"))
+    with pytest.raises(ValidationError):
+        EvidenceSelectionConfig(max_evidence_per_document=0)
 
 
 def test_claim_verification_defaults_are_fail_closed_and_bounded() -> None:

@@ -2158,3 +2158,63 @@ M45 does not change corpus, artifacts, retrieval rank, evidence-selection score,
 model identity, parameter inventory, data policy or submission output. A fresh
 same-split k=40 run and official-compatible scoring are required before any
 quality claim or evidence-selection policy change.
+
+## 54. Milestone 46 — CPU-only Batch Outcome Analysis
+
+**Status:** Completed
+
+- add typed, content-free analysis for one completed checkpointed batch;
+- validate manifest identity, result SHA-256, record count and unique IDs before
+  analysis;
+- aggregate stop reasons, abstentions, model-error warnings, citation claim-error
+  taxonomy, selection traces and Agent latency;
+- add a paired control/candidate comparison that rejects different official
+  question bytes or ID/order and stores per-ID outcome deltas without answer text;
+- add `legal-rag-analyze-batch` and `legal-rag-compare-batches` CLI commands;
+- add unit coverage for analysis, comparison, immutable persistence and checksum
+  rejection.
+
+M46 does not invoke a model, require GPU, alter an index, modify retrieval/context
+policy, create data or score quality. Its next consumer is the controlled M45
+k=40 rerun: analyze the new trace-bearing batch, compare it with the M44 control,
+then decide whether a bounded evidence-selection experiment is justified.
+
+## 55. Milestone 47 — Batch Readiness Gate and Paired Score Comparison
+
+**Status:** Completed
+
+- add a typed explicit-policy gate for a completed internal batch;
+- verify exact official question bytes, ordered IDs, batch manifest and result
+  checksum before making a readiness decision;
+- persist a content-free `batch_readiness.json` report and fail the CLI when its
+  policy is violated;
+- add a paired `warmup_score.json` comparison that rejects incomparable source,
+  scorer or ID identities and reports per-ID/aggregate metric deltas;
+- add `legal-rag-check-batch` and `legal-rag-compare-scores` commands;
+- add unit coverage for accept/reject paths, content-free persistence and score
+  comparison compatibility.
+
+M47 is CPU-only. It does not load models, invoke a GPU, generate answers,
+change output answers, score a new submission, alter official data/artifacts or
+choose a retrieval/context policy. Every threshold remains an explicit
+experiment input rather than a hard-coded production claim.
+
+## 56. Milestone 48 — Bounded Context Document-diversity Ablation
+
+**Status:** Implemented; requires a fresh GPU batch for quality evidence
+
+- add optional typed `max_evidence_per_document`, defaulting to `null` to
+  preserve all existing profiles;
+- classify over-cap candidates as `document_cap` in typed selection trace and
+  content-free warning telemetry;
+- continue scanning candidates after a cap so a lower-ranked different document
+  can be selected within the existing token/count limits;
+- add an isolated k=40/Qwen candidate profile with document cap `2` and no other
+  retrieval, model, generation, verifier, corpus, or artifact change;
+- add unit coverage for default compatibility, validation, trace and selection
+  behavior.
+
+M48 does not assert a quality gain. The required next run is the same
+development questions with M48 config, followed by batch analysis, readiness
+gate, submission formatting, official-compatible scoring and paired comparison
+against the k=40 control.

@@ -222,6 +222,17 @@ question is present exactly once in source order, `manifest.json`. Each record
 keeps the official question ID and full typed `AnswerResponse`. Warm-up gold
 answers are never passed to the answerer.
 
+Completed internal batches can be inspected without models or GPU:
+
+```text
+legal-rag-analyze-batch --batch <batch-directory> --output <new-analysis-directory>
+legal-rag-compare-batches --baseline <control-batch> --candidate <candidate-batch> --output <new-comparison-directory>
+```
+
+Both commands verify the exact batch manifest/result checksum first. They write
+only content-free report fields; the comparison additionally rejects different
+official question bytes or question ID/order.
+
 This remains recovery/diagnostic output, not the submission itself. M28 converts
 only a completed compatible batch with:
 
@@ -334,3 +345,20 @@ detection là heuristic có warning, không phải bảo đảm semantic dedup �
 `legal-rag-score-warmup --metric-mode official_compatible` dùng scorer contract
 đã audit. Cài riêng bằng `python -m pip install -e ".[official-scoring]"`; tool
 không tự tải WordNet và từ chối chạy nếu runtime không đúng NLTK 3.7.
+
+## 16. Batch quality gate and paired score evidence
+
+Before a completed internal batch is treated as a submission candidate, run
+`legal-rag-check-batch` with the exact question file and an explicit JSON
+policy. The command verifies source/ID/checksum lineage and exits non-zero if
+the policy fails, while preserving a content-free report for investigation.
+The policy must be versioned with the experiment record; no runtime default is
+assumed. `legal-rag-submit` requires that passed report and verifies it still
+matches the exact question bytes and completed batch records before creating a
+Codabench archive.
+
+When two `legal-rag-score-warmup` outputs are available for the same official
+reference/scorer contract, use `legal-rag-compare-scores`. It rejects differing
+reference bytes, metric mode, scorer provenance, or ordered IDs and emits only
+paired numeric deltas. It is an experiment decision aid, not a replacement for
+Codabench or a claim about private-test quality.

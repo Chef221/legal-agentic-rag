@@ -789,6 +789,17 @@ Trace phải phân loại mọi unique hit; selected trace order phải khớp d
 
 `insufficient_evidence` là required field và không có implicit default.
 
+### M48 document-cap selection trace
+
+`EvidenceSelectionReason` additionally permits `document_cap`. It means only
+that the optional configured `max_evidence_per_document` had already selected
+the permitted number of chunks for that unified `document_id`. It is an
+execution-policy trace, not a relevance or legal-applicability judgment.
+
+The default cap is absent, preserving existing trace behavior. When enabled,
+each capped hit remains an omitted unique hit and is recorded in
+`selection_trace`; the builder continues considering lower-ranked candidates.
+
 ### CitationVerificationResult
 
 ```json
@@ -1322,7 +1333,44 @@ near-duplicate threshold, duplicate counts, ba partition (`training`,
 `development`, `quarantined`) cùng ordered IDs/checksums và warnings. Manifest
 bảo đảm một question ID không xuất hiện ở nhiều partition.
 
-### 21.8 Retrieval diagnostic records
+### 21.8 Completed batch analysis records
+
+M46 adds content-free execution-analysis schemas. `CompetitionBatchAnalysisReport`
+pins completed batch source/config/code/records SHA-256 identity and aggregates
+stop reasons, warnings, abstention/model-error counts, citation claim-error
+counts, selection-trace counts/reasons, and Agent latency. It does not contain
+question, answer, prompt, evidence or legal passage text.
+
+`CompetitionBatchComparisonReport` requires equal question-source SHA-256 and
+the same ordered unique IDs across control/candidate batches. Its
+`CompetitionBatchCaseComparison` stores only the official ID, answer-change
+boolean (derived from an internal hash), outcome transitions, citation counts and
+optional latency delta. Different config/code identities are recorded and allowed
+so controlled improvements can be compared; different source data is rejected.
+
+### 21.9 Batch readiness and paired official-score comparison records
+
+`CompetitionBatchReadinessPolicy` intentionally has no implicit default. The
+operator records maximum permitted retrieval/generator error counts,
+citation-verification failures, insufficient-evidence rate, and whether every
+record must preserve context-selection trace metadata. This separates an
+experiment's explicit quality decision from the execution code.
+
+`CompetitionBatchReadinessReport` is content-free. It pins the internal batch
+source/result checksums and policy checksum, embeds the already validated batch
+analysis aggregate, and records deterministic violation codes. It is ready only
+when the violation list is empty. It never contains a question, answer, prompt,
+evidence, or legal passage.
+
+`CompetitionWarmupScoreComparisonReport` can compare only two
+`CompetitionWarmupScoreReport` instances with identical reference checksum,
+metric mode, scorer provenance and ordered question IDs. It contains paired
+per-ID numeric deltas plus aggregate baseline/candidate means and
+improved/regressed/tied counts for exact match, METEOR, and ROUGE-L. It contains
+no answer, reference, or question content; it does not itself claim metric
+parity beyond the metric mode/provenance already stored in each input report.
+
+### 21.10 Retrieval diagnostic records
 
 M44.2 thêm ba persisted schema không chứa legal/question content:
 

@@ -107,6 +107,7 @@ class EvidenceSelectionConfig(BaseModel):
     reference_match_boost: float = Field(default=2.0, ge=0, le=10)
     lexical_overlap_weight: float = Field(default=1.0, ge=0, le=10)
     inactive_penalty: float = Field(default=2.0, ge=0, le=10)
+    max_evidence_per_document: int | None = Field(default=None, gt=0, le=100)
 
 
 class ClaimVerificationConfig(BaseModel):

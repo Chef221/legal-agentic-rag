@@ -45,6 +45,8 @@ class ContextBuilder:
         omitted_count = 0
         max_evidence_omitted_count = 0
         token_budget_omitted_count = 0
+        document_cap_omitted_count = 0
+        selected_document_counts: dict[str, int] = {}
         estimated_tokens = 0
         warnings: list[str] = []
         selection_trace: list[EvidenceSelectionTrace] = []
@@ -58,6 +60,20 @@ class ContextBuilder:
                     self._trace(
                         candidate,
                         reason=EvidenceSelectionReason.MAX_EVIDENCE,
+                    )
+                )
+                continue
+            document_count = selected_document_counts.get(hit.document_id, 0)
+            if (
+                self._selector.max_evidence_per_document is not None
+                and document_count >= self._selector.max_evidence_per_document
+            ):
+                omitted_count += 1
+                document_cap_omitted_count += 1
+                selection_trace.append(
+                    self._trace(
+                        candidate,
+                        reason=EvidenceSelectionReason.DOCUMENT_CAP,
                     )
                 )
                 continue
@@ -82,6 +98,7 @@ class ContextBuilder:
             evidence = self._evidence(hit, len(selected) + 1, trace)
             selected.append(evidence)
             selection_trace.append(trace)
+            selected_document_counts[hit.document_id] = document_count + 1
             estimated_tokens += token_count
             if evidence.effect_status is None:
                 warnings.append(f"effect_status_unknown:{evidence.evidence_id}")
@@ -117,6 +134,11 @@ class ContextBuilder:
             warnings.append(
                 "context_token_budget_exhausted:"
                 f"{token_budget_omitted_count}"
+            )
+        if document_cap_omitted_count:
+            warnings.append(
+                "context_document_cap_reached:"
+                f"{document_cap_omitted_count}"
             )
         if duplicate_count:
             warnings.append(f"duplicate_retrieval_hits_removed:{duplicate_count}")

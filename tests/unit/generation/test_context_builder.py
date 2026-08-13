@@ -2,7 +2,7 @@
 
 import pytest
 
-from legal_agentic_rag.configuration import GenerationConfig
+from legal_agentic_rag.configuration import EvidenceSelectionConfig, GenerationConfig
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.generation import ContextBuilder
 from legal_agentic_rag.schemas import (
@@ -20,10 +20,11 @@ def _hit(
     *,
     token_count: int,
     text: str = "Nội dung căn cứ.",
+    document_id: str | None = None,
 ) -> RetrievalHit:
     return RetrievalHit(
         chunk_id=chunk_id,
-        document_id=f"doc-{chunk_id}",
+        document_id=document_id or f"doc-{chunk_id}",
         rank=rank,
         score=float(10 - rank),
         strategy=RetrievalStrategy.HYBRID_RERANK,
@@ -176,3 +177,25 @@ def test_context_builder_records_applicability_and_budget_decisions() -> None:
     assert result.selection_trace[1].reason == "max_evidence"
     assert "context_max_evidence_reached:1" in result.warnings
     assert "context_budget_exhausted" not in result.warnings
+
+
+def test_context_builder_document_cap_preserves_later_document_coverage() -> None:
+    """An explicit cap omits only excess chunks from one document with a trace."""
+    first = _hit("first", 1, token_count=3, document_id="doc-shared")
+    duplicate_document = _hit(
+        "second", 2, token_count=3, document_id="doc-shared"
+    )
+    later_document = _hit("third", 3, token_count=3, document_id="doc-later")
+
+    result = ContextBuilder(
+        GenerationConfig(max_evidence=2, max_context_tokens=10),
+        EvidenceSelectionConfig(max_evidence_per_document=1),
+    ).build(_response([first, duplicate_document, later_document]))
+
+    assert [item.chunk_id for item in result.evidence] == ["first", "third"]
+    assert [item.reason.value for item in result.selection_trace] == [
+        "selected",
+        "document_cap",
+        "selected",
+    ]
+    assert "context_document_cap_reached:1" in result.warnings

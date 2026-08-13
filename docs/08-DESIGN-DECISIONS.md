@@ -2332,3 +2332,73 @@ context count/budget telemetry, selected evidence identities and the existing
 actual token-budget omission; `context_max_evidence_reached:<n>` distinguishes a
 count cap. The next controlled k=40 run must use these traces to determine
 whether a context/evidence-selection policy experiment is warranted.
+
+---
+
+## D098 — Batch Outcomes Must Be Analyzed Before a New Evidence-selection Policy
+
+**Status:** Accepted
+
+M45 added content-free context telemetry, but a fresh controlled batch is needed
+before interpreting it. M46 therefore adds CPU-only analysis and paired batch
+comparison boundaries rather than changing ranking or context selection now. The
+tools validate the finished batch manifest and result checksum, reject a
+comparison across different official question bytes or ID/order, and persist only
+identities, aggregates and per-ID state deltas. Answer content, questions, legal
+passages and synthetic labels are deliberately excluded.
+
+This makes the next evidence-selection decision measurable: first classify
+citation/abstention transitions and token/count-cap selection reasons on the same
+official development split; only then propose a bounded policy experiment. M46
+does not load models, use GPUs, alter artifacts, change retrieval/generation, or
+make a quality claim.
+
+---
+
+## D099 — Completed Batches Require an Explicit Quality Gate and Paired Score Evidence
+
+**Status:** Accepted
+
+M47 adds two CPU-only decision boundaries without changing the corpus, models,
+retrieval, context builder, generator, verifier, artifacts, or answer text.
+
+First, `legal-rag-check-batch` evaluates one complete internal batch against a
+typed JSON policy selected by the experiment owner. There are no hidden quality
+thresholds: the policy declares allowed retrieval/generator model errors,
+citation-verification failures, insufficient-evidence rate, and trace
+requirement. The command verifies source bytes, ordered IDs, manifest/result
+checksums, persists a content-free report, and exits non-zero if the policy is
+violated. A failed gate is evidence to investigate, not permission to silently
+rewrite or drop predictions. `legal-rag-submit` requires a passed report and
+re-checks its question/record identities before it can produce `submission.zip`.
+
+Second, `legal-rag-compare-scores` performs a paired comparison of two local
+warm-up score reports only if their reference checksum, metric mode, scorer
+provenance and ordered IDs are identical. It reports per-ID numeric deltas and
+aggregate improvements/regressions/ties for exact match, METEOR, and ROUGE-L.
+It never exposes answer/reference content and cannot make an
+official-equivalence claim that is absent from input reports.
+
+This enforces the sequence: complete batch -> explicit quality gate -> format
+submission -> official-compatible local score when references are available ->
+paired score comparison -> only then decide whether an experiment is promoted.
+
+---
+
+## D100 — Context Diversity Is an Explicit, Reversible Experiment Variable
+
+**Status:** Accepted
+
+The selected k=40 batch needs a bounded evidence-selection experiment before
+changing retrieval or models. M48 introduces only an optional
+`max_evidence_per_document` cap after deterministic ranking. The default is
+`null`, so existing profiles retain exact behavior. When configured, a later
+chunk from an already capped document is classified as `document_cap`; the
+builder continues through lower-ranked candidates instead of stopping early.
+
+The first candidate uses cap `2`, while keeping k=40, model revisions,
+generation max-context tokens, max evidence, verifier, and corpus artifacts
+identical to control. This is not a claim that diversity is intrinsically better:
+it may omit useful same-document chunks. It must therefore be evaluated by a
+fresh trace-bearing GPU batch, readiness gate, official-compatible score, and
+paired comparison before any promotion.

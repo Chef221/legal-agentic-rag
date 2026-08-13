@@ -1,6 +1,13 @@
 """Evaluation metrics, runner, benchmark loading, and report persistence."""
 
 from legal_agentic_rag.evaluation.comparison import EvaluationComparisonService
+from legal_agentic_rag.evaluation.batch_analysis import (
+    CompetitionBatchAnalysisService,
+    CompetitionBatchComparisonService,
+    load_completed_competition_batch,
+    persist_batch_analysis_report,
+    persist_batch_comparison_report,
+)
 from legal_agentic_rag.evaluation.metrics import (
     StandardGenerationEvaluator,
     StandardRetrievalEvaluator,
@@ -22,6 +29,8 @@ from legal_agentic_rag.evaluation.retrieval_diagnostics import (
 
 __all__ = [
     "EvaluationRunner",
+    "CompetitionBatchAnalysisService",
+    "CompetitionBatchComparisonService",
     "RetrievalDiagnosticsRunner",
     "EvaluationComparisonService",
     "StandardGenerationEvaluator",
@@ -33,5 +42,8 @@ __all__ = [
     "load_comparison_config",
     "load_evaluation_summary",
     "persist_comparison_report",
+    "load_completed_competition_batch",
+    "persist_batch_analysis_report",
+    "persist_batch_comparison_report",
     "persist_report",
 ]

@@ -6,7 +6,7 @@ Task 2 — Legal Question Answering.
 ## Trạng thái
 
 Baseline chất lượng đối chứng vẫn là **M43.1 — Qwen3B public baseline**. Code
-hiện tại là `0.44.6`, bổ sung evaluator, development protocol, retrieval
+hiện tại là `0.48.0`, bổ sung evaluator, development protocol, retrieval
 diagnostics M44 nhưng chưa
 thay đổi retrieval/model của baseline.
 Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
@@ -101,8 +101,12 @@ config chứa secret hoặc đường dẫn nhạy cảm.
 ```text
 legal-rag-build-competition
 legal-rag-batch
+legal-rag-analyze-batch
+legal-rag-compare-batches
+legal-rag-check-batch
 legal-rag-submit
 legal-rag-score-warmup
+legal-rag-compare-scores
 legal-rag-prepare-dev
 legal-rag-diagnose-retrieval
 legal-rag-validate
@@ -129,7 +133,7 @@ Batch CLI ghi output nội bộ có
 checkpoint và completeness manifest. Tạo file nộp sau khi batch hoàn tất bằng:
 
 ```text
-legal-rag-submit --questions <questions.json> --batch <batch-directory> --output <path>/submission.zip
+legal-rag-submit --questions <questions.json> --batch <batch-directory> --readiness-report <passed-readiness-report> --output <path>/submission.zip
 ```
 
 Lệnh này không chạy model. Nó xác minh checksum, số lượng và thứ tự ID rồi tạo

@@ -14,6 +14,8 @@ from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.observability import configure_logging
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.evaluation import (
+    CompetitionBatchAnalysisService,
+    CompetitionBatchComparisonService,
     EvaluationComparisonService,
     EvaluationRunner,
     RetrievalDiagnosticsRunner,
@@ -23,6 +25,8 @@ from legal_agentic_rag.evaluation import (
     load_comparison_config,
     load_evaluation_summary,
     persist_comparison_report,
+    persist_batch_analysis_report,
+    persist_batch_comparison_report,
     persist_report,
 )
 from legal_agentic_rag.indexing.vector import prepare_vector_serving_metadata
@@ -82,6 +86,40 @@ def competition_batch_main() -> None:
         "competition_batch_command_completed",
         extra={
             "question_count": manifest.record_count,
+            "output_path": str(arguments.output),
+        },
+    )
+
+
+def competition_batch_analysis_main() -> None:
+    """Analyze one completed internal batch without loading a runtime or models."""
+    arguments = _competition_batch_analysis_parser().parse_args()
+    report = CompetitionBatchAnalysisService().analyze(arguments.batch)
+    persist_batch_analysis_report(report, arguments.output)
+    _LOGGER.info(
+        "competition_batch_analysis_completed",
+        extra={
+            "record_count": report.record_count,
+            "citation_failure_count": report.citation.verification_failed_count,
+            "output_path": str(arguments.output),
+        },
+    )
+
+
+def competition_batch_comparison_main() -> None:
+    """Compare two compatible internal batches without loading a runtime or models."""
+    arguments = _competition_batch_comparison_parser().parse_args()
+    report = CompetitionBatchComparisonService().compare(
+        arguments.baseline,
+        arguments.candidate,
+    )
+    persist_batch_comparison_report(report, arguments.output)
+    _LOGGER.info(
+        "competition_batch_comparison_completed",
+        extra={
+            "record_count": report.record_count,
+            "answer_changed_count": report.answer_changed_count,
+            "changed_case_count": len(report.changed_cases),
             "output_path": str(arguments.output),
         },
     )
@@ -347,6 +385,50 @@ def _competition_batch_parser() -> argparse.ArgumentParser:
             "Log durable completed-question progress after this many answers; "
             "use 1 for live notebook monitoring."
         ),
+    )
+    return parser
+
+
+def _competition_batch_analysis_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Analyze one completed official competition batch"
+    )
+    parser.add_argument(
+        "--batch",
+        type=Path,
+        required=True,
+        help="Completed internal batch directory created by legal-rag-batch.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New directory for the immutable content-free analysis report.",
+    )
+    return parser
+
+
+def _competition_batch_comparison_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Compare two completed official competition batches"
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        required=True,
+        help="Completed internal batch directory used as the control.",
+    )
+    parser.add_argument(
+        "--candidate",
+        type=Path,
+        required=True,
+        help="Completed internal batch directory to compare against the control.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="New directory for the immutable content-free comparison report.",
     )
     return parser
 

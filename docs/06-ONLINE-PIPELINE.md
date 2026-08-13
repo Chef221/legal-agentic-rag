@@ -396,6 +396,19 @@ Nội dung: ...
 
 ---
 
+## M48 Document-diversity ablation
+
+M48 adds optional `online.evidence_selection.max_evidence_per_document`. Default
+`null` keeps baseline ordering unchanged. If an experiment configures a cap,
+Context Builder records every over-cap hit as `document_cap`, continues through
+lower-ranked candidates, and emits a count warning. It does not truncate legal
+text, change retrieval/reranker scores, alter token budget, infer legal
+relevance, or alter the corpus.
+
+The first candidate fixes the cap at `2` while retaining k=40, all model
+revisions, generation context budget, verifier, and artifacts. Its quality must
+be established only by a new controlled GPU batch and paired score comparison.
+
 ## 9. Context Grading
 
 Context grader đánh giá:
@@ -1058,6 +1071,38 @@ for controlled evidence-selection experiments, not a relevance label.
 `context_budget_exhausted` means at least one whole chunk exceeded the token
 budget; `context_max_evidence_reached:<n>` means omission was caused only by the
 configured evidence-count cap.
+
+## 24. Completed Batch Analysis and Comparison
+
+`legal-rag-analyze-batch` reads only a completed `legal-rag-batch` directory. It
+first validates `manifest.json`, the exact `results.jsonl` SHA-256, record count,
+and unique official question IDs. It then writes an immutable, content-free
+report of stop reasons, warnings, abstentions, model-error warnings, verifier
+claim-error taxonomy, context-selection telemetry, and Agent latency.
+
+`legal-rag-compare-batches` applies the same validation to a control and a
+candidate batch, rejects different question-source bytes or ID/order, and writes
+per-question outcome deltas. It stores only official ID, boolean/state changes,
+citation counts, latency delta and answer hash-derived change status; it never
+persists question, answer, prompt, legal passage, evidence text, or generated
+training data. Neither command builds a runtime, downloads a model, uses a GPU,
+or changes online inference behavior.
+
+## 25. Completed-batch readiness boundary
+
+After `legal-rag-batch` writes its complete internal manifest, the batch may be
+checked by `legal-rag-check-batch`. This is a CPU-only boundary: it reloads and
+verifies the batch manifest/result checksum, checks that the exact official
+question bytes and ordered IDs match, and evaluates an explicit operator policy
+over content-free execution aggregates. A rejected batch writes its immutable
+readiness report then exits non-zero; it must not be treated as an approved
+submission candidate. `legal-rag-submit` requires a passed report and checks it
+again against the supplied source/batch bytes before it creates `submission.zip`.
+
+The gate does not generate answers, score answers, rebuild artifacts, alter
+retrieval or context selection, or create data. Policy values are intentionally
+not hard-coded into the runtime. A later experiment must record its selected
+policy alongside its code/config/model/artifact identity.
 
 ## Official M40 Serving Profile
 

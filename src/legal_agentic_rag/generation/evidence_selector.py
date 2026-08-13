@@ -39,6 +39,11 @@ class EvidenceSelector:
         generation = generation_config or GenerationConfig()
         self._inactive_statuses = generation.inactive_effect_statuses
 
+    @property
+    def max_evidence_per_document(self) -> int | None:
+        """Expose the bounded post-ranking document cap to Context Builder."""
+        return self._config.max_evidence_per_document
+
     def score(
         self,
         query: RetrievalQuery,
