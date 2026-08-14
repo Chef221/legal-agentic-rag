@@ -142,6 +142,10 @@ class TransformersChatProvider:
                         **model_inputs,
                         **generation_options,
                     )
+                generated_token_count = int(output_ids.shape[-1]) - input_length
+                hit_max_output_tokens = (
+                    generated_token_count >= self._max_output_tokens
+                )
                 completion = tokenizer.decode(
                     output_ids[0, input_length:],
                     skip_special_tokens=True,
@@ -156,7 +160,11 @@ class TransformersChatProvider:
             raise ModelError("Transformers model returned empty completion content")
         _LOGGER.info(
             "transformers_chat_completion_completed",
-            extra={"latency_ms": (perf_counter() - started) * 1000},
+            extra={
+                "latency_ms": (perf_counter() - started) * 1000,
+                "generated_token_count": generated_token_count,
+                "hit_max_output_tokens": hit_max_output_tokens,
+            },
         )
         return completion
 

@@ -112,6 +112,22 @@ def test_model_answer_draft_abstention_contains_no_claims() -> None:
         )
 
 
+def test_model_answer_draft_bounds_claim_count_and_length() -> None:
+    """Structured generation stays within the compact M49.1 output budget."""
+    claim = {"text": "Một nhận định pháp lý.", "evidence_ids": ["E1"]}
+
+    with pytest.raises(ValidationError):
+        ModelAnswerDraft(
+            claims=[claim] * 5,
+            insufficient_evidence=False,
+        )
+    with pytest.raises(ValidationError):
+        ModelAnswerDraft(
+            claims=[{"text": "ấ" * 601, "evidence_ids": ["E1"]}],
+            insufficient_evidence=False,
+        )
+
+
 def test_evidence_selection_trace_aligns_with_context_evidence() -> None:
     """Selection trace has a typed reason and matches selected evidence order."""
     evidence = Evidence(

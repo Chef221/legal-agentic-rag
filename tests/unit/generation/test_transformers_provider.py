@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -111,6 +112,32 @@ def test_provider_builds_chat_prompt_and_decodes_only_generated_tokens() -> None
     assert model.options["do_sample"] is False
     assert model.options["max_new_tokens"] == 32
     assert model.options["pad_token_id"] == 0
+
+
+def test_provider_logs_output_token_count_and_limit_hit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Completion telemetry diagnoses truncation without logging generated text."""
+    log_info = Mock()
+    monkeypatch.setattr(
+        "legal_agentic_rag.generation.transformers_provider._LOGGER.info",
+        log_info,
+    )
+    provider = TransformersChatProvider(
+        _config(max_output_tokens=2),
+        runtime_loader=lambda: (torch, _Tokenizer(), _Model()),
+    )
+
+    provider.complete(system_instruction="system", user_prompt="user")
+
+    completion_call = next(
+        value
+        for value in log_info.call_args_list
+        if value.args[0] == "transformers_chat_completion_completed"
+    )
+    assert completion_call.kwargs["extra"]["generated_token_count"] == 2
+    assert completion_call.kwargs["extra"]["hit_max_output_tokens"] is True
+    assert "fixture" not in str(completion_call)
 
 
 def test_provider_rejects_oversized_prompt_without_truncating_legal_text() -> None:

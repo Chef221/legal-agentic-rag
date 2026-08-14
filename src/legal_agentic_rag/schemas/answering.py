@@ -17,6 +17,10 @@ from pydantic import (
 from legal_agentic_rag.schemas.retrieval import RetrievalStrategy
 
 
+MODEL_ANSWER_MAX_CLAIMS = 4
+MODEL_ANSWER_MAX_CLAIM_CHARACTERS = 600
+
+
 def _non_empty(value: str) -> str:
     normalized = value.strip()
     if not normalized:
@@ -404,7 +408,7 @@ class ModelAnswerClaimDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    text: str
+    text: str = Field(max_length=MODEL_ANSWER_MAX_CLAIM_CHARACTERS)
     evidence_ids: list[str] = Field(min_length=1)
 
     @field_validator("text")
@@ -435,7 +439,10 @@ class ModelAnswerDraft(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    claims: list[ModelAnswerClaimDraft] = Field(default_factory=list)
+    claims: list[ModelAnswerClaimDraft] = Field(
+        default_factory=list,
+        max_length=MODEL_ANSWER_MAX_CLAIMS,
+    )
     insufficient_evidence: bool
     warnings: list[str] = Field(default_factory=list)
 

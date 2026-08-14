@@ -125,6 +125,11 @@ def test_model_generator_builds_grounded_prompt_and_trusted_citation() -> None:
     assert "không dùng kiến thức bên ngoài" in system_instruction
     assert _query().original_question in user_prompt
     assert _evidence().text in user_prompt
+    assert "VÍ DỤ OUTPUT ĐỦ CĂN CỨ" in user_prompt
+    assert "Doanh nghiệp phải nộp thuế đúng thời hạn." in user_prompt
+    assert "Có tối đa 4 phần tử claims" in user_prompt
+    assert "OUTPUT_JSON_SCHEMA" not in user_prompt
+    assert '"$defs"' not in user_prompt
     assert isinstance(provider, ChatModelProvider)
     assert isinstance(generator, AnswerGenerator)
 
@@ -326,6 +331,70 @@ def test_model_generator_retries_one_invalid_structured_completion() -> None:
     assert response.answer.endswith("[E1].")
     assert len(provider.calls) == 2
     assert "OUTPUT TRƯỚC KHÔNG HỢP LỆ" in provider.calls[1][1]
+    assert "json_decode_error" in provider.calls[1][1]
+
+
+def test_model_generator_distinguishes_schema_validation_feedback() -> None:
+    """Valid JSON with forbidden fields receives schema-specific correction."""
+    invalid = json.dumps(
+        {
+            "claims": [],
+            "insufficient_evidence": True,
+            "warnings": [],
+            "unexpected": True,
+        }
+    )
+    provider = _SequenceProvider([invalid, _completion()])
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1].")
+    assert "schema_validation_error" in provider.calls[1][1]
+
+
+def test_model_generator_treats_json_null_as_schema_failure() -> None:
+    """Syntactically valid JSON null is not mislabeled as a decoder failure."""
+    provider = _SequenceProvider(["null", _completion()])
+
+    ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert "schema_validation_error" in provider.calls[1][1]
+
+
+def test_model_generator_retries_long_non_vietnamese_claim() -> None:
+    """Long English drift is rejected without weakening evidence identity."""
+    provider = _SequenceProvider(
+        [
+            _completion(
+                answer=(
+                    "Organizations must submit a complete annual report to the "
+                    "competent authority where they operate."
+                )
+            ),
+            _completion(),
+        ]
+    )
+
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert response.answer.endswith("[E1].")
+    assert "non_vietnamese_claim" in provider.calls[1][1]
+    assert "tiếng Việt có dấu" in provider.calls[1][1]
 
 
 def test_model_generator_retries_multi_claim_item_with_specific_feedback() -> None:
@@ -383,7 +452,7 @@ def test_model_generator_can_disable_structured_output_retry() -> None:
     """Configuration can preserve single-attempt behavior for strict consumers."""
     provider = _SequenceProvider(["không phải JSON", _completion()])
 
-    with pytest.raises(ModelError, match="schema"):
+    with pytest.raises(ModelError, match="JSON"):
         ModelBackedAnswerGenerator(
             provider,
             max_structured_output_retries=0,

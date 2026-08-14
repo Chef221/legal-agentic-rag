@@ -504,6 +504,19 @@ từ claim-level link đã qua allowlist, không được model tự đặt và 
 thống sao chép tùy đoán sang claim khác. Agent hiện tại xử lý lỗi theo
 retry/stopping policy có giới hạn.
 
+Version `0.49.1` dùng prompt compact thay cho việc nhúng toàn bộ Pydantic JSON
+Schema vào context. Prompt đưa một mẫu JSON tiếng Việt cho grounded output và
+một mẫu abstention, giới hạn tối đa bốn claim và 600 ký tự cho mỗi claim. Long
+ASCII-only claim không có dấu hiệu tiếng Việt bị từ chối fail closed; retry nhận
+riêng `json_decode_error`, `schema_validation_error`,
+`claim_boundary_mismatch`, `unknown_evidence_id`, `marker_in_claim_text` hoặc
+`non_vietnamese_claim`.
+
+Transformers provider chỉ log số token mới sinh và cờ chạm
+`max_output_tokens`, không log completion. Profile GPU doc-cap-2 dùng 384 output
+token cho smoke M49.1; model, revision, evidence allowlist, system-rendered
+marker và citation verifier không thay đổi.
+
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
 config và phải có endpoint cùng model name/revision đã pin.
 `transformers` chạy một causal language model local có chat template, cũng yêu

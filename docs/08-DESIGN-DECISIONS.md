@@ -2430,3 +2430,34 @@ selection, model identity, model parameters, official data, artifact, or public
 answer schema. M49 is an implementation candidate until a small GPU smoke set
 shows the failure taxonomy improved; a full development run is required only
 after that gate passes.
+
+---
+
+## D102 — M49.1 Uses Compact Bounded JSON and Content-free Truncation Telemetry
+
+**Status:** Accepted
+
+The fixed 50-question M49 smoke set intentionally sampled M48 generator-error
+cases. M49 recovered 25 cases, left 25 `generation_failed`, introduced no
+retrieval error, and exposed three drafts that the existing fail-closed verifier
+correctly rejected. The runtime log contained 50 schema rejections: two failed
+structured attempts for every remaining generator error. Rejected completions
+were materially slower than accepted completions, while the profile allowed only
+256 new tokens, but the old telemetry could not distinguish malformed JSON,
+schema validation, or output-limit truncation.
+
+M49.1 removes the verbose generated Pydantic schema from the prompt and replaces
+it with compact Vietnamese grounded/abstention examples. The untrusted draft is
+bounded to four claims and 600 characters per claim. A long ASCII-only claim is
+rejected as non-Vietnamese, and correction feedback distinguishes JSON decoding,
+schema validation, language, boundary, marker, and allowlist failures. The local
+Transformers provider logs only generated-token count and whether generation hit
+the configured output limit; it never logs completion content. The isolated
+doc-cap-2 smoke profile raises the output budget from 256 to 384 tokens.
+
+No citation is inferred, copied, repaired, or accepted outside the selected
+evidence allowlist. Marker rendering and the existing citation verifier remain
+fail closed. M49.1 changes no official data, index, retrieval result, model
+identity, parameter inventory, artifact lineage, public response, scorer, or
+submission format. Promotion still requires rerunning the same 50-question smoke
+set before any full development batch.

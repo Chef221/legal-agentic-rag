@@ -94,7 +94,7 @@
       "local_files_only": false,
       "max_input_tokens": 6144,
       "temperature": 0.0,
-      "max_output_tokens": 256,
+      "max_output_tokens": 384,
       "max_structured_output_retries": 1
     },
     "context_grading": {

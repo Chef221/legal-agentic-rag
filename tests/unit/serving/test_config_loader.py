@@ -67,6 +67,22 @@ def test_kaggle_qwen_reranker_ablation_changes_only_candidate_k() -> None:
     assert control_payload == treatment_payload
 
 
+def test_m49_1_smoke_profile_uses_bounded_larger_output_budget() -> None:
+    """The doc-cap smoke profile isolates the measured structured-output fix."""
+    path = (
+        Path(__file__).parents[3]
+        / "configs"
+        / "uit-dsc-2026-task2-qwen3b-rerank-k40-doccap2-kaggle.example.json"
+    )
+
+    config = load_application_config(path)
+
+    assert config.online.retrieval.candidate_k == 40
+    assert config.online.evidence_selection.max_evidence_per_document == 2
+    assert config.online.generation.max_output_tokens == 384
+    assert config.online.generation.max_structured_output_retries == 1
+
+
 def test_config_loader_wraps_invalid_json_without_leaking_details(
     tmp_path: Path,
 ) -> None:

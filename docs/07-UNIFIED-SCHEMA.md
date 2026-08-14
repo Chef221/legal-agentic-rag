@@ -736,7 +736,9 @@ Rules:
   và không lặp trong claim;
 - grounded draft phải có ít nhất một claim;
 - insufficient draft không được có claim;
+- draft có tối đa 4 claim và mỗi `claims[].text` có tối đa 600 ký tự;
 - generator kiểm tra từng ID thuộc selected `Evidence`;
+- generator từ chối long ASCII-only claim không có dấu hiệu tiếng Việt;
 - model không viết marker vào `text`; generator render `[E#]` từ liên kết
   claim-level đã khai báo;
 - `Citation` đầy đủ được dựng bởi hệ thống, không deserialize trực tiếp từ model.

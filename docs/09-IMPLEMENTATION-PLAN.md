@@ -2239,3 +2239,21 @@ identity, parameter inventory, artifact lineage, scoring, or submission format.
 Before another 991-question batch, run a small fixed GPU smoke subset and compare
 generator errors, citation-verification failures and latency with an equivalent
 subset from the M48 candidate.
+
+## 58. Milestone 49.1 — Bounded Structured Generation Recovery
+
+**Status:** Implemented; requires rerunning the fixed 50-question GPU smoke set
+
+- replace verbose Pydantic schema prompting with compact Vietnamese JSON examples;
+- bound model output to at most four claims and 600 characters per claim;
+- reject long ASCII-only claim drift with targeted Vietnamese correction feedback;
+- distinguish JSON decode and Pydantic schema failures without logging content;
+- log generated-token count and output-limit hits in the local provider;
+- raise only the doc-cap-2 smoke profile from 256 to 384 output tokens;
+- preserve evidence allowlist, explicit claim links, system marker rendering and
+  fail-closed citation verification.
+
+M49.1 does not rebuild artifacts or change official data, retrieval, model
+identity, parameter count, scorer or submission format. Its next gate is the
+same immutable 50-question M49 smoke source; do not run all 991 development
+questions until that comparison meets the agreed generator-error threshold.
