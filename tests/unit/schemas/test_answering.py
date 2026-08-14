@@ -15,6 +15,8 @@ from legal_agentic_rag.schemas.answering import (
     EvidenceApplicability,
     EvidenceSelectionReason,
     EvidenceSelectionTrace,
+    ModelAnswerClaimDraft,
+    ModelAnswerDraft,
     SemanticClaimAssessmentDraft,
     SemanticClaimVerification,
     SemanticSupportLabel,
@@ -74,6 +76,40 @@ def test_context_scores_are_bounded() -> None:
     """Grader scores stay within the documented zero-to-one range."""
     with pytest.raises(ValidationError):
         ContextGrade(is_sufficient=True, score=1.1)
+
+
+def test_model_answer_draft_requires_explicit_claim_level_evidence() -> None:
+    """A grounded model draft links every claim to at least one evidence ID."""
+    draft = ModelAnswerDraft(
+        claims=[
+            ModelAnswerClaimDraft(
+                text="Người lao động được nghỉ hằng năm.",
+                evidence_ids=["E1"],
+            )
+        ],
+        insufficient_evidence=False,
+    )
+
+    assert draft.claims[0].evidence_ids == ["E1"]
+    with pytest.raises(ValidationError):
+        ModelAnswerDraft(
+            claims=[],
+            insufficient_evidence=False,
+        )
+
+
+def test_model_answer_draft_abstention_contains_no_claims() -> None:
+    """An insufficient draft cannot smuggle a grounded claim into output."""
+    with pytest.raises(ValidationError):
+        ModelAnswerDraft(
+            claims=[
+                ModelAnswerClaimDraft(
+                    text="Một nhận định.",
+                    evidence_ids=["E1"],
+                )
+            ],
+            insufficient_evidence=True,
+        )
 
 
 def test_evidence_selection_trace_aligns_with_context_evidence() -> None:

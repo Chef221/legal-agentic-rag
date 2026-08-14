@@ -482,6 +482,7 @@ Selected Evidence
 → JSON-mode model completion
 → ModelAnswerDraft validation
 → evidence-ID allowlist
+→ trusted claim-level marker rendering
 → system-built Citation metadata
 → existing CitationVerifier
 → AnswerResponse hoặc Abstention
@@ -489,15 +490,19 @@ Selected Evidence
 
 Model chỉ được tạo:
 
-- answer text có marker `[E#]`;
-- danh sách `cited_evidence_ids`;
+- danh sách claim text, mỗi phần tử chỉ chứa một nhận định;
+- danh sách `evidence_ids` hỗ trợ riêng cho từng claim;
 - `insufficient_evidence`;
 - warnings.
 
 Model không được tự tạo `chunk_id`, `document_id`, số văn bản, số Điều hoặc URL
 citation. Các field này luôn được hệ thống ánh xạ từ `Evidence` đã chọn. Unknown
-evidence ID, JSON sai schema hoặc marker bị thiếu đều fail closed thành model
-error; Agent hiện tại xử lý lỗi theo retry/stopping policy có giới hạn.
+evidence ID, JSON sai schema, marker viết trực tiếp trong claim text hoặc một claim
+item chứa nhiều boundary đều fail closed thành model error. Lần retry duy nhất
+nhận đúng loại lỗi và hướng dẫn sửa tương ứng. Marker `[E#]` được hệ thống render
+từ claim-level link đã qua allowlist, không được model tự đặt và không được hệ
+thống sao chép tùy đoán sang claim khác. Agent hiện tại xử lý lỗi theo
+retry/stopping policy có giới hạn.
 
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
 config và phải có endpoint cùng model name/revision đã pin.

@@ -2218,3 +2218,24 @@ M48 does not assert a quality gain. The required next run is the same
 development questions with M48 config, followed by batch analysis, readiness
 gate, submission formatting, official-compatible scoring and paired comparison
 against the k=40 control.
+
+## 57. Milestone 49 — Claim-linked Generator Output
+
+**Status:** Implemented; requires bounded GPU smoke validation
+
+- replace answer-level model citation declarations with strict claim records;
+- require one legal claim per record and at least one explicit evidence ID per
+  grounded claim;
+- validate all claim links against the selected evidence allowlist;
+- reject model-written inline markers and multi-boundary claim records;
+- render visible `[E#]` markers deterministically from the validated claim links;
+- give the single structured-output retry a reason-specific correction prompt;
+- retain the existing fail-closed citation verifier and Agent stopping policy;
+- add schema and generator unit coverage for allowlist, abstention, rendering,
+  boundary rejection and targeted retry.
+
+M49 does not change official data, indexes, retrieval, context selection, model
+identity, parameter inventory, artifact lineage, scoring, or submission format.
+Before another 991-question batch, run a small fixed GPU smoke subset and compare
+generator errors, citation-verification failures and latency with an equivalent
+subset from the M48 candidate.

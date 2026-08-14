@@ -8,6 +8,10 @@ import pytest
 from legal_agentic_rag.contracts import AnswerGenerator, ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
 from legal_agentic_rag.generation import ModelBackedAnswerGenerator
+from legal_agentic_rag.generation.claim_grounding import (
+    extract_inline_evidence_ids,
+    split_answer_claims,
+)
 from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
 
 
@@ -73,10 +77,26 @@ def _evidence(
 
 
 def _completion(**updates: object) -> str:
+    answer = updates.pop(
+        "answer",
+        "Doanh nghiệp phải nộp thuế đúng thời hạn.",
+    )
+    cited_evidence_ids = updates.pop("cited_evidence_ids", ["E1"])
+    insufficient_evidence = updates.pop("insufficient_evidence", False)
+    claims = updates.pop(
+        "claims",
+        []
+        if insufficient_evidence
+        else [
+            {
+                "text": answer,
+                "evidence_ids": cited_evidence_ids,
+            }
+        ],
+    )
     payload: dict[str, object] = {
-        "answer": "Doanh nghiệp phải nộp thuế đúng thời hạn [E1].",
-        "cited_evidence_ids": ["E1"],
-        "insufficient_evidence": False,
+        "claims": claims,
+        "insufficient_evidence": insufficient_evidence,
         "warnings": [],
     }
     payload.update(updates)
@@ -147,16 +167,20 @@ def test_model_generator_appends_verified_declared_markers_when_missing() -> Non
         "model-answer-query",
     )
 
-    assert response.answer.endswith("[E1]")
+    assert response.answer.endswith("[E1].")
     assert response.citations[0].evidence_id == "E1"
 
 
-def test_model_generator_accepts_combined_bracket_markers() -> None:
-    """Common combined marker syntax resolves to verified evidence identities."""
+def test_model_generator_renders_multiple_claim_evidence_ids() -> None:
+    """One claim can explicitly link multiple supplied evidence records."""
     provider = _FixtureProvider(
         _completion(
-            answer="Hai căn cứ cùng hỗ trợ nhận định [E2, E1].",
-            cited_evidence_ids=["E1", "E2"],
+            claims=[
+                {
+                    "text": "Hai căn cứ cùng hỗ trợ nhận định.",
+                    "evidence_ids": ["E2", "E1"],
+                }
+            ],
         )
     )
 
@@ -171,14 +195,23 @@ def test_model_generator_accepts_combined_bracket_markers() -> None:
     )
 
     assert [item.evidence_id for item in response.citations] == ["E2", "E1"]
+    assert response.answer.endswith("[E2] [E1].")
 
 
 def test_model_generator_uses_verified_markers_as_citation_order() -> None:
-    """Visible markers canonically select citations from the supplied allowlist."""
+    """Claim links canonically select citations from the supplied allowlist."""
     provider = _FixtureProvider(
         _completion(
-            answer="Nghĩa vụ thứ hai [E2], sau đó nghĩa vụ thứ nhất [E1].",
-            cited_evidence_ids=["E1", "E2"],
+            claims=[
+                {
+                    "text": "Nghĩa vụ thứ hai.",
+                    "evidence_ids": ["E2"],
+                },
+                {
+                    "text": "Sau đó là nghĩa vụ thứ nhất.",
+                    "evidence_ids": ["E1"],
+                },
+            ],
         )
     )
     evidence = [
@@ -198,18 +231,24 @@ def test_model_generator_uses_verified_markers_as_citation_order() -> None:
         "chunk-2",
         "chunk-1",
     ]
+    rendered_claims = split_answer_claims(response.answer)
+    assert len(rendered_claims) == 2
+    assert [extract_inline_evidence_ids(value) for value in rendered_claims] == [
+        ["E2"],
+        ["E1"],
+    ]
 
 
 def test_model_generator_rejects_unknown_visible_marker() -> None:
-    """A marker not present in selected evidence remains a hard failure."""
+    """The model cannot bypass claim links by writing a marker in claim text."""
     provider = _FixtureProvider(
         _completion(
-            answer="Nhận định không có căn cứ [E9].",
+            answer="Nhận định không có căn cứ [E1].",
             cited_evidence_ids=["E1"],
         )
     )
 
-    with pytest.raises(ModelError, match="unknown evidence marker"):
+    with pytest.raises(ModelError, match="must not contain evidence markers"):
         ModelBackedAnswerGenerator(provider).generate(
             _query(),
             [_evidence()],
@@ -289,21 +328,22 @@ def test_model_generator_retries_one_invalid_structured_completion() -> None:
     assert "OUTPUT TRƯỚC KHÔNG HỢP LỆ" in provider.calls[1][1]
 
 
-def test_model_generator_retries_partial_inline_citation_coverage() -> None:
-    """A marker on one list item cannot silently ground the other claims."""
+def test_model_generator_retries_multi_claim_item_with_specific_feedback() -> None:
+    """One schema item cannot hide multiple claims behind one evidence link."""
     provider = _SequenceProvider(
         [
+            _completion(answer="First legal claim; second legal claim."),
             _completion(
-                answer=(
-                    "First legal claim [E1]; "
-                    "second legal claim."
-                )
-            ),
-            _completion(
-                answer=(
-                    "First legal claim [E1]; "
-                    "second legal claim [E1]."
-                )
+                claims=[
+                    {
+                        "text": "First legal claim.",
+                        "evidence_ids": ["E1"],
+                    },
+                    {
+                        "text": "Second legal claim.",
+                        "evidence_ids": ["E1"],
+                    },
+                ]
             ),
         ]
     )
@@ -317,17 +357,17 @@ def test_model_generator_retries_partial_inline_citation_coverage() -> None:
 
     assert response.answer.endswith("[E1].")
     assert len(provider.calls) == 2
+    assert "claim_boundary_mismatch" in provider.calls[1][1]
+    assert "một phần tử claims riêng" in provider.calls[1][1]
 
 
-def test_model_generator_rejects_partial_inline_citation_without_retry() -> None:
-    """Strict single-attempt mode surfaces incomplete claim grounding."""
+def test_model_generator_rejects_multi_claim_item_without_retry() -> None:
+    """Strict single-attempt mode surfaces ambiguous claim-level grounding."""
     provider = _FixtureProvider(
-        _completion(
-            answer="First legal claim [E1]; second legal claim."
-        )
+        _completion(answer="First legal claim; second legal claim.")
     )
 
-    with pytest.raises(ModelError, match="without inline evidence"):
+    with pytest.raises(ModelError, match="exactly one legal claim"):
         ModelBackedAnswerGenerator(
             provider,
             max_structured_output_retries=0,

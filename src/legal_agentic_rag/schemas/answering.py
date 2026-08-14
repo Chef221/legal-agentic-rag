@@ -399,26 +399,24 @@ class SemanticVerificationResult(BaseModel):
         return self
 
 
-class ModelAnswerDraft(BaseModel):
-    """Strict model output before trusted citation metadata is attached."""
+class ModelAnswerClaimDraft(BaseModel):
+    """One model-authored claim with explicit claim-level evidence links."""
 
     model_config = ConfigDict(extra="forbid")
 
-    answer: str
-    cited_evidence_ids: list[str] = Field(default_factory=list)
-    insufficient_evidence: bool
-    warnings: list[str] = Field(default_factory=list)
+    text: str
+    evidence_ids: list[str] = Field(min_length=1)
 
-    @field_validator("answer")
+    @field_validator("text")
     @classmethod
-    def validate_answer(cls, value: str) -> str:
-        """Reject an empty model answer."""
+    def validate_text(cls, value: str) -> str:
+        """Reject an empty legal claim."""
         return _non_empty(value)
 
-    @field_validator("cited_evidence_ids")
+    @field_validator("evidence_ids")
     @classmethod
     def validate_evidence_ids(cls, values: list[str]) -> list[str]:
-        """Require valid, unique evidence references."""
+        """Require valid, unique claim-level evidence references."""
         normalized = [_non_empty(value) for value in values]
         if any(
             not value.startswith("E")
@@ -426,10 +424,20 @@ class ModelAnswerDraft(BaseModel):
             or value[1] == "0"
             for value in normalized
         ):
-            raise ValueError("cited evidence IDs must use the E<number> format")
+            raise ValueError("claim evidence IDs must use the E<number> format")
         if len(normalized) != len(set(normalized)):
-            raise ValueError("cited evidence IDs must be unique")
+            raise ValueError("claim evidence IDs must be unique")
         return normalized
+
+
+class ModelAnswerDraft(BaseModel):
+    """Strict claim-linked model output before trusted answer rendering."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claims: list[ModelAnswerClaimDraft] = Field(default_factory=list)
+    insufficient_evidence: bool
+    warnings: list[str] = Field(default_factory=list)
 
     @field_validator("warnings")
     @classmethod
@@ -442,11 +450,11 @@ class ModelAnswerDraft(BaseModel):
 
     @model_validator(mode="after")
     def validate_grounding_state(self) -> "ModelAnswerDraft":
-        """Align citation presence with the model's sufficiency decision."""
-        if self.insufficient_evidence and self.cited_evidence_ids:
-            raise ValueError("an insufficient draft must not cite evidence")
-        if not self.insufficient_evidence and not self.cited_evidence_ids:
-            raise ValueError("a grounded draft requires cited evidence")
+        """Align claim presence with the model's sufficiency decision."""
+        if self.insufficient_evidence and self.claims:
+            raise ValueError("an insufficient draft must not contain claims")
+        if not self.insufficient_evidence and not self.claims:
+            raise ValueError("a grounded draft requires claims")
         return self
 
 

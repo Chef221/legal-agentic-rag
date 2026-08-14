@@ -2402,3 +2402,31 @@ identical to control. This is not a claim that diversity is intrinsically better
 it may omit useful same-document chunks. It must therefore be evaluated by a
 fresh trace-bearing GPU batch, readiness gate, official-compatible score, and
 paired comparison before any promotion.
+
+---
+
+## D101 — Model Output Uses Explicit Claim-level Evidence Links
+
+**Status:** Accepted
+
+The M48 development candidate improved local answer metrics but produced 342
+`generator:model_error` outcomes. Runtime logs classified the dominant rejection
+as `evidence_marker_mismatch`: the model returned answer-level evidence IDs while
+placing inline markers at boundaries that did not match the deterministic claim
+splitter. Appending all declared markers at the end of an answer could ground only
+the final claim and was incompatible with the fail-closed verifier.
+
+M49 replaces that error-prone internal boundary. The model now returns a list of
+claim records; every record contains exactly one claim text and the evidence IDs
+supporting that specific claim. The generator validates every ID against selected
+evidence, rejects model-written markers, rejects a claim record that spans more
+than one verifier boundary, and then renders `[E#]` itself from the explicit
+claim-level links. A bounded retry receives the exact validation category and a
+targeted correction instruction.
+
+This does not weaken citation verification and does not infer or copy an evidence
+ID onto an unlinked claim. It changes no corpus, retrieval ranking, context
+selection, model identity, model parameters, official data, artifact, or public
+answer schema. M49 is an implementation candidate until a small GPU smoke set
+shows the failure taxonomy improved; a full development run is required only
+after that gate passes.

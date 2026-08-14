@@ -717,8 +717,12 @@ model-backed generator. Nó không phải public API response.
 
 ```json
 {
-  "answer": "string có marker [E#]",
-  "cited_evidence_ids": ["E1"],
+  "claims": [
+    {
+      "text": "một nhận định pháp lý",
+      "evidence_ids": ["E1"]
+    }
+  ],
   "insufficient_evidence": false,
   "warnings": []
 }
@@ -727,12 +731,19 @@ model-backed generator. Nó không phải public API response.
 Rules:
 
 - extra field bị từ chối;
-- `answer` không rỗng;
-- evidence ID dùng format `E[1-9][0-9]*` và không lặp;
-- grounded draft phải có ít nhất một evidence ID;
-- insufficient draft không được có evidence ID;
+- `claims[].text` không rỗng và chỉ chứa một claim theo cùng boundary với verifier;
+- `claims[].evidence_ids` có ít nhất một ID, dùng format `E[1-9][0-9]*`
+  và không lặp trong claim;
+- grounded draft phải có ít nhất một claim;
+- insufficient draft không được có claim;
 - generator kiểm tra từng ID thuộc selected `Evidence`;
+- model không viết marker vào `text`; generator render `[E#]` từ liên kết
+  claim-level đã khai báo;
 - `Citation` đầy đủ được dựng bởi hệ thống, không deserialize trực tiếp từ model.
+
+`ModelAnswerClaimDraft` là nested record của `ModelAnswerDraft`, có đúng hai
+field `text` và `evidence_ids`. Nó tồn tại vì generator và verifier đều có consumer
+claim-level rõ ràng; đây không phải public API hay dữ liệu huấn luyện.
 
 ### ContextBuildResult
 
