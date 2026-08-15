@@ -51,9 +51,15 @@ class _Retriever:
 
 
 class _Generator:
-    def __init__(self, *, repair_outcome: str = "valid") -> None:
+    def __init__(
+        self,
+        *,
+        repair_outcome: str = "valid",
+        multi_claim_initial_response: bool = False,
+    ) -> None:
         self.calls: list[AnswerGenerationCorrectionSignal | None] = []
         self._repair_outcome = repair_outcome
+        self._multi_claim_initial_response = multi_claim_initial_response
 
     def generate(
         self,
@@ -84,11 +90,13 @@ class _Generator:
                     retrieval_strategy,
                     trace_id="wrong-trace",
                 )
+        if correction_signal is None and self._multi_claim_initial_response:
+            return _multi_claim_response(query, retrieval_strategy, trace_id)
         return _response(query, evidence[0], retrieval_strategy, trace_id)
 
 
 class _Verifier:
-    def __init__(self, results: list[CitationVerificationResult]) -> None:
+    def __init__(self, results: list[CitationVerificationResult | Exception]) -> None:
         self._results = list(results)
         self.calls = 0
 
@@ -98,7 +106,10 @@ class _Verifier:
         evidence: Sequence[Evidence],
     ) -> CitationVerificationResult:
         self.calls += 1
-        return self._results.pop(0)
+        result = self._results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 
 def _query() -> RetrievalQuery:
@@ -166,6 +177,69 @@ def _verification(*, errors: list[str], valid: bool) -> CitationVerificationResu
     )
 
 
+def _multi_claim_response(
+    query: RetrievalQuery,
+    strategy: RetrievalStrategy,
+    trace_id: str,
+) -> AnswerResponse:
+    return AnswerResponse(
+        question=query.original_question,
+        answer=(
+            "Nguoi lao dong duoc nghi 12 ngay. [E1] "
+            "Nguoi lao dong duoc huong nguyen luong. [E2] "
+            "Nguoi lao dong duoc nghi 17 ngay. [E3]"
+        ),
+        citations=[
+            Citation(evidence_id="E1", chunk_id="chunk-1", document_id="document-1"),
+            Citation(evidence_id="E2", chunk_id="chunk-2", document_id="document-2"),
+            Citation(evidence_id="E3", chunk_id="chunk-3", document_id="document-3"),
+        ],
+        insufficient_evidence=False,
+        retrieval_strategy=strategy,
+        trace_id=trace_id,
+        metadata={"semantic_synthesis": True},
+    )
+
+
+def _partially_supported_numeric_verification() -> CitationVerificationResult:
+    return CitationVerificationResult(
+        is_valid=False,
+        claim_verifications=[
+            ClaimVerification(
+                claim_id="C1",
+                claim_text="Nguoi lao dong duoc nghi 12 ngay.",
+                evidence_ids=["E1"],
+                status=ClaimSupportStatus.SUPPORTED,
+                lexical_support_score=1.0,
+                numeric_match=True,
+                negation_match=True,
+            ),
+            ClaimVerification(
+                claim_id="C2",
+                claim_text="Nguoi lao dong duoc huong nguyen luong.",
+                evidence_ids=["E2"],
+                status=ClaimSupportStatus.SUPPORTED,
+                lexical_support_score=1.0,
+                numeric_match=True,
+                negation_match=True,
+            ),
+            ClaimVerification(
+                claim_id="C3",
+                claim_text="Nguoi lao dong duoc nghi 17 ngay.",
+                evidence_ids=["E3"],
+                status=ClaimSupportStatus.UNSUPPORTED,
+                lexical_support_score=0.5,
+                numeric_match=False,
+                negation_match=True,
+                errors=["numeric_mismatch"],
+            ),
+        ],
+        claim_coverage_score=2 / 3,
+        claim_level_verification_performed=True,
+        errors=["unsupported_claim:C3"],
+    )
+
+
 def _workflow(
     generator: _Generator,
     verifier: _Verifier,
@@ -209,7 +283,7 @@ def test_numeric_only_failure_repairs_once_with_same_evidence() -> None:
     assert generator.calls == [None, AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH]
     assert verifier.calls == 2
     assert result.state.retry_count == 0
-    assert result.response.metadata["numeric_repair"]["outcome"] == "succeeded"
+    assert result.response.metadata["numeric_repair"]["outcome"] == "model_regeneration_succeeded"
     assert CitationVerificationResult.model_validate(
         result.response.metadata["citation_verification"]
     ).is_valid is True
@@ -219,6 +293,66 @@ def test_numeric_only_failure_repairs_once_with_same_evidence() -> None:
         "numeric-repair:1:numeric_repair_generation",
         "numeric-repair:1:numeric_repair_verification",
     ]
+
+
+def test_numeric_salvage_keeps_only_supported_claims_without_model_retry() -> None:
+    """Supported claims are retained verbatim before a model regeneration is considered."""
+    generator = _Generator(multi_claim_initial_response=True)
+    verifier = _Verifier(
+        [
+            _partially_supported_numeric_verification(),
+            _verification(errors=[], valid=True),
+        ]
+    )
+    workflow, retriever = _workflow(generator, verifier)
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
+    assert retriever.calls == 1
+    assert generator.calls == [None]
+    assert verifier.calls == 2
+    assert result.response.answer == (
+        "Nguoi lao dong duoc nghi 12 ngay [E1]. "
+        "Nguoi lao dong duoc huong nguyen luong [E2]."
+    )
+    assert [citation.evidence_id for citation in result.response.citations] == ["E1", "E2"]
+    repair = result.response.metadata["numeric_repair"]
+    assert repair["outcome"] == "salvage_succeeded"
+    assert repair["salvage"]["dropped_claim_count"] == 1
+    assert repair["model_regeneration"] == {
+        "attempted": False,
+        "outcome": "not_needed",
+    }
+    assert "numeric_claim_salvage_succeeded" in result.response.warnings
+    assert "numeric_claims_dropped:1" in result.response.warnings
+    assert "claim_text" not in str(repair)
+    assert [item["invocation_id"] for item in result.state.metadata["tool_invocations"]][-1] == (
+        "numeric-repair:1:numeric_salvage_verification"
+    )
+
+
+def test_numeric_salvage_verifier_timeout_never_calls_model_fallback() -> None:
+    """A salvage verification failure is fail-closed rather than model-assisted."""
+    generator = _Generator(multi_claim_initial_response=True)
+    verifier = _Verifier(
+        [
+            _partially_supported_numeric_verification(),
+            OperationTimeoutError("fixture salvage verifier timeout"),
+        ]
+    )
+    workflow, retriever = _workflow(generator, verifier)
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.TIMEOUT
+    assert result.response.insufficient_evidence is True
+    assert retriever.calls == 1
+    assert generator.calls == [None]
+    assert verifier.calls == 2
+    repair = result.response.metadata["numeric_repair"]
+    assert repair["outcome"] == "verification_timeout"
+    assert repair["model_regeneration"]["attempted"] is False
 
 
 def test_normal_verified_response_keeps_the_m49_1_verification_contract() -> None:

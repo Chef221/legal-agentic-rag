@@ -6,8 +6,8 @@ Task 2 — Legal Question Answering.
 ## Trạng thái
 
 Baseline chất lượng đối chứng vẫn là **M43.1 — Qwen3B public baseline**. Code
-hiện tại là `0.49.2`, bổ sung evaluator, development protocol, retrieval
-diagnostics và bounded numeric-only repair M49.2 nhưng không thay đổi corpus,
+hiện tại là `0.49.3`, bổ sung evaluator, development protocol, retrieval
+diagnostics và deterministic numeric-claim salvage M49.3 nhưng không thay đổi corpus,
 retrieval hay model identity của baseline.
 Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
 tạo submission hợp lệ và được Codabench chấm:

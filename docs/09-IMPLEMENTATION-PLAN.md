@@ -2280,3 +2280,23 @@ SHA-256 `5b8ca8a7200b0fc46d163410b2a44d4e120f70e3c33bd2f1fd03395b7e5d254d`).
 It does not claim a GPU gain. First run either the exact five-question gate
 (the two numeric failures plus three abstentions) or the immutable 50-question
 smoke; do not run the 991-question development batch first.
+
+## 60. Milestone 49.3 — Deterministic Numeric Claim Salvage and Diagnostics
+
+**Status:** Implemented; requires the same bounded GPU smoke gate
+
+- keep only verifier-supported claim text verbatim and only their already-linked
+  citations when M49.2's numeric-only trigger is met;
+- reverify the salvaged response in a dedicated invocation phase before any model
+  fallback;
+- fail closed on missing/ambiguous citation mapping or salvage verifier
+  error/timeout; permit the existing single model regeneration only after a
+  successful-but-rejected salvage verification or when no claim is supported;
+- record only content-free salvage/regeneration outcomes and aggregate initial
+  numeric verifier errors in completed-batch analysis;
+- change no official data, artifact, retrieval, context selection, model,
+  parameter count, scorer, or submission format.
+
+The first acceptance gate is the existing five-question targeted smoke, followed
+by the immutable 50-question M49 smoke. Do not run the 991-question development
+batch until this gate and its paired analysis have been reviewed.

@@ -3,6 +3,10 @@
 from legal_agentic_rag.generation.citation_verifier import (
     RuleBasedCitationVerifier,
 )
+from legal_agentic_rag.generation.claim_salvage import (
+    NumericClaimSalvageResult,
+    build_numeric_claim_salvage,
+)
 from legal_agentic_rag.generation.claim_grounding import (
     RuleBasedClaimGroundingVerifier,
 )
@@ -38,6 +42,7 @@ __all__ = [
     "FixedRAGService",
     "ModelBackedAnswerGenerator",
     "ModelBackedCitationVerifier",
+    "NumericClaimSalvageResult",
     "OpenAICompatibleChatProvider",
     "RuleBasedCitationVerifier",
     "RuleBasedClaimGroundingVerifier",
@@ -45,5 +50,6 @@ __all__ = [
     "TransformersChatProvider",
     "build_answer_generator",
     "build_citation_verifier",
+    "build_numeric_claim_salvage",
     "build_generation_components",
 ]

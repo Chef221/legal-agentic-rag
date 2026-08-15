@@ -2490,3 +2490,25 @@ The default config value is `0`; only the M49.2 doc-cap-2 candidate enables
 no official data, artifact, retrieval, model/revision/parameter inventory,
 scorer, submission format, or verifier threshold. It is not a claimed GPU
 improvement until the defined smoke gate completes.
+
+---
+
+## D104 — M49.3 Salvages Only Already-supported Claims Before Numeric Regeneration
+
+**Status:** Accepted
+
+M49.2's targeted smoke showed that numeric regeneration can abstain or fail even
+when the initial verifier has already marked other claims supported. M49.3 first
+constructs a candidate from those exact supported claim texts and their exact
+existing evidence IDs/citations. It never edits a number, paraphrases a claim,
+copies a citation to a different claim, or creates a citation. The candidate is
+verified in the separate `numeric_salvage_verification` phase.
+
+If no claim is supported, salvage is not applicable and the one M49.2 model
+regeneration remains available. If a salvage verification succeeds but rejects
+the candidate, that same one model regeneration is available. Missing/ambiguous
+citation mappings and verifier timeout/error fail closed without model fallback.
+No retrieval, reranking, context rebuild, extra Agent retry, model identity,
+official data, artifact, scorer, or submission behavior changes. The default
+repair limit stays `0`; only the already-approved candidate may set it to `1`.
+Persisted repair telemetry and aggregate reports remain content-free.

@@ -528,6 +528,18 @@ bị loại sang model, và dùng invocation phases riêng. Mọi repair failure
 verification failure thứ hai abstain fail-closed. `FixedRAGService` không dùng
 repair; đường competition online đi qua Agent workflow.
 
+Version `0.49.3` giữ nguyên trigger numeric-only và giới hạn cấu hình đó, nhưng
+trước model regeneration Agent thử deterministic salvage: chỉ render nguyên văn
+những claim đã `supported` cùng đúng evidence ID đã verifier liên kết, loại
+toàn bộ claim numeric mismatch, rồi verifier lại với phase
+`numeric_salvage_verification`. Không có supported claim thì mới gọi model một
+lần như M49.2. Nếu salvage thiếu citation mapping, verifier timeout/error, hoặc
+verification không hợp lệ thì fail closed hoặc dùng đúng một fallback generation
+đã có; không retrieve/rerank/context-build lại, không suy luận số/citation mới.
+Telemetry `numeric_repair` chỉ chứa count, outcome và content-free verification
+summary; batch analysis đếm riêng initial numeric mismatch để không che mất lỗi
+bị salvage hoặc abstain.
+
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
 config và phải có endpoint cùng model name/revision đã pin.
 `transformers` chạy một causal language model local có chat template, cũng yêu

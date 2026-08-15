@@ -221,13 +221,17 @@ class CompetitionBatchLatencySummary(BaseModel):
 
 
 class CompetitionBatchCitationSummary(BaseModel):
-    """Aggregate verifier outcomes without persisting answer or evidence text."""
+    """Aggregate verifier and bounded numeric-repair outcomes without legal text."""
 
     model_config = ConfigDict(extra="forbid")
 
     verification_present_count: int = Field(ge=0)
     verification_failed_count: int = Field(ge=0)
     claim_error_counts: dict[str, int] = Field(default_factory=dict)
+    numeric_repair_attempted_count: int = Field(default=0, ge=0)
+    numeric_repair_succeeded_count: int = Field(default=0, ge=0)
+    numeric_repair_failed_count: int = Field(default=0, ge=0)
+    numeric_repair_outcome_counts: dict[str, int] = Field(default_factory=dict)
 
     @field_validator("claim_error_counts")
     @classmethod
@@ -236,6 +240,27 @@ class CompetitionBatchCitationSummary(BaseModel):
         if any(not key.strip() or count <= 0 for key, count in value.items()):
             raise ValueError("claim error counts must have non-empty positive entries")
         return value
+
+    @field_validator("numeric_repair_outcome_counts")
+    @classmethod
+    def validate_repair_outcome_counts(cls, value: dict[str, int]) -> dict[str, int]:
+        """Require non-empty bounded-repair outcomes with positive counts."""
+        if any(not key.strip() or count <= 0 for key, count in value.items()):
+            raise ValueError("numeric repair outcomes must have non-empty positive entries")
+        return value
+
+    @model_validator(mode="after")
+    def validate_numeric_repair_counts(self) -> "CompetitionBatchCitationSummary":
+        """Keep one terminal outcome for every recorded numeric repair attempt."""
+        if self.numeric_repair_succeeded_count + self.numeric_repair_failed_count != (
+            self.numeric_repair_attempted_count
+        ):
+            raise ValueError("numeric repair outcomes must equal attempted repairs")
+        if self.numeric_repair_outcome_counts and sum(
+            self.numeric_repair_outcome_counts.values()
+        ) != self.numeric_repair_attempted_count:
+            raise ValueError("numeric repair outcome counts must equal attempted repairs")
+        return self
 
 
 class CompetitionBatchContextTraceSummary(BaseModel):
@@ -307,6 +332,9 @@ class CompetitionBatchAnalysisReport(BaseModel):
             self.retrieval_model_error_count,
             self.citation.verification_present_count,
             self.citation.verification_failed_count,
+            self.citation.numeric_repair_attempted_count,
+            self.citation.numeric_repair_succeeded_count,
+            self.citation.numeric_repair_failed_count,
             self.context_trace.trace_present_count,
         )
         if any(count > self.record_count for count in bounded_counts):

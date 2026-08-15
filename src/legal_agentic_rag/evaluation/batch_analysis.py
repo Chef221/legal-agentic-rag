@@ -56,6 +56,10 @@ class CompetitionBatchAnalysisService:
         verification_present_count = 0
         verification_failed_count = 0
         citation_warning_failure_count = 0
+        numeric_repair_attempted_count = 0
+        numeric_repair_succeeded_count = 0
+        numeric_repair_failed_count = 0
+        numeric_repair_outcomes = Counter[str]()
         context_trace_present_count = 0
         selected_evidence_count = 0
         latencies: list[float] = []
@@ -80,11 +84,31 @@ class CompetitionBatchAnalysisService:
             else:
                 stop_reasons[stop_reason] += 1
 
+            numeric_repair = _object_value(metadata, "numeric_repair")
+            numeric_repair_attempted = (
+                numeric_repair is not None and numeric_repair.get("attempted") is True
+            )
             citation_result = _citation_result(metadata)
             if citation_result is not None:
                 verification_present_count += 1
-                for claim in citation_result.claim_verifications:
-                    claim_errors.update(claim.errors)
+                if not numeric_repair_attempted:
+                    for claim in citation_result.claim_verifications:
+                        claim_errors.update(claim.errors)
+
+            if numeric_repair_attempted:
+                assert numeric_repair is not None
+                numeric_repair_attempted_count += 1
+                outcome = _string_value(numeric_repair, "outcome") or "missing"
+                numeric_repair_outcomes[outcome] += 1
+                if outcome in {
+                    "salvage_succeeded",
+                    "model_regeneration_succeeded",
+                    "succeeded",
+                }:
+                    numeric_repair_succeeded_count += 1
+                else:
+                    numeric_repair_failed_count += 1
+                _collect_initial_numeric_repair_errors(numeric_repair, claim_errors)
 
             context = _object_value(metadata, "context")
             selection_trace = _list_value(context, "selection_trace")
@@ -127,6 +151,10 @@ class CompetitionBatchAnalysisService:
                 verification_present_count=verification_present_count,
                 verification_failed_count=verification_failed_count,
                 claim_error_counts=dict(sorted(claim_errors.items())),
+                numeric_repair_attempted_count=numeric_repair_attempted_count,
+                numeric_repair_succeeded_count=numeric_repair_succeeded_count,
+                numeric_repair_failed_count=numeric_repair_failed_count,
+                numeric_repair_outcome_counts=dict(sorted(numeric_repair_outcomes.items())),
             ),
             context_trace=CompetitionBatchContextTraceSummary(
                 trace_present_count=context_trace_present_count,
@@ -394,6 +422,25 @@ def _citation_result(metadata: dict[str, Any]) -> CitationVerificationResult | N
         return CitationVerificationResult.model_validate(payload)
     except ValidationError:
         return None
+
+
+def _collect_initial_numeric_repair_errors(
+    numeric_repair: dict[str, Any],
+    claim_errors: Counter[str],
+) -> None:
+    """Count content-free initial verifier errors once for numeric-repair records."""
+    initial = _object_value(numeric_repair, "initial_verification")
+    claims = _list_value(initial, "claim_verifications")
+    if claims is None:
+        return
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        errors = claim.get("errors")
+        if isinstance(errors, list):
+            claim_errors.update(
+                value for value in errors if isinstance(value, str) and value.strip()
+            )
 
 
 def _object_metadata(metadata: dict[str, Any]) -> dict[str, Any]:

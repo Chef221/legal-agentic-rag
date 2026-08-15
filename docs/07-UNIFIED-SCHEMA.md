@@ -1006,6 +1006,15 @@ and has this enum type; it carries no rejected draft, answer, legal text, or
 free-form instruction. Its only consumer is `AnswerGenerationTool`, which passes
 it to the `AnswerGenerator` contract for a one-shot Agent repair.
 
+M49.3 does not add a public schema or a new tool payload. Its internal
+`NumericClaimSalvageResult` is an implementation-local, content-bearing value:
+it is never persisted in telemetry. Persisted `numeric_repair` metadata remains
+content-free and records only attempt/outcome/counts plus the existing
+content-free verification summaries. `CompetitionBatchCitationSummary` adds
+aggregate numeric-repair attempted/succeeded/failed/outcome counts so a batch
+report can expose initial `numeric_mismatch` diagnostics without answer or
+evidence text.
+
 Retrieval tools dùng trực tiếp `RetrievalQuery` và `RetrievalResponse`, không
 tạo schema backend-specific.
 

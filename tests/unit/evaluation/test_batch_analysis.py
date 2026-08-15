@@ -113,6 +113,51 @@ class _Answerer:
         )
 
 
+class _NumericRepairAnswerer:
+    """Fixture emitting only content-free M49.3 repair telemetry."""
+
+    def answer(self, request):  # type: ignore[no-untyped-def]
+        return AnswerResponse(
+            question=request.question,
+            answer="Cau tra loi da duoc kiem tra.",
+            insufficient_evidence=False,
+            retrieval_strategy=RetrievalStrategy.HYBRID,
+            trace_id="numeric-repair-trace",
+            metadata={
+                "agent": {"stop_reason": "answer_verified", "total_latency_ms": 1.0},
+                "numeric_repair": {
+                    "attempted": True,
+                    "count": 1,
+                    "outcome": "salvage_succeeded",
+                    "initial_verification": {
+                        "claim_verifications": [
+                            {
+                                "claim_id": "C3",
+                                "evidence_ids": ["E3"],
+                                "status": "unsupported",
+                                "lexical_support_score": 0.5,
+                                "numeric_match": False,
+                                "negation_match": True,
+                                "errors": ["numeric_mismatch"],
+                            }
+                        ]
+                    },
+                },
+                "citation_verification": {
+                    "is_valid": True,
+                    "valid_citations": [],
+                    "invalid_citations": [],
+                    "claim_verifications": [],
+                    "claim_coverage_score": None,
+                    "claim_level_verification_performed": False,
+                    "semantic_verification": None,
+                    "errors": [],
+                    "warnings": [],
+                },
+            },
+        )
+
+
 def _questions(path: Path) -> None:
     path.write_text(
         json.dumps(
@@ -187,6 +232,27 @@ def test_batch_comparison_detects_changed_outcomes_and_accepts_new_config(
     output = tmp_path / "comparison"
     persist_batch_comparison_report(report, output)
     assert (output / BATCH_COMPARISON_FILENAME).exists()
+
+
+def test_batch_analysis_counts_initial_numeric_repair_errors_once(
+    tmp_path: Path,
+) -> None:
+    """M49.3 repair telemetry exposes initial numeric mismatches without text."""
+    questions = tmp_path / "development.json"
+    batch = tmp_path / "numeric-repair"
+    _questions(questions)
+    CompetitionBatchRunner(
+        _NumericRepairAnswerer(),
+        application_config_hash="a" * 64,
+    ).run(questions, batch)
+
+    report = CompetitionBatchAnalysisService().analyze(batch)
+
+    assert report.citation.numeric_repair_attempted_count == 2
+    assert report.citation.numeric_repair_succeeded_count == 2
+    assert report.citation.numeric_repair_failed_count == 0
+    assert report.citation.numeric_repair_outcome_counts == {"salvage_succeeded": 2}
+    assert report.citation.claim_error_counts == {"numeric_mismatch": 2}
 
 
 def test_batch_analysis_rejects_records_that_do_not_match_manifest(

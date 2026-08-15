@@ -11,6 +11,7 @@ from legal_agentic_rag.configuration.online import (
     GenerationConfig,
 )
 from legal_agentic_rag.exceptions import ConfigurationError, DataValidationError
+from legal_agentic_rag.generation.claim_salvage import build_numeric_claim_salvage
 from legal_agentic_rag.generation.context_builder import ContextBuilder
 from legal_agentic_rag.schemas.agent_state import (
     AgentRunResult,
@@ -361,6 +362,7 @@ class DeterministicAgentWorkflow:
                     strategy=strategy,
                     context=context,
                     attempt_number=attempt_number,
+                    initial_response=response,
                     initial_verification=result,
                     invocation_trace=invocation_trace,
                 )
@@ -465,15 +467,115 @@ class DeterministicAgentWorkflow:
         strategy: RetrievalStrategy,
         context: ContextBuildResult,
         attempt_number: int,
+        initial_response: AnswerResponse,
         initial_verification: CitationVerificationResult,
         invocation_trace: list[dict[str, object]],
     ) -> tuple[AnswerResponse, AgentStopReason]:
-        """Regenerate once from the same evidence after an isolated numeric failure."""
-        repair_metadata = {
+        """Salvage supported claims, then regenerate once only when required."""
+        repair_metadata: dict[str, object] = {
             "attempted": True,
             "count": 1,
             "initial_verification": self._verification_metadata(initial_verification),
+            "salvage": {
+                "attempted": False,
+                "outcome": "not_started",
+            },
+            "model_regeneration": {
+                "attempted": False,
+                "outcome": "not_needed",
+            },
         }
+        salvage = build_numeric_claim_salvage(initial_response, initial_verification)
+        salvage_metadata = repair_metadata["salvage"]
+        assert isinstance(salvage_metadata, dict)
+        salvage_metadata.update(
+            {
+                "attempted": salvage.outcome != "not_applicable_no_supported_claim",
+                "outcome": salvage.outcome,
+                "retained_claim_count": salvage.retained_claim_count,
+                "dropped_claim_count": salvage.dropped_claim_count,
+            }
+        )
+        if salvage.outcome == "contract_mismatch":
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome="contract_mismatch",
+                    warnings=["numeric_claim_salvage:contract_mismatch"],
+                ),
+                AgentStopReason.CITATION_VERIFICATION_FAILED,
+            )
+        if salvage.response is not None:
+            verification = self._verify_response(
+                query=query,
+                context=context,
+                response=salvage.response,
+                attempt_number=attempt_number,
+                phase="numeric_salvage_verification",
+                invocation_trace=invocation_trace,
+            )
+            if not verification.success:
+                return (
+                    self._numeric_repair_abstention(
+                        query,
+                        strategy,
+                        repair_metadata,
+                        outcome=(
+                            "verification_timeout"
+                            if verification.error.error_type == ToolErrorType.TIMEOUT
+                            else "verification_failed"
+                        ),
+                        warnings=[
+                            "numeric_claim_salvage_failed",
+                            f"verifier:{verification.error.error_type.value}",
+                        ],
+                    ),
+                    (
+                        AgentStopReason.TIMEOUT
+                        if verification.error.error_type == ToolErrorType.TIMEOUT
+                        else AgentStopReason.CITATION_VERIFICATION_FAILED
+                    ),
+                )
+            salvage_verification = CitationVerificationResult.model_validate(
+                verification.output
+            )
+            salvage_metadata["verification"] = self._verification_metadata(
+                salvage_verification
+            )
+            if salvage_verification.is_valid:
+                salvage_metadata["outcome"] = "succeeded"
+                repair_metadata["outcome"] = "salvage_succeeded"
+                warnings = [
+                    *salvage.response.warnings,
+                    "numeric_repair_succeeded",
+                    "numeric_claim_salvage_succeeded",
+                ]
+                if salvage.dropped_claim_count:
+                    warnings.append(
+                        f"numeric_claims_dropped:{salvage.dropped_claim_count}"
+                    )
+                return (
+                    salvage.response.model_copy(
+                        update={
+                            "warnings": list(dict.fromkeys(warnings)),
+                            "metadata": {
+                                **salvage.response.metadata,
+                                "citation_verification": (
+                                    salvage_verification.model_dump(mode="json")
+                                ),
+                                "numeric_repair": repair_metadata,
+                            },
+                        }
+                    ),
+                    AgentStopReason.ANSWER_VERIFIED,
+                )
+            salvage_metadata["outcome"] = "verification_rejected"
+
+        regeneration_metadata = repair_metadata["model_regeneration"]
+        assert isinstance(regeneration_metadata, dict)
+        regeneration_metadata.update({"attempted": True, "outcome": "started"})
         generation = self._invoke(
             query.query_id,
             attempt_number,
@@ -488,6 +590,11 @@ class DeterministicAgentWorkflow:
             invocation_trace,
         )
         if not generation.success:
+            regeneration_metadata["outcome"] = (
+                "timeout"
+                if generation.error.error_type == ToolErrorType.TIMEOUT
+                else "generation_failed"
+            )
             return (
                 self._numeric_repair_abstention(
                     query,
@@ -512,6 +619,7 @@ class DeterministicAgentWorkflow:
             or response.trace_id != query.query_id
             or response.retrieval_strategy != strategy
         ):
+            regeneration_metadata["outcome"] = "contract_mismatch"
             return (
                 self._numeric_repair_abstention(
                     query,
@@ -523,6 +631,7 @@ class DeterministicAgentWorkflow:
                 AgentStopReason.GENERATION_FAILED,
             )
         if response.insufficient_evidence:
+            regeneration_metadata["outcome"] = "generator_abstained"
             return (
                 self._numeric_repair_abstention(
                     query,
@@ -542,6 +651,11 @@ class DeterministicAgentWorkflow:
             invocation_trace=invocation_trace,
         )
         if not verification.success:
+            regeneration_metadata["outcome"] = (
+                "verification_timeout"
+                if verification.error.error_type == ToolErrorType.TIMEOUT
+                else "verification_failed"
+            )
             return (
                 self._numeric_repair_abstention(
                     query,
@@ -567,6 +681,7 @@ class DeterministicAgentWorkflow:
             final_verification
         )
         if not final_verification.is_valid:
+            regeneration_metadata["outcome"] = "verification_rejected"
             return (
                 self._numeric_repair_abstention(
                     query,
@@ -581,7 +696,8 @@ class DeterministicAgentWorkflow:
                 ),
                 AgentStopReason.CITATION_VERIFICATION_FAILED,
             )
-        repair_metadata["outcome"] = "succeeded"
+        regeneration_metadata["outcome"] = "succeeded"
+        repair_metadata["outcome"] = "model_regeneration_succeeded"
         return (
             response.model_copy(
                 update={
