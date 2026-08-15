@@ -82,6 +82,7 @@ def test_m49_2_smoke_profile_uses_bounded_larger_output_budget() -> None:
     assert config.online.generation.max_output_tokens == 384
     assert config.online.generation.max_structured_output_retries == 1
     assert config.online.agent.max_numeric_mismatch_repairs == 1
+    assert config.online.agent.max_supported_claim_salvages == 1
 
 
 def test_config_loader_wraps_invalid_json_without_leaking_details(

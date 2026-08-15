@@ -1,7 +1,8 @@
-"""Deterministically salvage verifier-supported claims after numeric rejection."""
+"""Deterministically salvage verifier-supported claims without rewriting text."""
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 from legal_agentic_rag.schemas.answering import (
@@ -13,19 +14,20 @@ from legal_agentic_rag.schemas.answering import (
 
 
 @dataclass(frozen=True)
-class NumericClaimSalvageResult:
+class SupportedClaimSalvageResult:
     """One bounded, content-preserving salvage attempt outcome."""
 
     response: AnswerResponse | None
     retained_claim_count: int
     dropped_claim_count: int
+    dropped_error_counts: dict[str, int]
     outcome: str
 
 
-def build_numeric_claim_salvage(
+def build_supported_claim_salvage(
     response: AnswerResponse,
     verification: CitationVerificationResult,
-) -> NumericClaimSalvageResult:
+) -> SupportedClaimSalvageResult:
     """Keep only exactly verifier-supported claims and their existing citations.
 
     The function never rewrites claim text, invents a marker, or calls a model.
@@ -41,20 +43,22 @@ def build_numeric_claim_salvage(
         supported_claims
     )
     if not supported_claims:
-        return NumericClaimSalvageResult(
+        return SupportedClaimSalvageResult(
             response=None,
             retained_claim_count=0,
             dropped_claim_count=dropped_claim_count,
+            dropped_error_counts=_dropped_error_counts(verification),
             outcome="not_applicable_no_supported_claim",
         )
 
     citations_by_evidence_id: dict[str, Citation] = {}
     for citation in response.citations:
         if citation.evidence_id in citations_by_evidence_id:
-            return NumericClaimSalvageResult(
+            return SupportedClaimSalvageResult(
                 response=None,
                 retained_claim_count=len(supported_claims),
                 dropped_claim_count=dropped_claim_count,
+                dropped_error_counts=_dropped_error_counts(verification),
                 outcome="contract_mismatch",
             )
         citations_by_evidence_id[citation.evidence_id] = citation
@@ -66,10 +70,11 @@ def build_numeric_claim_salvage(
             evidence_id not in citations_by_evidence_id
             for evidence_id in claim.evidence_ids
         ):
-            return NumericClaimSalvageResult(
+            return SupportedClaimSalvageResult(
                 response=None,
                 retained_claim_count=len(supported_claims),
                 dropped_claim_count=dropped_claim_count,
+                dropped_error_counts=_dropped_error_counts(verification),
                 outcome="contract_mismatch",
             )
         rendered_claims.append(_render_claim(claim.claim_text, claim.evidence_ids))
@@ -77,7 +82,7 @@ def build_numeric_claim_salvage(
             if evidence_id not in evidence_ids:
                 evidence_ids.append(evidence_id)
 
-    return NumericClaimSalvageResult(
+    return SupportedClaimSalvageResult(
         response=response.model_copy(
             update={
                 "answer": " ".join(rendered_claims),
@@ -90,6 +95,7 @@ def build_numeric_claim_salvage(
         ),
         retained_claim_count=len(supported_claims),
         dropped_claim_count=dropped_claim_count,
+        dropped_error_counts=_dropped_error_counts(verification),
         outcome="candidate_ready",
     )
 
@@ -101,3 +107,16 @@ def _render_claim(claim_text: str, evidence_ids: list[str]) -> str:
     if text[-1] in ".!?;":
         return f"{text[:-1].rstrip()} {markers}{text[-1]}"
     return f"{text} {markers}"
+
+
+def _dropped_error_counts(
+    verification: CitationVerificationResult,
+) -> dict[str, int]:
+    """Return only aggregate verifier codes for claims removed by salvage."""
+    errors = Counter(
+        error
+        for claim in verification.claim_verifications
+        if claim.status is not ClaimSupportStatus.SUPPORTED
+        for error in claim.errors
+    )
+    return dict(sorted(errors.items()))

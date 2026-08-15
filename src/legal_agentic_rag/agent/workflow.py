@@ -11,7 +11,7 @@ from legal_agentic_rag.configuration.online import (
     GenerationConfig,
 )
 from legal_agentic_rag.exceptions import ConfigurationError, DataValidationError
-from legal_agentic_rag.generation.claim_salvage import build_numeric_claim_salvage
+from legal_agentic_rag.generation.claim_salvage import build_supported_claim_salvage
 from legal_agentic_rag.generation.context_builder import ContextBuilder
 from legal_agentic_rag.schemas.agent_state import (
     AgentRunResult,
@@ -298,11 +298,19 @@ class DeterministicAgentWorkflow:
                 if generation.error.error_type == ToolErrorType.TIMEOUT
                 else AgentStopReason.GENERATION_FAILED
             )
+            abstention = self._abstention(
+                query,
+                strategy,
+                [f"generator:{generation.error.error_type.value}"],
+            )
             return (
-                self._abstention(
-                    query,
-                    strategy,
-                    [f"generator:{generation.error.error_type.value}"],
+                abstention.model_copy(
+                    update={
+                        "metadata": {
+                            **abstention.metadata,
+                            **self._generation_failure_metadata(generation),
+                        }
+                    }
                 ),
                 reason,
             )
@@ -356,6 +364,26 @@ class DeterministicAgentWorkflow:
             )
         result = CitationVerificationResult.model_validate(verification.output)
         if not result.is_valid:
+            if self._can_salvage_supported_claims(result):
+                if self._can_repair_numeric_mismatch(result):
+                    return self._repair_numeric_mismatch(
+                        query=query,
+                        strategy=strategy,
+                        context=context,
+                        attempt_number=attempt_number,
+                        initial_response=response,
+                        initial_verification=result,
+                        invocation_trace=invocation_trace,
+                    )
+                return self._salvage_supported_claims(
+                    query=query,
+                    strategy=strategy,
+                    context=context,
+                    attempt_number=attempt_number,
+                    initial_response=response,
+                    initial_verification=result,
+                    invocation_trace=invocation_trace,
+                )
             if self._can_repair_numeric_mismatch(result):
                 return self._repair_numeric_mismatch(
                     query=query,
@@ -460,6 +488,174 @@ class DeterministicAgentWorkflow:
         expected_errors = {f"unsupported_claim:{claim.claim_id}" for claim in unsupported}
         return set(result.errors) == expected_errors
 
+    def _can_salvage_supported_claims(
+        self,
+        result: CitationVerificationResult,
+    ) -> bool:
+        """Allow one safe, deterministic removal of verifier-rejected claims."""
+        if self._config.max_supported_claim_salvages < 1:
+            return False
+        if result.is_valid or result.invalid_citations:
+            return False
+        supported = [
+            claim
+            for claim in result.claim_verifications
+            if claim.status.value == "supported"
+        ]
+        unsupported = [
+            claim
+            for claim in result.claim_verifications
+            if claim.status.value == "unsupported"
+        ]
+        if not supported or not unsupported:
+            return False
+        allowed_errors = {"numeric_mismatch", "negation_mismatch"}
+        if any(
+            not claim.errors or not set(claim.errors).issubset(allowed_errors)
+            for claim in unsupported
+        ):
+            return False
+        expected_errors = {f"unsupported_claim:{claim.claim_id}" for claim in unsupported}
+        return set(result.errors) == expected_errors
+
+    def _salvage_supported_claims(
+        self,
+        *,
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        context: ContextBuildResult,
+        attempt_number: int,
+        initial_response: AnswerResponse,
+        initial_verification: CitationVerificationResult,
+        invocation_trace: list[dict[str, object]],
+    ) -> tuple[AnswerResponse, AgentStopReason]:
+        """Keep only supported claims for a bounded non-numeric repair path.
+
+        This branch deliberately never sends the rejected draft back to the model.
+        A verifier failure, timeout, or rejection remains an abstention.
+        """
+        metadata: dict[str, object] = {
+            "attempted": True,
+            "count": 1,
+            "initial_verification": self._verification_metadata(initial_verification),
+        }
+        salvage = build_supported_claim_salvage(initial_response, initial_verification)
+        metadata.update(
+            {
+                "outcome": salvage.outcome,
+                "retained_claim_count": salvage.retained_claim_count,
+                "dropped_claim_count": salvage.dropped_claim_count,
+                "dropped_error_counts": salvage.dropped_error_counts,
+            }
+        )
+        if salvage.response is None:
+            return (
+                self._supported_claim_salvage_abstention(
+                    query,
+                    strategy,
+                    metadata,
+                    outcome=salvage.outcome,
+                    warnings=["supported_claim_salvage_failed"],
+                ),
+                AgentStopReason.CITATION_VERIFICATION_FAILED,
+            )
+        verification = self._verify_response(
+            query=query,
+            context=context,
+            response=salvage.response,
+            attempt_number=attempt_number,
+            phase="supported_claim_salvage_verification",
+            invocation_trace=invocation_trace,
+        )
+        if not verification.success:
+            outcome = (
+                "verification_timeout"
+                if verification.error.error_type == ToolErrorType.TIMEOUT
+                else "verification_failed"
+            )
+            return (
+                self._supported_claim_salvage_abstention(
+                    query,
+                    strategy,
+                    metadata,
+                    outcome=outcome,
+                    warnings=[
+                        "supported_claim_salvage_failed",
+                        f"verifier:{verification.error.error_type.value}",
+                    ],
+                ),
+                (
+                    AgentStopReason.TIMEOUT
+                    if verification.error.error_type == ToolErrorType.TIMEOUT
+                    else AgentStopReason.CITATION_VERIFICATION_FAILED
+                ),
+            )
+        salvage_verification = CitationVerificationResult.model_validate(
+            verification.output
+        )
+        metadata["verification"] = self._verification_metadata(salvage_verification)
+        if not salvage_verification.is_valid:
+            return (
+                self._supported_claim_salvage_abstention(
+                    query,
+                    strategy,
+                    metadata,
+                    outcome="verification_rejected",
+                    warnings=[
+                        "citation_verification_failed",
+                        *salvage_verification.errors,
+                    ],
+                    verification=salvage_verification,
+                ),
+                AgentStopReason.CITATION_VERIFICATION_FAILED,
+            )
+        metadata["outcome"] = "succeeded"
+        warnings = [*salvage.response.warnings, "supported_claim_salvage_succeeded"]
+        if salvage.dropped_claim_count:
+            warnings.append(f"supported_claims_dropped:{salvage.dropped_claim_count}")
+        return (
+            salvage.response.model_copy(
+                update={
+                    "warnings": list(dict.fromkeys(warnings)),
+                    "metadata": {
+                        **salvage.response.metadata,
+                        "citation_verification": salvage_verification.model_dump(
+                            mode="json"
+                        ),
+                        "claim_salvage": metadata,
+                    },
+                }
+            ),
+            AgentStopReason.ANSWER_VERIFIED,
+        )
+
+    def _supported_claim_salvage_abstention(
+        self,
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        metadata: dict[str, object],
+        *,
+        outcome: str,
+        warnings: list[str],
+        verification: CitationVerificationResult | None = None,
+    ) -> AnswerResponse:
+        """Return a fail-closed, content-free supported-claim salvage outcome."""
+        metadata["outcome"] = outcome
+        response = self._abstention(
+            query,
+            strategy,
+            ["supported_claim_salvage_failed", *warnings],
+        )
+        response_metadata: dict[str, object] = {
+            **response.metadata,
+            "claim_salvage": metadata,
+        }
+        if verification is not None:
+            response_metadata["citation_verification"] = verification.model_dump(
+                mode="json"
+            )
+        return response.model_copy(update={"metadata": response_metadata})
+
     def _repair_numeric_mismatch(
         self,
         *,
@@ -485,7 +681,7 @@ class DeterministicAgentWorkflow:
                 "outcome": "not_needed",
             },
         }
-        salvage = build_numeric_claim_salvage(initial_response, initial_verification)
+        salvage = build_supported_claim_salvage(initial_response, initial_verification)
         salvage_metadata = repair_metadata["salvage"]
         assert isinstance(salvage_metadata, dict)
         salvage_metadata.update(
@@ -494,6 +690,7 @@ class DeterministicAgentWorkflow:
                 "outcome": salvage.outcome,
                 "retained_claim_count": salvage.retained_claim_count,
                 "dropped_claim_count": salvage.dropped_claim_count,
+                "dropped_error_counts": salvage.dropped_error_counts,
             }
         )
         if salvage.outcome == "contract_mismatch":
@@ -895,10 +1092,35 @@ class DeterministicAgentWorkflow:
                 "error_type": (
                     result.error.error_type.value if result.error else None
                 ),
+                "generation_failure_code": (
+                    result.error.generation_failure_code.value
+                    if result.error is not None
+                    and result.error.generation_failure_code is not None
+                    else None
+                ),
                 "latency_ms": result.latency_ms,
             }
         )
         return result
+
+    @staticmethod
+    def _generation_failure_metadata(
+        generation: ToolInvocationResult,
+    ) -> dict[str, object]:
+        """Persist only a closed structured-output failure code, never a draft."""
+        error = generation.error
+        if (
+            error is None
+            or error.error_type is not ToolErrorType.MODEL_ERROR
+            or error.generation_failure_code is None
+        ):
+            return {}
+        return {
+            "generation_failure": {
+                "error_type": error.error_type.value,
+                "failure_code": error.generation_failure_code.value,
+            }
+        }
 
     @staticmethod
     def _validate_retrieval(

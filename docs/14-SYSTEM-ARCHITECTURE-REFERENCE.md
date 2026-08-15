@@ -627,3 +627,16 @@ Một run được coi là hợp lệ khi:
 7. model stack tuân thủ license, đăng ký và tổng tham số dưới 4B;
 8. config, code commit, model revision và output checksums được lưu;
 9. README tái lập được toàn bộ quá trình mà không dùng dữ liệu/API bị cấm.
+
+## M49.4 diagnostic boundary
+
+The answer-generation provider returns an untrusted completion only to the
+generator. If that completion violates the structured answer contract, the
+generator raises a typed local exception; the tool registry emits only a closed
+failure code and a sanitized message. No rejected completion crosses this
+boundary.
+
+For an eligible verifier result, `claim_salvage` constructs a temporary answer
+from exact already-supported claims and original citations. The normal verifier
+must accept it before a response is returned. Persisted telemetry contains only
+aggregate counts and error codes, never claim text.

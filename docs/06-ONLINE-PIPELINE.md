@@ -1162,3 +1162,19 @@ khoảng 0,08 giây, cả BM25/dense/hybrid đều trả đủ 5 hit và extract
 kết thúc `answer_verified` với 5 citation. Cold dense mất khoảng 10,50 giây do
 nạp E5; warm hybrid mất khoảng 0,26 giây. Đây chỉ là kiểm tra vận hành vì public
 data không có retrieval relevance labels.
+
+## 26. M49.4 structured-generation diagnostics and supported-claim salvage
+
+The generation tool may expose `generation_failure_code` only when a local
+structured-output contract rejects a model completion. The value is a closed
+taxonomy and contains no completion, prompt, claim text, or legal evidence.
+Provider/runtime failures remain ordinary `model_error` without a fabricated
+structured code.
+
+After citation verification, the Agent may run one deterministic
+`supported_claim_salvage_verification` only when citations are valid, there is
+at least one supported and one unsupported claim, every rejected claim has only
+`numeric_mismatch` and/or `negation_mismatch`, and top-level errors correspond
+exactly to those claims. It keeps exact supported text and existing citations;
+it never rewrites, infers, or moves a citation. The option defaults disabled.
+Negation salvage has no model fallback; every error or rejection abstains.

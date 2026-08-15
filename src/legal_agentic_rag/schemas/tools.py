@@ -50,6 +50,18 @@ class ToolErrorType(StrEnum):
     EXTERNAL_SERVICE_ERROR = "external_service_error"
 
 
+class StructuredGenerationFailureCode(StrEnum):
+    """Closed, content-free classifications for rejected model output."""
+
+    JSON_DECODE_ERROR = "json_decode_error"
+    SCHEMA_VALIDATION_ERROR = "schema_validation_error"
+    UNKNOWN_EVIDENCE_ID = "unknown_evidence_id"
+    MARKER_IN_CLAIM_TEXT = "marker_in_claim_text"
+    CLAIM_BOUNDARY_MISMATCH = "claim_boundary_mismatch"
+    NON_VIETNAMESE_CLAIM = "non_vietnamese_claim"
+    MODEL_OUTPUT_VALIDATION = "model_output_validation"
+
+
 class AnswerGenerationCorrectionSignal(StrEnum):
     """Closed, content-free request for one generation correction mode."""
 
@@ -143,6 +155,7 @@ class ToolError(BaseModel):
     error_type: ToolErrorType
     message: str
     retryable: bool = False
+    generation_failure_code: StructuredGenerationFailureCode | None = None
 
     @field_validator("message")
     @classmethod
@@ -152,6 +165,18 @@ class ToolError(BaseModel):
         if not normalized:
             raise ValueError("tool error message must not be empty")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_generation_failure_code(self) -> "ToolError":
+        """Only expose a structured-generation code on model-tool failures."""
+        if (
+            self.generation_failure_code is not None
+            and self.error_type is not ToolErrorType.MODEL_ERROR
+        ):
+            raise ValueError(
+                "generation failure code is valid only for model errors"
+            )
+        return self
 
 
 class ToolInvocationResult(BaseModel):

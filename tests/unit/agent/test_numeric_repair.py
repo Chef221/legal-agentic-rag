@@ -6,7 +6,11 @@ import pytest
 
 from legal_agentic_rag.agent import DeterministicAgentWorkflow
 from legal_agentic_rag.configuration import AgentConfig
-from legal_agentic_rag.exceptions import ModelError, OperationTimeoutError
+from legal_agentic_rag.exceptions import (
+    ModelError,
+    OperationTimeoutError,
+    StructuredGenerationError,
+)
 from legal_agentic_rag.generation import RuleBasedContextGrader
 from legal_agentic_rag.schemas import (
     AgentStopReason,
@@ -21,6 +25,7 @@ from legal_agentic_rag.schemas import (
     RetrievalQuery,
     RetrievalResponse,
     RetrievalStrategy,
+    StructuredGenerationFailureCode,
 )
 from legal_agentic_rag.tools import build_fixed_tool_registry
 
@@ -56,10 +61,12 @@ class _Generator:
         *,
         repair_outcome: str = "valid",
         multi_claim_initial_response: bool = False,
+        initial_outcome: str = "valid",
     ) -> None:
         self.calls: list[AnswerGenerationCorrectionSignal | None] = []
         self._repair_outcome = repair_outcome
         self._multi_claim_initial_response = multi_claim_initial_response
+        self._initial_outcome = initial_outcome
 
     def generate(
         self,
@@ -70,6 +77,11 @@ class _Generator:
         correction_signal: AnswerGenerationCorrectionSignal | None = None,
     ) -> AnswerResponse:
         self.calls.append(correction_signal)
+        if correction_signal is None and self._initial_outcome == "structured_error":
+            raise StructuredGenerationError(
+                "fixture completion must never persist",
+                failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR.value,
+            )
         if correction_signal is not None:
             if self._repair_outcome == "model_error":
                 raise ModelError("fixture repair failure")
@@ -243,6 +255,8 @@ def _partially_supported_numeric_verification() -> CitationVerificationResult:
 def _workflow(
     generator: _Generator,
     verifier: _Verifier,
+    *,
+    max_supported_claim_salvages: int = 1,
 ) -> tuple[DeterministicAgentWorkflow, _Retriever]:
     retriever = _Retriever()
     registry = build_fixed_tool_registry(
@@ -257,6 +271,7 @@ def _workflow(
             agent_config=AgentConfig(
                 max_retry=2,
                 max_numeric_mismatch_repairs=1,
+                max_supported_claim_salvages=max_supported_claim_salvages,
                 strategy_order=[RetrievalStrategy.HYBRID],
                 rewrite_query_on_retry=False,
             ),
@@ -456,3 +471,99 @@ def test_repair_generation_failures_remain_fail_closed(
     assert result.response.metadata["numeric_repair"]["outcome"] in {
         "generation_failed", "timeout", "generator_abstained", "contract_mismatch"
     }
+
+
+def test_negation_only_failure_salvages_supported_claims_without_model_retry() -> None:
+    """Negation mismatch removes only the rejected claim and never regenerates."""
+    generator = _Generator(multi_claim_initial_response=True)
+    initial = _partially_supported_numeric_verification().model_copy(
+        update={
+            "claim_verifications": [
+                *_partially_supported_numeric_verification().claim_verifications[:2],
+                _partially_supported_numeric_verification().claim_verifications[2].model_copy(
+                    update={"numeric_match": True, "negation_match": False, "errors": ["negation_mismatch"]}
+                ),
+            ]
+        }
+    )
+    verifier = _Verifier([initial, _verification(errors=[], valid=True)])
+    workflow, retriever = _workflow(generator, verifier)
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
+    assert retriever.calls == 1
+    assert generator.calls == [None]
+    assert verifier.calls == 2
+    salvage = result.response.metadata["claim_salvage"]
+    assert salvage["outcome"] == "succeeded"
+    assert salvage["dropped_error_counts"] == {"negation_mismatch": 1}
+    assert "supported_claim_salvage_succeeded" in result.response.warnings
+
+
+def test_negation_salvage_verification_rejection_fails_closed_without_model_retry() -> None:
+    """A rejected deterministic salvage never falls through to a new generation."""
+    generator = _Generator(multi_claim_initial_response=True)
+    initial = _partially_supported_numeric_verification().model_copy(
+        update={
+            "claim_verifications": [
+                *_partially_supported_numeric_verification().claim_verifications[:2],
+                _partially_supported_numeric_verification().claim_verifications[2].model_copy(
+                    update={"numeric_match": True, "negation_match": False, "errors": ["negation_mismatch"]}
+                ),
+            ]
+        }
+    )
+    rejected = _verification(errors=["negation_mismatch"], valid=False)
+    verifier = _Verifier([initial, rejected])
+    workflow, _ = _workflow(generator, verifier)
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.CITATION_VERIFICATION_FAILED
+    assert result.response.insufficient_evidence is True
+    assert generator.calls == [None]
+    assert result.response.metadata["claim_salvage"]["outcome"] == "verification_rejected"
+
+
+def test_supported_claim_salvage_is_disabled_by_default_policy() -> None:
+    """The separate M49.4 policy must not alter an existing profile by default."""
+    generator = _Generator(multi_claim_initial_response=True)
+    initial = _partially_supported_numeric_verification().model_copy(
+        update={
+            "claim_verifications": [
+                *_partially_supported_numeric_verification().claim_verifications[:2],
+                _partially_supported_numeric_verification().claim_verifications[2].model_copy(
+                    update={"numeric_match": True, "negation_match": False, "errors": ["negation_mismatch"]}
+                ),
+            ]
+        }
+    )
+    verifier = _Verifier([initial])
+    workflow, _ = _workflow(
+        generator,
+        verifier,
+        max_supported_claim_salvages=0,
+    )
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.CITATION_VERIFICATION_FAILED
+    assert generator.calls == [None]
+    assert verifier.calls == 1
+    assert "claim_salvage" not in result.response.metadata
+
+
+def test_generation_failure_persists_only_closed_structured_code() -> None:
+    """Agent abstention carries a safe code but never the rejected completion."""
+    generator = _Generator(initial_outcome="structured_error")
+    workflow, _ = _workflow(generator, _Verifier([]))
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.GENERATION_FAILED
+    assert result.response.metadata["generation_failure"] == {
+        "error_type": "model_error",
+        "failure_code": "json_decode_error",
+    }
+    assert "fixture completion" not in str(result.response.metadata)

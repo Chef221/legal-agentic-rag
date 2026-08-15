@@ -20,6 +20,7 @@ from legal_agentic_rag.exceptions import (
     ModelError,
     OperationTimeoutError,
     RetrievalError,
+    StructuredGenerationError,
 )
 from legal_agentic_rag.schemas.tools import (
     ToolDescriptor,
@@ -28,6 +29,7 @@ from legal_agentic_rag.schemas.tools import (
     ToolInvocationRequest,
     ToolInvocationResult,
     ToolName,
+    StructuredGenerationFailureCode,
 )
 from legal_agentic_rag.tools.contracts import TypedTool
 
@@ -147,6 +149,15 @@ class ToolRegistry:
 
     @staticmethod
     def _domain_error(error: LegalAgenticRAGError) -> ToolError:
+        if isinstance(error, StructuredGenerationError):
+            return ToolError(
+                error_type=ToolErrorType.MODEL_ERROR,
+                message="Model output did not satisfy the grounded answer contract.",
+                retryable=True,
+                generation_failure_code=StructuredGenerationFailureCode(
+                    error.failure_code
+                ),
+            )
         mappings: tuple[
             tuple[type[LegalAgenticRAGError], ToolErrorType, str, bool],
             ...,

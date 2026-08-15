@@ -1421,3 +1421,16 @@ zero overlap, low diversity, explicit reference không xuất hiện, low lexica
 answer coverage, warning hoặc error. Signal không phải relevance judgment.
 Successful case bắt buộc đủ đúng số branch đã khai báo; failed case bắt buộc có error type;
 aggregate counts phải khớp tuyệt đối với case payload.
+
+### 21.11 M49.4 tool and batch-analysis additions
+
+`StructuredGenerationFailureCode` is a closed enum carried only by
+`ToolError.generation_failure_code` when `error_type == model_error`. Its values
+describe output-contract classes, not model output. `CompetitionBatchAnalysisReport`
+aggregates these codes and counts unclassified model errors separately.
+
+`CompetitionBatchCitationSummary` also records optional supported-claim-salvage
+attempt/success/failure/outcome counts. Persisted `claim_salvage` metadata is
+content-free: counts, verifier codes and verifier summary only. Internal
+`SupportedClaimSalvageResult` can hold a temporary response for re-verification,
+but is never persisted.

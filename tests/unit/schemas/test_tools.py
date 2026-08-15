@@ -11,6 +11,7 @@ from legal_agentic_rag.schemas import (
     ToolInvocationRequest,
     ToolInvocationResult,
     ToolName,
+    StructuredGenerationFailureCode,
 )
 from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
 
@@ -74,6 +75,23 @@ def test_answer_generation_input_allows_only_the_closed_numeric_repair_signal() 
     with pytest.raises(ValidationError):
         AnswerGenerationInput.model_validate(
             {**payload.model_dump(mode="json"), "correction_signal": "rewrite_anything"}
+        )
+
+
+def test_structured_generation_error_code_is_limited_to_model_failures() -> None:
+    """Telemetry cannot attach model-output taxonomy to a non-model error."""
+    error = ToolError(
+        error_type=ToolErrorType.MODEL_ERROR,
+        message="Model output rejected.",
+        generation_failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR,
+    )
+
+    assert error.generation_failure_code == StructuredGenerationFailureCode.JSON_DECODE_ERROR
+    with pytest.raises(ValidationError):
+        ToolError(
+            error_type=ToolErrorType.DATA_VALIDATION_ERROR,
+            message="Invalid data.",
+            generation_failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR,
         )
     with pytest.raises(ValidationError):
         ToolInvocationRequest.model_validate(

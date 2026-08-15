@@ -383,6 +383,7 @@ class AgentConfig(BaseModel):
 
     max_retry: int = Field(default=2, ge=0, le=2)
     max_numeric_mismatch_repairs: int = Field(default=0, ge=0, le=1)
+    max_supported_claim_salvages: int = Field(default=0, ge=0, le=1)
     strategy_order: list[RetrievalStrategy] = Field(
         default_factory=lambda: [
             RetrievalStrategy.HYBRID_RERANK,

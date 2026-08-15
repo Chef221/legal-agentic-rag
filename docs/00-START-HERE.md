@@ -118,3 +118,13 @@ M43.1 là mốc so sánh, không phải code “bỏ đi”. Mọi cải tiến 
 5. có thể tái lập từ commit + config + artifact lineage hay không.
 
 Nếu chưa trả lời đủ năm câu này, thay đổi chưa sẵn sàng merge.
+
+## M49.4 bounded follow-up
+
+M49.4 is a generator/verifier recovery experiment only. It classifies structured
+model-output rejection with a closed code and adds one optional supported-claim
+salvage. The salvage retains exact verifier-supported claim text and existing
+citation identities, drops only numeric/negation-mismatched claims, and always
+verifies the resulting answer before returning it. Do not run the 991-question
+batch before reviewing the targeted seven-question gate and unchanged
+50-question smoke set.

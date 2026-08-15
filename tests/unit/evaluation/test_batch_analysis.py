@@ -158,6 +158,45 @@ class _NumericRepairAnswerer:
         )
 
 
+class _M49_4Answerer:
+    """Fixture emitting only content-free M49.4 diagnostic fields."""
+
+    def answer(self, request):  # type: ignore[no-untyped-def]
+        return AnswerResponse(
+            question=request.question,
+            answer="Cau tra loi da duoc salvage.",
+            insufficient_evidence=False,
+            warnings=["generator:model_error"],
+            retrieval_strategy=RetrievalStrategy.HYBRID,
+            trace_id="m49-4-trace",
+            metadata={
+                "agent": {"stop_reason": "answer_verified", "total_latency_ms": 1.0},
+                "generation_failure": {
+                    "error_type": "model_error",
+                    "failure_code": "json_decode_error",
+                },
+                "claim_salvage": {
+                    "attempted": True,
+                    "count": 1,
+                    "outcome": "succeeded",
+                    "initial_verification": {
+                        "claim_verifications": [
+                            {
+                                "claim_id": "C2",
+                                "evidence_ids": ["E2"],
+                                "status": "unsupported",
+                                "lexical_support_score": 1.0,
+                                "numeric_match": True,
+                                "negation_match": False,
+                                "errors": ["negation_mismatch"],
+                            }
+                        ]
+                    },
+                },
+            },
+        )
+
+
 def _questions(path: Path) -> None:
     path.write_text(
         json.dumps(
@@ -253,6 +292,29 @@ def test_batch_analysis_counts_initial_numeric_repair_errors_once(
     assert report.citation.numeric_repair_failed_count == 0
     assert report.citation.numeric_repair_outcome_counts == {"salvage_succeeded": 2}
     assert report.citation.claim_error_counts == {"numeric_mismatch": 2}
+
+
+def test_batch_analysis_aggregates_m49_4_codes_and_salvage_without_content(
+    tmp_path: Path,
+) -> None:
+    """M49.4 summarizes closed generation and negation-salvage telemetry once."""
+    questions = tmp_path / "development.json"
+    batch = tmp_path / "m49-4"
+    _questions(questions)
+    CompetitionBatchRunner(
+        _M49_4Answerer(),
+        application_config_hash="a" * 64,
+    ).run(questions, batch)
+
+    report = CompetitionBatchAnalysisService().analyze(batch)
+
+    assert report.generation_failure_code_counts == {"json_decode_error": 2}
+    assert report.generator_model_error_unclassified_count == 0
+    assert report.citation.supported_claim_salvage_attempted_count == 2
+    assert report.citation.supported_claim_salvage_succeeded_count == 2
+    assert report.citation.supported_claim_salvage_failed_count == 0
+    assert report.citation.supported_claim_salvage_outcome_counts == {"succeeded": 2}
+    assert report.citation.claim_error_counts == {"negation_mismatch": 2}
 
 
 def test_batch_analysis_rejects_records_that_do_not_match_manifest(

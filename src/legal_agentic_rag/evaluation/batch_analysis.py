@@ -52,6 +52,8 @@ class CompetitionBatchAnalysisService:
         selection_reasons = Counter[str]()
         insufficient_count = 0
         generator_error_count = 0
+        generation_failure_codes = Counter[str]()
+        generator_error_unclassified_count = 0
         retrieval_error_count = 0
         verification_present_count = 0
         verification_failed_count = 0
@@ -60,6 +62,10 @@ class CompetitionBatchAnalysisService:
         numeric_repair_succeeded_count = 0
         numeric_repair_failed_count = 0
         numeric_repair_outcomes = Counter[str]()
+        supported_claim_salvage_attempted_count = 0
+        supported_claim_salvage_succeeded_count = 0
+        supported_claim_salvage_failed_count = 0
+        supported_claim_salvage_outcomes = Counter[str]()
         context_trace_present_count = 0
         selected_evidence_count = 0
         latencies: list[float] = []
@@ -71,6 +77,15 @@ class CompetitionBatchAnalysisService:
             generator_error_count += int(
                 _GENERATOR_MODEL_ERROR_WARNING in response.warnings
             )
+            if _GENERATOR_MODEL_ERROR_WARNING in response.warnings:
+                failure = _object_value(
+                    _object_metadata(response.metadata), "generation_failure"
+                )
+                failure_code = _string_value(failure, "failure_code")
+                if failure_code is None:
+                    generator_error_unclassified_count += 1
+                else:
+                    generation_failure_codes[failure_code] += 1
             retrieval_error_count += int(
                 _RETRIEVAL_MODEL_ERROR_WARNING in response.warnings
             )
@@ -110,6 +125,17 @@ class CompetitionBatchAnalysisService:
                     numeric_repair_failed_count += 1
                 _collect_initial_numeric_repair_errors(numeric_repair, claim_errors)
 
+            claim_salvage = _object_value(metadata, "claim_salvage")
+            if claim_salvage is not None and claim_salvage.get("attempted") is True:
+                supported_claim_salvage_attempted_count += 1
+                outcome = _string_value(claim_salvage, "outcome") or "missing"
+                supported_claim_salvage_outcomes[outcome] += 1
+                if outcome == "succeeded":
+                    supported_claim_salvage_succeeded_count += 1
+                else:
+                    supported_claim_salvage_failed_count += 1
+                _collect_initial_claim_salvage_errors(claim_salvage, claim_errors)
+
             context = _object_value(metadata, "context")
             selection_trace = _list_value(context, "selection_trace")
             if selection_trace is not None:
@@ -144,6 +170,8 @@ class CompetitionBatchAnalysisService:
             unique_question_id_count=len({record.question_id for record in batch.records}),
             insufficient_evidence_count=insufficient_count,
             generator_model_error_count=generator_error_count,
+            generation_failure_code_counts=dict(sorted(generation_failure_codes.items())),
+            generator_model_error_unclassified_count=generator_error_unclassified_count,
             retrieval_model_error_count=retrieval_error_count,
             stop_reason_counts=dict(sorted(stop_reasons.items())),
             warning_counts=dict(sorted(warnings.items())),
@@ -155,6 +183,16 @@ class CompetitionBatchAnalysisService:
                 numeric_repair_succeeded_count=numeric_repair_succeeded_count,
                 numeric_repair_failed_count=numeric_repair_failed_count,
                 numeric_repair_outcome_counts=dict(sorted(numeric_repair_outcomes.items())),
+                supported_claim_salvage_attempted_count=(
+                    supported_claim_salvage_attempted_count
+                ),
+                supported_claim_salvage_succeeded_count=(
+                    supported_claim_salvage_succeeded_count
+                ),
+                supported_claim_salvage_failed_count=supported_claim_salvage_failed_count,
+                supported_claim_salvage_outcome_counts=dict(
+                    sorted(supported_claim_salvage_outcomes.items())
+                ),
             ),
             context_trace=CompetitionBatchContextTraceSummary(
                 trace_present_count=context_trace_present_count,
@@ -430,6 +468,25 @@ def _collect_initial_numeric_repair_errors(
 ) -> None:
     """Count content-free initial verifier errors once for numeric-repair records."""
     initial = _object_value(numeric_repair, "initial_verification")
+    claims = _list_value(initial, "claim_verifications")
+    if claims is None:
+        return
+    for claim in claims:
+        if not isinstance(claim, dict):
+            continue
+        errors = claim.get("errors")
+        if isinstance(errors, list):
+            claim_errors.update(
+                value for value in errors if isinstance(value, str) and value.strip()
+            )
+
+
+def _collect_initial_claim_salvage_errors(
+    claim_salvage: dict[str, Any],
+    claim_errors: Counter[str],
+) -> None:
+    """Count initial verifier codes for a general salvage exactly once."""
+    initial = _object_value(claim_salvage, "initial_verification")
     claims = _list_value(initial, "claim_verifications")
     if claims is None:
         return

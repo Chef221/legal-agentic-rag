@@ -6,7 +6,11 @@ from time import sleep
 import pytest
 from pydantic import BaseModel
 
-from legal_agentic_rag.exceptions import ConfigurationError, RetrievalError
+from legal_agentic_rag.exceptions import (
+    ConfigurationError,
+    RetrievalError,
+    StructuredGenerationError,
+)
 from legal_agentic_rag.schemas import (
     RetrievalQuery,
     RetrievalResponse,
@@ -14,7 +18,10 @@ from legal_agentic_rag.schemas import (
     ToolInvocationRequest,
     ToolName,
 )
-from legal_agentic_rag.schemas.tools import ToolErrorType
+from legal_agentic_rag.schemas.tools import (
+    StructuredGenerationFailureCode,
+    ToolErrorType,
+)
 from legal_agentic_rag.tools import RetrievalTool, ToolRegistry
 
 
@@ -141,3 +148,17 @@ def test_registry_does_not_hide_unexpected_programming_errors() -> None:
 
     with pytest.raises(ValueError, match="programming bug"):
         registry.execute(_request())
+
+
+def test_registry_preserves_only_the_closed_structured_generation_code() -> None:
+    """Structured model-output failures are safe to aggregate beyond the tool."""
+    error = ToolRegistry._domain_error(
+        StructuredGenerationError(
+            "private rejected draft must not escape",
+            failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR.value,
+        )
+    )
+
+    assert error.error_type == ToolErrorType.MODEL_ERROR
+    assert error.generation_failure_code == StructuredGenerationFailureCode.JSON_DECODE_ERROR
+    assert "private" not in error.message

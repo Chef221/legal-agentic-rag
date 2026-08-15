@@ -6,7 +6,11 @@ import json
 import pytest
 
 from legal_agentic_rag.contracts import AnswerGenerator, ChatModelProvider
-from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.exceptions import (
+    DataValidationError,
+    ModelError,
+    StructuredGenerationError,
+)
 from legal_agentic_rag.generation import ModelBackedAnswerGenerator
 from legal_agentic_rag.generation.claim_grounding import (
     extract_inline_evidence_ids,
@@ -17,6 +21,7 @@ from legal_agentic_rag.schemas import (
     Evidence,
     RetrievalQuery,
     RetrievalStrategy,
+    StructuredGenerationFailureCode,
 )
 
 
@@ -489,6 +494,24 @@ def test_model_generator_can_disable_structured_output_retry() -> None:
             "model-answer-query",
         )
     assert len(provider.calls) == 1
+
+
+def test_model_generator_exposes_only_a_closed_structured_failure_code() -> None:
+    """A terminal malformed completion retains its typed reason without content."""
+    provider = _FixtureProvider("not-json")
+
+    with pytest.raises(StructuredGenerationError) as raised:
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+    assert raised.value.failure_code == StructuredGenerationFailureCode.JSON_DECODE_ERROR
 
 
 def test_model_generator_rejects_duplicate_evidence_before_inference() -> None:

@@ -33,6 +33,14 @@ class ModelError(LegalAgenticRAGError):
     """Raised when a model provider fails."""
 
 
+class StructuredGenerationError(ModelError):
+    """Raised for a sanitized, classified model-output contract failure."""
+
+    def __init__(self, message: str, *, failure_code: str) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+
+
 class OperationTimeoutError(LegalAgenticRAGError):
     """Raised when a bounded operation exceeds its timeout."""
 

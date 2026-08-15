@@ -285,3 +285,18 @@ scorer-compatible mode, không dựa riêng vào retrieval diagnostics.
 
 Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
 cache hoặc token.
+
+## M49.4 - typed generation diagnostics and safe claim salvage
+
+M49.4 keeps M49.3 numeric handling and adds two bounded safeguards. Structured
+model-output failures are exported only as a closed failure code (for example
+`json_decode_error` or `unknown_evidence_id`), never as the rejected completion.
+When a verifier marks some claims supported and rejects only numeric/negation
+claims, the Agent can retain the supported text and its existing citations
+verbatim, remove only the rejected claims, and verify again.
+
+This supported-claim salvage is disabled by default and enabled only in the
+isolated k=40/doc-cap-2 experiment. It never regenerates a negation-mismatch
+response with the model. Any missing citation mapping, verifier timeout/error,
+or rejected salvaged response remains fail-closed. M49.4 changes no BTC data,
+artifacts, retrieval ranking, model, scorer, or submission format.

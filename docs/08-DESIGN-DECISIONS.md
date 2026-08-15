@@ -2512,3 +2512,24 @@ No retrieval, reranking, context rebuild, extra Agent retry, model identity,
 official data, artifact, scorer, or submission behavior changes. The default
 repair limit stays `0`; only the already-approved candidate may set it to `1`.
 Persisted repair telemetry and aggregate reports remain content-free.
+
+---
+
+## D105 — M49.4 Classifies Structured Generation and Salvages Only Supported Claims
+
+**Status:** Accepted
+
+M49.3's smoke recovered numeric-only failures but left a negation-only citation
+failure and model errors with no persisted category. M49.4 adds a closed,
+sanitized structured-generation failure code at the tool boundary. It classifies
+only output-contract failures; provider, CUDA, timeout, and unknown runtime
+failures must not be relabelled as structured output failures.
+
+M49.4 also generalizes deterministic salvage under a separate default-off limit.
+It applies only when claims already marked supported can be retained exactly and
+all removed claims are rejected solely for numeric and/or negation mismatch. The
+Agent re-verifies the candidate. A negation path never calls the model again.
+Missing mappings, timeout/error, or a rejected candidate remain an abstention.
+Numeric-only handling retains M49.3's bounded model fallback after its existing
+salvage conditions. No corpus, artifact, retrieval, model, scorer, or submission
+contract changes. Promotion requires the targeted and fixed 50-question gates.

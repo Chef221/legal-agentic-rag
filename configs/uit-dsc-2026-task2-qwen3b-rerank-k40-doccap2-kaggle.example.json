@@ -105,6 +105,7 @@
     "agent": {
       "max_retry": 2,
       "max_numeric_mismatch_repairs": 1,
+      "max_supported_claim_salvages": 1,
       "strategy_order": ["hybrid_rerank"],
       "rewrite_query_on_retry": false
     }

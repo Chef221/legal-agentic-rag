@@ -10,7 +10,10 @@ import unicodedata
 from pydantic import ValidationError
 
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
-from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.exceptions import (
+    DataValidationError,
+    StructuredGenerationError,
+)
 from legal_agentic_rag.generation.claim_grounding import (
     extract_inline_evidence_ids,
     split_answer_claims,
@@ -25,7 +28,10 @@ from legal_agentic_rag.schemas.answering import (
     ModelAnswerDraft,
 )
 from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalStrategy
-from legal_agentic_rag.schemas.tools import AnswerGenerationCorrectionSignal
+from legal_agentic_rag.schemas.tools import (
+    AnswerGenerationCorrectionSignal,
+    StructuredGenerationFailureCode,
+)
 
 _SYSTEM_INSTRUCTION = """\
 Bạn là trợ lý tra cứu pháp luật Việt Nam.
@@ -112,13 +118,17 @@ class ModelBackedAnswerGenerator:
         if correction_signal == AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH:
             base_prompt = self._numeric_repair_prompt(base_prompt)
         draft = None
-        validation_error_type: str | None = None
+        validation_error_code: StructuredGenerationFailureCode | None = None
         for attempt in range(self._max_structured_output_retries + 1):
             user_prompt = base_prompt
             if attempt:
                 user_prompt = self._correction_prompt(
                     base_prompt,
-                    validation_error_type or "model_output_validation",
+                    (
+                        validation_error_code.value
+                        if validation_error_code is not None
+                        else StructuredGenerationFailureCode.MODEL_OUTPUT_VALIDATION.value
+                    ),
                 )
             completion = self._provider.complete(
                 system_instruction=_SYSTEM_INSTRUCTION,
@@ -128,12 +138,14 @@ class ModelBackedAnswerGenerator:
                 draft = self._parse_draft(completion)
                 draft = self._validate_draft(draft, evidence_by_id)
                 break
-            except ModelError as error:
-                validation_error_type = self._draft_error_type(error)
+            except StructuredGenerationError as error:
+                validation_error_code = StructuredGenerationFailureCode(
+                    error.failure_code
+                )
                 _LOGGER.warning(
                     "model_answer_draft_rejected",
                     extra={
-                        "error_type": validation_error_type,
+                        "error_type": validation_error_code.value,
                         "structured_output_attempt": attempt + 1,
                         "completion_character_count": len(completion),
                     },
@@ -141,7 +153,10 @@ class ModelBackedAnswerGenerator:
                 if attempt >= self._max_structured_output_retries:
                     raise
         if draft is None:
-            raise ModelError("Model completion could not be validated")
+            raise StructuredGenerationError(
+                "Model completion could not be validated",
+                failure_code=StructuredGenerationFailureCode.MODEL_OUTPUT_VALIDATION.value,
+            )
         if draft.insufficient_evidence:
             return self._abstention(
                 query,
@@ -232,14 +247,18 @@ class ModelBackedAnswerGenerator:
                 except json.JSONDecodeError:
                     payload = _MISSING_JSON_PAYLOAD
         if payload is _MISSING_JSON_PAYLOAD:
-            raise ModelError(
-                "Model completion is not valid JSON for the grounded answer schema"
+            raise StructuredGenerationError(
+                "Model completion is not valid JSON for the grounded answer schema",
+                failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR.value,
             )
         try:
             return ModelAnswerDraft.model_validate(payload)
         except (ValidationError, TypeError) as error:
-            raise ModelError(
-                "Model completion failed grounded answer schema validation"
+            raise StructuredGenerationError(
+                "Model completion failed grounded answer schema validation",
+                failure_code=(
+                    StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value
+                ),
             ) from error
 
     @staticmethod
@@ -254,18 +273,32 @@ class ModelBackedAnswerGenerator:
             if value not in evidence_by_id
         ]
         if unknown_ids:
-            raise ModelError("Model cited evidence that was not supplied")
+            raise StructuredGenerationError(
+                "Model cited evidence that was not supplied",
+                failure_code=StructuredGenerationFailureCode.UNKNOWN_EVIDENCE_ID.value,
+            )
         for claim in draft.claims:
             if extract_inline_evidence_ids(claim.text):
-                raise ModelError(
-                    "Model claim text must not contain evidence markers"
+                raise StructuredGenerationError(
+                    "Model claim text must not contain evidence markers",
+                    failure_code=(
+                        StructuredGenerationFailureCode.MARKER_IN_CLAIM_TEXT.value
+                    ),
                 )
             if len(split_answer_claims(claim.text)) != 1:
-                raise ModelError(
-                    "Model claim item must contain exactly one legal claim"
+                raise StructuredGenerationError(
+                    "Model claim item must contain exactly one legal claim",
+                    failure_code=(
+                        StructuredGenerationFailureCode.CLAIM_BOUNDARY_MISMATCH.value
+                    ),
                 )
             if not ModelBackedAnswerGenerator._is_vietnamese_claim(claim.text):
-                raise ModelError("Model claim text must be Vietnamese")
+                raise StructuredGenerationError(
+                    "Model claim text must be Vietnamese",
+                    failure_code=(
+                        StructuredGenerationFailureCode.NON_VIETNAMESE_CLAIM.value
+                    ),
+                )
         return draft
 
     @staticmethod
@@ -354,23 +387,6 @@ class ModelBackedAnswerGenerator:
             "Không giữ bất kỳ số nào không được evidence hỗ trợ chính xác. Nếu không "
             "thể viết claim đúng số, bỏ claim đó hoặc đặt insufficient_evidence=true."
         )
-
-    @staticmethod
-    def _draft_error_type(error: ModelError) -> str:
-        message = str(error)
-        if "not valid JSON" in message:
-            return "json_decode_error"
-        if "schema validation" in message:
-            return "schema_validation_error"
-        if "not supplied" in message:
-            return "unknown_evidence_id"
-        if "must not contain evidence markers" in message:
-            return "marker_in_claim_text"
-        if "exactly one legal claim" in message:
-            return "claim_boundary_mismatch"
-        if "must be Vietnamese" in message:
-            return "non_vietnamese_claim"
-        return "model_output_validation"
 
     @staticmethod
     def _validate_evidence(evidence: list[Evidence]) -> None:

@@ -2300,3 +2300,19 @@ smoke; do not run the 991-question development batch first.
 The first acceptance gate is the existing five-question targeted smoke, followed
 by the immutable 50-question M49 smoke. Do not run the 991-question development
 batch until this gate and its paired analysis have been reviewed.
+
+## 61. Milestone 49.4 — Typed Failure Diagnostics and Supported-claim Salvage
+
+**Status:** Implemented; requires targeted GPU smoke validation
+
+- classify only structured model-output failures with a closed tool-boundary code;
+- persist no rejected draft, prompt, question, or evidence text;
+- add a default-off one-shot supported-claim salvage for numeric/negation-only
+  verifier failures with existing valid citation identities;
+- retain numeric M49.3 semantics and prohibit model regeneration for negation;
+- reverify every deterministic candidate and abstain on error, timeout, or rejection;
+- aggregate code/salvage outcomes and add focused regression tests.
+
+Run the seven targeted IDs (`134613`, `139655`, `25945`, `38915`, `53115`,
+`6739`, `95519`), then the immutable 50-question smoke. Do not start the
+991-question batch before reviewing both reports.
