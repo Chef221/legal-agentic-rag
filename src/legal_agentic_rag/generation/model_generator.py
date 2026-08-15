@@ -25,11 +25,16 @@ from legal_agentic_rag.schemas.answering import (
     ModelAnswerDraft,
 )
 from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalStrategy
+from legal_agentic_rag.schemas.tools import AnswerGenerationCorrectionSignal
 
 _SYSTEM_INSTRUCTION = """\
 Bạn là trợ lý tra cứu pháp luật Việt Nam.
 Chỉ sử dụng các evidence được cung cấp; không dùng kiến thức bên ngoài.
 Không tự tạo tên văn bản, số văn bản, Điều, Khoản hoặc căn cứ pháp luật.
+Mọi con số, khoảng số, tỷ lệ, phần trăm, số ngày/tháng/năm, tuổi, số tiền hoặc
+mốc định lượng trong một claim phải được chép nguyên văn từ ít nhất một evidence
+được claim đó cite. Không đổi cách viết chữ/số, suy diễn khoảng, cộng/trừ hoặc
+tạo số mới. Nếu evidence không hỗ trợ đúng số, bỏ claim đó hoặc abstain.
 Mỗi nhận định pháp lý phải là một phần tử riêng trong claims và phải khai báo
 evidence_ids hỗ trợ chính nhận định đó.
 Không viết marker [E#] vào text; hệ thống sẽ render marker từ evidence_ids của
@@ -89,6 +94,7 @@ class ModelBackedAnswerGenerator:
         evidence: Sequence[Evidence],
         retrieval_strategy: RetrievalStrategy,
         trace_id: str,
+        correction_signal: AnswerGenerationCorrectionSignal | None = None,
     ) -> AnswerResponse:
         """Generate from supplied evidence and attach only verified identities."""
         values = list(evidence)
@@ -103,6 +109,8 @@ class ModelBackedAnswerGenerator:
 
         evidence_by_id = {item.evidence_id: item for item in values}
         base_prompt = self._build_user_prompt(query, values)
+        if correction_signal == AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH:
+            base_prompt = self._numeric_repair_prompt(base_prompt)
         draft = None
         validation_error_type: str | None = None
         for attempt in range(self._max_structured_output_retries + 1):
@@ -193,6 +201,8 @@ class ModelBackedAnswerGenerator:
             "- Mỗi phần tử claims chỉ chứa đúng một nhận định pháp lý.\n"
             "- claims[].text không được chứa marker [E#].\n"
             "- claims[].evidence_ids chỉ chứa ID hỗ trợ chính claim đó.\n"
+            "- Mọi số, khoảng số, tỷ lệ, %, ngày/tháng/năm, tuổi, số tiền hoặc mốc định lượng trong claims[].text phải chép nguyên văn từ ít nhất một evidence được claim đó cite.\n"
+            "- Không đổi cách viết chữ/số, suy diễn khoảng, cộng/trừ hoặc tạo số mới; nếu không có evidence hỗ trợ đúng số thì bỏ claim hoặc abstain.\n"
             "- Nếu một câu khác cần căn cứ, tách nó thành claim riêng.\n"
             "- Không dùng evidence không cần thiết.\n"
             "- Viết JSON gọn trên một object, không giải thích bên ngoài.\n\n"
@@ -331,6 +341,18 @@ class ModelBackedAnswerGenerator:
             f"LÝ DO CẦN SỬA: {error_type}. {correction} "
             "Chỉ xuất một JSON object hợp lệ, không Markdown hoặc lời dẫn. "
             "Không thêm evidence ID ngoài allowlist."
+        )
+
+    @staticmethod
+    def _numeric_repair_prompt(base_prompt: str) -> str:
+        """Request a clean numeric-only regeneration without exposing a draft."""
+        return (
+            f"{base_prompt}\n\n"
+            "YÊU CẦU SỬA NUMERIC_MISMATCH: Hãy tạo lại toàn bộ JSON từ đầu; "
+            "không giữ lại bản trả lời trước. Với từng claim có số, hãy đối chiếu "
+            "từng số với evidence_ids của chính claim đó và chỉ chép nguyên văn. "
+            "Không giữ bất kỳ số nào không được evidence hỗ trợ chính xác. Nếu không "
+            "thể viết claim đúng số, bỏ claim đó hoặc đặt insufficient_evidence=true."
         )
 
     @staticmethod

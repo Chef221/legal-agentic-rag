@@ -108,6 +108,14 @@ class AnswerGenerationTool:
 
     def invoke(self, payload: AnswerGenerationInput) -> AnswerResponse:
         """Generate from exactly the supplied typed query and evidence."""
+        if payload.correction_signal is not None:
+            return self._generator.generate(
+                payload.query,
+                payload.evidence,
+                payload.retrieval_strategy,
+                payload.trace_id,
+                payload.correction_signal,
+            )
         return self._generator.generate(
             payload.query,
             payload.evidence,

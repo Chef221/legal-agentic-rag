@@ -2257,3 +2257,26 @@ M49.1 does not rebuild artifacts or change official data, retrieval, model
 identity, parameter count, scorer or submission format. Its next gate is the
 same immutable 50-question M49 smoke source; do not run all 991 development
 questions until that comparison meets the agreed generator-error threshold.
+
+## 59. Milestone 49.2 — Numeric-only Grounded Regeneration
+
+**Status:** Implemented; requires the bounded GPU smoke gate
+
+- add an exact-number rule to the compact model prompt: quantitative text must
+  be copied verbatim from evidence cited by that claim;
+- add the sole typed `numeric_mismatch` correction signal at the generation-tool
+  boundary, without rejected drafts or free-form feedback;
+- allow one Agent-only regeneration only for isolated numeric-only claim failures;
+- use the identical selected evidence/query/strategy and separate repair
+  invocation phases; do not retrieve, rerank or rebuild context;
+- retain one repair maximum, fail-closed abstention on every repair failure, and
+  content-free repair outcome metadata;
+- default the typed repair limit to `0`, enabling `1` only in the doc-cap-2
+  k=40 candidate; `FixedRAGService` intentionally has no repair behavior.
+
+The implementation is based on the M49.1 50-question smoke: 0 generator error,
+45 verified, 3 model abstentions and 2 numeric-only citation failures (bundle
+SHA-256 `5b8ca8a7200b0fc46d163410b2a44d4e120f70e3c33bd2f1fd03395b7e5d254d`).
+It does not claim a GPU gain. First run either the exact five-question gate
+(the two numeric failures plus three abstentions) or the immutable 50-question
+smoke; do not run the 991-question development batch first.

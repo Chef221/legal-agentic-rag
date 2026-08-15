@@ -67,7 +67,7 @@ def test_kaggle_qwen_reranker_ablation_changes_only_candidate_k() -> None:
     assert control_payload == treatment_payload
 
 
-def test_m49_1_smoke_profile_uses_bounded_larger_output_budget() -> None:
+def test_m49_2_smoke_profile_uses_bounded_larger_output_budget() -> None:
     """The doc-cap smoke profile isolates the measured structured-output fix."""
     path = (
         Path(__file__).parents[3]
@@ -81,6 +81,7 @@ def test_m49_1_smoke_profile_uses_bounded_larger_output_budget() -> None:
     assert config.online.evidence_selection.max_evidence_per_document == 2
     assert config.online.generation.max_output_tokens == 384
     assert config.online.generation.max_structured_output_retries == 1
+    assert config.online.agent.max_numeric_mismatch_repairs == 1
 
 
 def test_config_loader_wraps_invalid_json_without_leaking_details(

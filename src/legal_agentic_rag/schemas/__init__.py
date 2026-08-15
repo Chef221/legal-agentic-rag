@@ -133,6 +133,7 @@ from legal_agentic_rag.schemas.serving import (
     ServiceStatus,
 )
 from legal_agentic_rag.schemas.tools import (
+    AnswerGenerationCorrectionSignal,
     AnswerGenerationInput,
     CitationVerificationInput,
     ContextGradingInput,
@@ -151,6 +152,7 @@ __all__ = [
     "AgentRunResult",
     "AgentStopReason",
     "AnswerResponse",
+    "AnswerGenerationCorrectionSignal",
     "AnswerGenerationInput",
     "ArtifactManifest",
     "ArtifactType",

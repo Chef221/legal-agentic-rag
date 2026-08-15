@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.schemas.answering import AnswerResponse, Citation, Evidence
 from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalStrategy
+from legal_agentic_rag.schemas.tools import AnswerGenerationCorrectionSignal
 
 ABSTENTION_TEXT = (
     "Hệ thống chưa tìm thấy căn cứ pháp luật đủ rõ trong dữ liệu hiện có "
@@ -23,6 +24,7 @@ class ExtractiveAnswerGenerator:
         evidence: Sequence[Evidence],
         retrieval_strategy: RetrievalStrategy,
         trace_id: str,
+        correction_signal: AnswerGenerationCorrectionSignal | None = None,
     ) -> AnswerResponse:
         """Return cited evidence excerpts or an explicit empty-context abstention."""
         values = list(evidence)

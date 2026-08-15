@@ -6,6 +6,7 @@ from legal_agentic_rag.generation import (
     RuleBasedContextGrader,
 )
 from legal_agentic_rag.schemas import (
+    AnswerGenerationCorrectionSignal,
     AnswerGenerationInput,
     CitationVerificationInput,
     ContextGradingInput,
@@ -81,3 +82,36 @@ def test_generation_wrappers_preserve_typed_contracts_and_boundaries() -> None:
         isinstance(tool, TypedTool)
         for tool in (grader_tool, generator_tool, verifier_tool)
     )
+
+
+def test_generation_tool_forwards_only_the_typed_numeric_repair_signal() -> None:
+    """Repair routing cannot pass a raw rejected answer through the tool boundary."""
+    class _CapturingGenerator:
+        def __init__(self) -> None:
+            self.signal: AnswerGenerationCorrectionSignal | None = None
+
+        def generate(
+            self,
+            query: RetrievalQuery,
+            evidence: list[Evidence],
+            retrieval_strategy: RetrievalStrategy,
+            trace_id: str,
+            correction_signal: AnswerGenerationCorrectionSignal | None = None,
+        ):
+            self.signal = correction_signal
+            return ExtractiveAnswerGenerator().generate(
+                query, evidence, retrieval_strategy, trace_id
+            )
+
+    generator = _CapturingGenerator()
+    AnswerGenerationTool(generator).invoke(
+        AnswerGenerationInput(
+            query=_query(),
+            evidence=[_evidence()],
+            retrieval_strategy=RetrievalStrategy.HYBRID,
+            trace_id="generation-tool",
+            correction_signal=AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH,
+        )
+    )
+
+    assert generator.signal == AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH

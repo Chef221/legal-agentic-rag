@@ -4,12 +4,15 @@ import pytest
 from pydantic import ValidationError
 
 from legal_agentic_rag.schemas import (
+    AnswerGenerationCorrectionSignal,
+    AnswerGenerationInput,
     ToolError,
     ToolErrorType,
     ToolInvocationRequest,
     ToolInvocationResult,
     ToolName,
 )
+from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
 
 
 def test_tool_invocation_result_requires_exactly_output_or_error() -> None:
@@ -47,6 +50,30 @@ def test_tool_request_rejects_unknown_fields_and_empty_identity() -> None:
             invocation_id=" ",
             tool_name=ToolName.BM25_SEARCH,
             payload={},
+        )
+
+
+def test_answer_generation_input_allows_only_the_closed_numeric_repair_signal() -> None:
+    """The repair request is typed and cannot carry an arbitrary instruction."""
+    query = RetrievalQuery(
+        query_id="typed-repair",
+        original_question="Quy định thế nào?",
+        normalized_question="quy định",
+        top_k=1,
+        candidate_k=1,
+    )
+    payload = AnswerGenerationInput(
+        query=query,
+        evidence=[],
+        retrieval_strategy=RetrievalStrategy.HYBRID,
+        trace_id=query.query_id,
+        correction_signal=AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH,
+    )
+
+    assert payload.correction_signal == AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH
+    with pytest.raises(ValidationError):
+        AnswerGenerationInput.model_validate(
+            {**payload.model_dump(mode="json"), "correction_signal": "rewrite_anything"}
         )
     with pytest.raises(ValidationError):
         ToolInvocationRequest.model_validate(

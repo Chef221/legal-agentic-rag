@@ -12,7 +12,12 @@ from legal_agentic_rag.generation.claim_grounding import (
     extract_inline_evidence_ids,
     split_answer_claims,
 )
-from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
+from legal_agentic_rag.schemas import (
+    AnswerGenerationCorrectionSignal,
+    Evidence,
+    RetrievalQuery,
+    RetrievalStrategy,
+)
 
 
 class _FixtureProvider:
@@ -128,10 +133,31 @@ def test_model_generator_builds_grounded_prompt_and_trusted_citation() -> None:
     assert "VÍ DỤ OUTPUT ĐỦ CĂN CỨ" in user_prompt
     assert "Doanh nghiệp phải nộp thuế đúng thời hạn." in user_prompt
     assert "Có tối đa 4 phần tử claims" in user_prompt
+    assert "chép nguyên văn" in system_instruction
+    assert "Không đổi cách viết chữ/số" in user_prompt
     assert "OUTPUT_JSON_SCHEMA" not in user_prompt
     assert '"$defs"' not in user_prompt
     assert isinstance(provider, ChatModelProvider)
     assert isinstance(generator, AnswerGenerator)
+
+
+def test_model_generator_numeric_repair_prompt_is_content_free_about_the_draft() -> None:
+    """Numeric repair regenerates from evidence and a typed signal only."""
+    provider = _FixtureProvider(_completion())
+    rejected_draft = "Từ 22 đến 35 tuổi"
+
+    ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+        AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH,
+    )
+
+    prompt = provider.calls[0][1]
+    assert "YÊU CẦU SỬA NUMERIC_MISMATCH" in prompt
+    assert "tạo lại toàn bộ JSON từ đầu" in prompt
+    assert rejected_draft not in prompt
 
 
 def test_model_generator_rejects_unknown_or_missing_citations() -> None:

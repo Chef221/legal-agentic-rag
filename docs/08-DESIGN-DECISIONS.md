@@ -2461,3 +2461,32 @@ fail closed. M49.1 changes no official data, index, retrieval result, model
 identity, parameter inventory, artifact lineage, public response, scorer, or
 submission format. Promotion still requires rerunning the same 50-question smoke
 set before any full development batch.
+
+---
+
+## D103 — M49.2 Numeric-only Regeneration Is Typed, One-shot, and Fail-closed
+
+**Status:** Accepted
+
+M49.1 fixed generator-format failures on the fixed 50-question smoke but left
+two citation failures caused only by `numeric_mismatch`: question IDs `163099`
+and `7157`. The same smoke had 0 generator error, 45 verified answers, 3
+model-reported abstentions, and 2 numeric-only citation failures; its immutable
+bundle checksum is
+`5b8ca8a7200b0fc46d163410b2a44d4e120f70e3c33bd2f1fd03395b7e5d254d`.
+
+M49.2 adds an exact-number prompt rule and one optional Agent-only repair. The
+closed `numeric_mismatch` signal contains no draft or legal content. It is used
+only when every unsupported claim has exactly that error, citations have no
+identity failure, and top-level errors are only the corresponding unsupported
+claim errors. The Agent then regenerates from the unchanged selected evidence,
+query and strategy and verifies once more with separate trace phases. It never
+retrieves, reranks, rebuilds context, increments retrieval retry count, edits
+text deterministically, or loops. Any repair error, abstention, contract mismatch
+or second verification failure is an abstention.
+
+The default config value is `0`; only the M49.2 doc-cap-2 candidate enables
+`max_numeric_mismatch_repairs=1`. Repair telemetry is content-free. This changes
+no official data, artifact, retrieval, model/revision/parameter inventory,
+scorer, submission format, or verifier threshold. It is not a claimed GPU
+improvement until the defined smoke gate completes.

@@ -30,6 +30,7 @@ from legal_agentic_rag.schemas.retrieval import (
     RetrievalStrategy,
 )
 from legal_agentic_rag.schemas.tools import (
+    AnswerGenerationCorrectionSignal,
     ToolErrorType,
     ToolInvocationRequest,
     ToolInvocationResult,
@@ -287,14 +288,7 @@ class DeterministicAgentWorkflow:
             attempt_number,
             "generation",
             ToolName.ANSWER_GENERATION,
-            {
-                "query": query.model_dump(mode="json"),
-                "evidence": [
-                    item.model_dump(mode="json") for item in context.evidence
-                ],
-                "retrieval_strategy": strategy.value,
-                "trace_id": query.query_id,
-            },
+            self._generation_payload(query, strategy, context),
             invocation_trace,
         )
         if not generation.success:
@@ -337,18 +331,13 @@ class DeterministicAgentWorkflow:
                 ),
                 AgentStopReason.GENERATION_FAILED,
             )
-        verification = self._invoke(
-            query.query_id,
-            attempt_number,
-            "verification",
-            ToolName.CITATION_VERIFICATION,
-            {
-                "response": response.model_dump(mode="json"),
-                "evidence": [
-                    item.model_dump(mode="json") for item in context.evidence
-                ],
-            },
-            invocation_trace,
+        verification = self._verify_response(
+            query=query,
+            context=context,
+            response=response,
+            attempt_number=attempt_number,
+            phase="verification",
+            invocation_trace=invocation_trace,
         )
         if not verification.success:
             reason = (
@@ -366,6 +355,15 @@ class DeterministicAgentWorkflow:
             )
         result = CitationVerificationResult.model_validate(verification.output)
         if not result.is_valid:
+            if self._can_repair_numeric_mismatch(result):
+                return self._repair_numeric_mismatch(
+                    query=query,
+                    strategy=strategy,
+                    context=context,
+                    attempt_number=attempt_number,
+                    initial_verification=result,
+                    invocation_trace=invocation_trace,
+                )
             abstention = self._abstention(
                 query,
                 strategy,
@@ -376,9 +374,7 @@ class DeterministicAgentWorkflow:
                     update={
                         "metadata": {
                             **abstention.metadata,
-                            "citation_verification": result.model_dump(
-                                mode="json"
-                            ),
+                            "citation_verification": result.model_dump(mode="json"),
                         }
                     }
                 ),
@@ -395,6 +391,273 @@ class DeterministicAgentWorkflow:
             ),
             AgentStopReason.ANSWER_VERIFIED,
         )
+
+    @staticmethod
+    def _generation_payload(
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        context: ContextBuildResult,
+        correction_signal: AnswerGenerationCorrectionSignal | None = None,
+    ) -> dict[str, object]:
+        """Create the closed generation payload without any rejected draft."""
+        payload: dict[str, object] = {
+            "query": query.model_dump(mode="json"),
+            "evidence": [
+                item.model_dump(mode="json") for item in context.evidence
+            ],
+            "retrieval_strategy": strategy.value,
+            "trace_id": query.query_id,
+        }
+        if correction_signal is not None:
+            payload["correction_signal"] = correction_signal.value
+        return payload
+
+    def _verify_response(
+        self,
+        *,
+        query: RetrievalQuery,
+        context: ContextBuildResult,
+        response: AnswerResponse,
+        attempt_number: int,
+        phase: str,
+        invocation_trace: list[dict[str, object]],
+    ) -> ToolInvocationResult:
+        """Verify one response against exactly the already selected evidence."""
+        return self._invoke(
+            query.query_id,
+            attempt_number,
+            phase,
+            ToolName.CITATION_VERIFICATION,
+            {
+                "response": response.model_dump(mode="json"),
+                "evidence": [
+                    item.model_dump(mode="json") for item in context.evidence
+                ],
+            },
+            invocation_trace,
+        )
+
+    def _can_repair_numeric_mismatch(
+        self,
+        result: CitationVerificationResult,
+    ) -> bool:
+        """Allow exactly the narrow numeric-only repair path configured for Agent."""
+        if self._config.max_numeric_mismatch_repairs < 1:
+            return False
+        if result.is_valid or result.invalid_citations:
+            return False
+        unsupported = [
+            claim
+            for claim in result.claim_verifications
+            if claim.status.value == "unsupported"
+        ]
+        if not unsupported:
+            return False
+        if any(set(claim.errors) != {"numeric_mismatch"} for claim in unsupported):
+            return False
+        expected_errors = {f"unsupported_claim:{claim.claim_id}" for claim in unsupported}
+        return set(result.errors) == expected_errors
+
+    def _repair_numeric_mismatch(
+        self,
+        *,
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        context: ContextBuildResult,
+        attempt_number: int,
+        initial_verification: CitationVerificationResult,
+        invocation_trace: list[dict[str, object]],
+    ) -> tuple[AnswerResponse, AgentStopReason]:
+        """Regenerate once from the same evidence after an isolated numeric failure."""
+        repair_metadata = {
+            "attempted": True,
+            "count": 1,
+            "initial_verification": self._verification_metadata(initial_verification),
+        }
+        generation = self._invoke(
+            query.query_id,
+            attempt_number,
+            "numeric_repair_generation",
+            ToolName.ANSWER_GENERATION,
+            self._generation_payload(
+                query,
+                strategy,
+                context,
+                AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH,
+            ),
+            invocation_trace,
+        )
+        if not generation.success:
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome=(
+                        "timeout"
+                        if generation.error.error_type == ToolErrorType.TIMEOUT
+                        else "generation_failed"
+                    ),
+                    warnings=[f"generator:{generation.error.error_type.value}"],
+                ),
+                (
+                    AgentStopReason.TIMEOUT
+                    if generation.error.error_type == ToolErrorType.TIMEOUT
+                    else AgentStopReason.GENERATION_FAILED
+                ),
+            )
+        response = AnswerResponse.model_validate(generation.output)
+        if (
+            response.question != query.original_question
+            or response.trace_id != query.query_id
+            or response.retrieval_strategy != strategy
+        ):
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome="contract_mismatch",
+                    warnings=["generator:contract_mismatch"],
+                ),
+                AgentStopReason.GENERATION_FAILED,
+            )
+        if response.insufficient_evidence:
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome="generator_abstained",
+                    warnings=["generator:insufficient_evidence"],
+                ),
+                AgentStopReason.GENERATION_FAILED,
+            )
+        verification = self._verify_response(
+            query=query,
+            context=context,
+            response=response,
+            attempt_number=attempt_number,
+            phase="numeric_repair_verification",
+            invocation_trace=invocation_trace,
+        )
+        if not verification.success:
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome=(
+                        "verification_timeout"
+                        if verification.error.error_type == ToolErrorType.TIMEOUT
+                        else "verification_failed"
+                    ),
+                    warnings=[f"verifier:{verification.error.error_type.value}"],
+                ),
+                (
+                    AgentStopReason.TIMEOUT
+                    if verification.error.error_type == ToolErrorType.TIMEOUT
+                    else AgentStopReason.CITATION_VERIFICATION_FAILED
+                ),
+            )
+        final_verification = CitationVerificationResult.model_validate(
+            verification.output
+        )
+        repair_metadata["final_verification"] = self._verification_metadata(
+            final_verification
+        )
+        if not final_verification.is_valid:
+            return (
+                self._numeric_repair_abstention(
+                    query,
+                    strategy,
+                    repair_metadata,
+                    outcome="verification_rejected",
+                    warnings=[
+                        "citation_verification_failed",
+                        *final_verification.errors,
+                    ],
+                    verification=final_verification,
+                ),
+                AgentStopReason.CITATION_VERIFICATION_FAILED,
+            )
+        repair_metadata["outcome"] = "succeeded"
+        return (
+            response.model_copy(
+                update={
+                    "warnings": list(
+                        dict.fromkeys(
+                            [*response.warnings, "numeric_repair_succeeded"]
+                        )
+                    ),
+                    "metadata": {
+                        **response.metadata,
+                        "citation_verification": final_verification.model_dump(
+                            mode="json"
+                        ),
+                        "numeric_repair": repair_metadata,
+                    },
+                }
+            ),
+            AgentStopReason.ANSWER_VERIFIED,
+        )
+
+    def _numeric_repair_abstention(
+        self,
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        repair_metadata: dict[str, object],
+        *,
+        outcome: str,
+        warnings: list[str],
+        verification: CitationVerificationResult | None = None,
+    ) -> AnswerResponse:
+        """Package a content-free repair diagnostic with the fail-closed response."""
+        repair_metadata["outcome"] = outcome
+        response = self._abstention(query, strategy, ["numeric_repair_failed", *warnings])
+        metadata = {
+            **response.metadata,
+            "numeric_repair": repair_metadata,
+        }
+        if verification is not None:
+            metadata["citation_verification"] = verification.model_dump(
+                mode="json"
+            )
+        return response.model_copy(update={"metadata": metadata})
+
+    @staticmethod
+    def _verification_metadata(
+        result: CitationVerificationResult,
+    ) -> dict[str, object]:
+        """Keep verification diagnostics without draft or legal-content text."""
+        return {
+            "is_valid": result.is_valid,
+            "valid_citation_count": len(result.valid_citations),
+            "invalid_citation_count": len(result.invalid_citations),
+            "claim_level_verification_performed": (
+                result.claim_level_verification_performed
+            ),
+            "claim_coverage_score": result.claim_coverage_score,
+            "claim_verifications": [
+                {
+                    "claim_id": claim.claim_id,
+                    "evidence_ids": claim.evidence_ids,
+                    "status": claim.status.value,
+                    "lexical_support_score": claim.lexical_support_score,
+                    "numeric_match": claim.numeric_match,
+                    "negation_match": claim.negation_match,
+                    "errors": claim.errors,
+                }
+                for claim in result.claim_verifications
+            ],
+            "semantic_verification": (
+                result.semantic_verification.model_dump(mode="json")
+                if result.semantic_verification is not None
+                else None
+            ),
+            "errors": result.errors,
+            "warnings": result.warnings,
+        }
 
     def _finish(
         self,

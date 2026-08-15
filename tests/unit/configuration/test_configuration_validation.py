@@ -346,6 +346,7 @@ def test_chunking_config_has_bounded_dependency_free_defaults() -> None:
 def test_agent_retry_is_capped_at_two() -> None:
     """Configuration enforces accepted decision D014."""
     config = AgentConfig()
+    assert config.max_numeric_mismatch_repairs == 0
     assert config.strategy_order == [
         RetrievalStrategy.HYBRID_RERANK,
         RetrievalStrategy.GRAPH,
@@ -353,6 +354,8 @@ def test_agent_retry_is_capped_at_two() -> None:
     ]
     with pytest.raises(ValidationError):
         AgentConfig(max_retry=3)
+    with pytest.raises(ValidationError):
+        AgentConfig(max_numeric_mismatch_repairs=2)
     with pytest.raises(ValidationError):
         AgentConfig(strategy_order=["hybrid", "hybrid"])
     with pytest.raises(ValidationError):

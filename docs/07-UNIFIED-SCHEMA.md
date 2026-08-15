@@ -1000,6 +1000,12 @@ writer.
 - `ToolInvocationResult`;
 - closed enums `ToolName` và `ToolErrorType`.
 
+M49.2 adds the closed enum `AnswerGenerationCorrectionSignal` with its sole
+value `numeric_mismatch`. `AnswerGenerationInput.correction_signal` is optional
+and has this enum type; it carries no rejected draft, answer, legal text, or
+free-form instruction. Its only consumer is `AnswerGenerationTool`, which passes
+it to the `AnswerGenerator` contract for a one-shot Agent repair.
+
 Retrieval tools dùng trực tiếp `RetrievalQuery` và `RetrievalResponse`, không
 tạo schema backend-specific.
 

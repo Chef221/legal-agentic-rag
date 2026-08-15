@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.49.1` (M49.1 bounded claim-linked generator output) |
+| Project version | `0.49.2` (M49.2 bounded numeric-only claim repair) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |

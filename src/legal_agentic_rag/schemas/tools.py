@@ -50,6 +50,12 @@ class ToolErrorType(StrEnum):
     EXTERNAL_SERVICE_ERROR = "external_service_error"
 
 
+class AnswerGenerationCorrectionSignal(StrEnum):
+    """Closed, content-free request for one generation correction mode."""
+
+    NUMERIC_MISMATCH = "numeric_mismatch"
+
+
 class ContextGradingInput(BaseModel):
     """Typed input for the context-grading tool."""
 
@@ -68,6 +74,7 @@ class AnswerGenerationInput(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     retrieval_strategy: RetrievalStrategy
     trace_id: str
+    correction_signal: AnswerGenerationCorrectionSignal | None = None
 
     @field_validator("trace_id")
     @classmethod

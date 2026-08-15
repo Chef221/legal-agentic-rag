@@ -517,6 +517,17 @@ Transformers provider chỉ log số token mới sinh và cờ chạm
 token cho smoke M49.1; model, revision, evidence allowlist, system-rendered
 marker và citation verifier không thay đổi.
 
+Version `0.49.2` bổ sung quy tắc exact-number trong system/user prompt: mọi số,
+khoảng, tỷ lệ, ngày/tháng/năm, tuổi, tiền hoặc mốc định lượng của claim phải
+được chép nguyên văn từ evidence mà claim đó cite. Sau một verification failure,
+Agent chỉ được gọi lại generator đúng một lần khi toàn bộ unsupported claim chỉ
+có `numeric_mismatch`, không có citation identity/hard failure, và typed config
+`max_numeric_mismatch_repairs` bằng `1`. Repair dùng cùng query, strategy và
+selected evidence, không retrieve/rerank/context-build lại, không chuyển draft
+bị loại sang model, và dùng invocation phases riêng. Mọi repair failure hoặc
+verification failure thứ hai abstain fail-closed. `FixedRAGService` không dùng
+repair; đường competition online đi qua Agent workflow.
+
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
 config và phải có endpoint cùng model name/revision đã pin.
 `transformers` chạy một causal language model local có chat template, cũng yêu
