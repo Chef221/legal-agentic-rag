@@ -2533,3 +2533,26 @@ Missing mappings, timeout/error, or a rejected candidate remain an abstention.
 Numeric-only handling retains M49.3's bounded model fallback after its existing
 salvage conditions. No corpus, artifact, retrieval, model, scorer, or submission
 contract changes. Promotion requires the targeted and fixed 50-question gates.
+
+---
+
+## D106 — M49.5 Recovers Only Structurally Safe Terminal Generator Drafts
+
+**Status:** Accepted
+
+M49.4 left a small number of terminal Pydantic schema failures after its one
+model correction attempt. M49.5 preserves the strict `ModelAnswerDraft`
+contract and adds a local, default-off recovery only after that correction is
+exhausted. The allow-list is limited to removing extra fields, normalizing one
+claim object or already-valid scalar evidence ID into a list, deduplicating
+identifiers/warnings, and dropping complete excess claims above the existing
+claim-count limit. It never changes legal text, numeric or negation tokens,
+evidence identity, insufficiency state, model retries, retrieval, context,
+models, artifacts, scorer or submission contract.
+
+The recovered draft must pass all existing generator and citation checks. A
+missing/invalid semantic value, revalidation failure, timeout or verification
+failure remains fail-closed. Persisted telemetry contains only closed schema
+issue, repair and outcome codes. Promotion requires the two-ID terminal-schema
+gate and the immutable 50-question smoke regression; no 991-case batch may be
+started automatically.

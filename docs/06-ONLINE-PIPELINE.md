@@ -1178,3 +1178,20 @@ at least one supported and one unsupported claim, every rejected claim has only
 exactly to those claims. It keeps exact supported text and existing citations;
 it never rewrites, infers, or moves a citation. The option defaults disabled.
 Negation salvage has no model fallback; every error or rejection abstains.
+
+## 27. M49.5 terminal structured-schema recovery
+
+`ModelAnswerDraft` remains the sole strict generation contract. When the final
+completion still fails Pydantic schema validation after the already-bounded
+model correction retry, a default-off local recovery may inspect only the JSON
+shape and closed validation categories. It can remove extra keys, normalize a
+single claim object or a syntactically valid scalar `E<number>` ID to their
+schema lists, deduplicate ID/warning lists, and retain only complete claims up
+to the existing limit. It cannot invent missing values, coerce invalid IDs,
+truncate text, infer the grounding state, rewrite legal content or invoke the
+model again.
+
+Every recovered draft re-enters the normal allowlist, claim-boundary,
+Vietnamese and citation-verification flow. Terminal failures persist only
+closed issue/repair/outcome codes. The candidate profile may enable one local
+attempt; all other profiles retain the default of zero.

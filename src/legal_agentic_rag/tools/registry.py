@@ -157,6 +157,11 @@ class ToolRegistry:
                 generation_failure_code=StructuredGenerationFailureCode(
                     error.failure_code
                 ),
+                generation_schema_issue_codes=list(error.schema_issue_codes),
+                generation_schema_repair_codes=list(error.schema_repair_codes),
+                generation_schema_recovery_outcome=(
+                    error.schema_recovery_outcome
+                ),
             )
         mappings: tuple[
             tuple[type[LegalAgenticRAGError], ToolErrorType, str, bool],

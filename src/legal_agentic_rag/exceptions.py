@@ -36,9 +36,20 @@ class ModelError(LegalAgenticRAGError):
 class StructuredGenerationError(ModelError):
     """Raised for a sanitized, classified model-output contract failure."""
 
-    def __init__(self, message: str, *, failure_code: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        failure_code: str,
+        schema_issue_codes: tuple[str, ...] = (),
+        schema_repair_codes: tuple[str, ...] = (),
+        schema_recovery_outcome: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.failure_code = failure_code
+        self.schema_issue_codes = schema_issue_codes
+        self.schema_repair_codes = schema_repair_codes
+        self.schema_recovery_outcome = schema_recovery_outcome
 
 
 class OperationTimeoutError(LegalAgenticRAGError):

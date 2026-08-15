@@ -81,6 +81,7 @@ def test_m49_2_smoke_profile_uses_bounded_larger_output_budget() -> None:
     assert config.online.evidence_selection.max_evidence_per_document == 2
     assert config.online.generation.max_output_tokens == 384
     assert config.online.generation.max_structured_output_retries == 1
+    assert config.online.generation.max_schema_recovery_attempts == 1
     assert config.online.agent.max_numeric_mismatch_repairs == 1
     assert config.online.agent.max_supported_claim_salvages == 1
 

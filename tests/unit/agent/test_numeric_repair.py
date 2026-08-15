@@ -567,3 +567,35 @@ def test_generation_failure_persists_only_closed_structured_code() -> None:
         "failure_code": "json_decode_error",
     }
     assert "fixture completion" not in str(result.response.metadata)
+
+
+def test_generation_schema_failure_persists_only_closed_recovery_detail() -> None:
+    """Agent failure metadata remains diagnostic without retaining a draft."""
+
+    class _SchemaErrorGenerator(_Generator):
+        def generate(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+            raise StructuredGenerationError(
+                "PRIVATE_DRAFT_TEXT must never persist",
+                failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+                schema_issue_codes=("top_level_extra_fields",),
+                schema_repair_codes=("removed_top_level_extra_fields",),
+                schema_recovery_outcome="revalidation_failed",
+            )
+
+    workflow, _ = _workflow(_SchemaErrorGenerator(), _Verifier([]))
+
+    result = workflow.run(_query())
+
+    assert result.stop_reason == AgentStopReason.GENERATION_FAILED
+    assert result.response.metadata["generation_failure"] == {
+        "error_type": "model_error",
+        "failure_code": "schema_validation_error",
+        "schema_issue_codes": ["top_level_extra_fields"],
+        "schema_recovery": {
+            "attempted": True,
+            "count": 1,
+            "outcome": "revalidation_failed",
+            "repair_codes": ["removed_top_level_extra_fields"],
+        },
+    }
+    assert "PRIVATE_DRAFT_TEXT" not in str(result.response.metadata)

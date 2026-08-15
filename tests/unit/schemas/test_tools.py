@@ -12,6 +12,9 @@ from legal_agentic_rag.schemas import (
     ToolInvocationResult,
     ToolName,
     StructuredGenerationFailureCode,
+    StructuredGenerationSchemaIssueCode,
+    StructuredGenerationSchemaRecoveryOutcome,
+    StructuredGenerationSchemaRepairCode,
 )
 from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
 
@@ -101,4 +104,35 @@ def test_structured_generation_error_code_is_limited_to_model_failures() -> None
                 "payload": {},
                 "raw_database_client": "forbidden",
             }
+        )
+
+
+def test_schema_recovery_detail_requires_a_schema_model_error() -> None:
+    """Only terminal schema failures may carry content-free repair telemetry."""
+    error = ToolError(
+        error_type=ToolErrorType.MODEL_ERROR,
+        message="Model output rejected.",
+        generation_failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR,
+        generation_schema_issue_codes=[
+            StructuredGenerationSchemaIssueCode.TOP_LEVEL_EXTRA_FIELDS
+        ],
+        generation_schema_repair_codes=[
+            StructuredGenerationSchemaRepairCode.REMOVED_TOP_LEVEL_EXTRA_FIELDS
+        ],
+        generation_schema_recovery_outcome=(
+            StructuredGenerationSchemaRecoveryOutcome.SUCCEEDED
+        ),
+    )
+
+    assert error.generation_schema_issue_codes == [
+        StructuredGenerationSchemaIssueCode.TOP_LEVEL_EXTRA_FIELDS
+    ]
+    with pytest.raises(ValidationError):
+        ToolError(
+            error_type=ToolErrorType.MODEL_ERROR,
+            message="Model output rejected.",
+            generation_failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR,
+            generation_schema_issue_codes=[
+                StructuredGenerationSchemaIssueCode.TOP_LEVEL_EXTRA_FIELDS
+            ],
         )

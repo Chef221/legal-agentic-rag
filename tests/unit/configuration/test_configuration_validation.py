@@ -154,11 +154,14 @@ def test_generation_and_context_grading_defaults_are_bounded() -> None:
     assert generation.max_evidence == 8
     assert generation.backend == "extractive"
     assert generation.max_structured_output_retries == 1
+    assert generation.max_schema_recovery_attempts == 0
     assert grading.minimum_evidence_count == 1
     with pytest.raises(ValidationError):
         GenerationConfig(max_evidence=101)
     with pytest.raises(ValidationError):
         GenerationConfig(max_structured_output_retries=2)
+    with pytest.raises(ValidationError):
+        GenerationConfig(max_schema_recovery_attempts=2)
     with pytest.raises(ValidationError):
         GenerationConfig(model_name="model-without-revision")
     with pytest.raises(ValidationError, match="endpoint_url"):

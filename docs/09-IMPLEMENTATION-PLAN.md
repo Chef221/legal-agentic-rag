@@ -2316,3 +2316,23 @@ batch until this gate and its paired analysis have been reviewed.
 Run the seven targeted IDs (`134613`, `139655`, `25945`, `38915`, `53115`,
 `6739`, `95519`), then the immutable 50-question smoke. Do not start the
 991-question batch before reviewing both reports.
+
+## 62. Milestone 49.5 — Bounded Terminal Schema Recovery
+
+**Status:** Implemented; requires targeted and fixed-smoke GPU validation
+
+- preserve `ModelAnswerDraft` strict validation and the existing single model
+  correction retry;
+- add default-off, one-shot, terminal-only recovery for explicitly allow-listed
+  structural JSON mistakes;
+- preserve claim text exactly and prohibit inferred semantic values;
+- propagate only closed schema issue/repair/outcome telemetry through the tool,
+  Agent and batch-analysis boundaries;
+- add unit coverage for safe recovery, refusal cases, sanitization, config,
+  Agent metadata and aggregate analysis;
+- change no official data, corpus artifact, retrieval, model, scorer or
+  submission behavior.
+
+The acceptance sequence is: targeted IDs `139655` and `25945`, then the
+immutable 50-question smoke set. Do not run the 991-question batch before both
+reports are reviewed.

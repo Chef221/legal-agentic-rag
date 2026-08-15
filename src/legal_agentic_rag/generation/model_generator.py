@@ -19,6 +19,10 @@ from legal_agentic_rag.generation.claim_grounding import (
     split_answer_claims,
 )
 from legal_agentic_rag.generation.extractive_generator import ABSTENTION_TEXT
+from legal_agentic_rag.generation.schema_recovery import (
+    ModelAnswerSchemaRecoveryResult,
+    recover_terminal_model_answer_schema,
+)
 from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     Citation,
@@ -86,6 +90,7 @@ class ModelBackedAnswerGenerator:
         provider: ChatModelProvider,
         *,
         max_structured_output_retries: int = 1,
+        max_schema_recovery_attempts: int = 0,
     ) -> None:
         if max_structured_output_retries not in {0, 1}:
             raise ValueError(
@@ -93,6 +98,11 @@ class ModelBackedAnswerGenerator:
             )
         self._provider = provider
         self._max_structured_output_retries = max_structured_output_retries
+        if max_schema_recovery_attempts not in {0, 1}:
+            raise ValueError(
+                "max_schema_recovery_attempts must be zero or one"
+            )
+        self._max_schema_recovery_attempts = max_schema_recovery_attempts
 
     def generate(
         self,
@@ -118,6 +128,7 @@ class ModelBackedAnswerGenerator:
         if correction_signal == AnswerGenerationCorrectionSignal.NUMERIC_MISMATCH:
             base_prompt = self._numeric_repair_prompt(base_prompt)
         draft = None
+        schema_recovery: ModelAnswerSchemaRecoveryResult | None = None
         validation_error_code: StructuredGenerationFailureCode | None = None
         for attempt in range(self._max_structured_output_retries + 1):
             user_prompt = base_prompt
@@ -135,7 +146,13 @@ class ModelBackedAnswerGenerator:
                 user_prompt=user_prompt,
             )
             try:
-                draft = self._parse_draft(completion)
+                draft, schema_recovery = self._parse_draft(
+                    completion,
+                    allow_schema_recovery=(
+                        attempt >= self._max_structured_output_retries
+                        and self._max_schema_recovery_attempts == 1
+                    ),
+                )
                 draft = self._validate_draft(draft, evidence_by_id)
                 break
             except StructuredGenerationError as error:
@@ -163,6 +180,7 @@ class ModelBackedAnswerGenerator:
                 retrieval_strategy,
                 trace_id,
                 warnings=[*draft.warnings, "model_reported_insufficient_evidence"],
+                schema_recovery=schema_recovery,
             )
         answer = self._render_answer(draft)
         cited_evidence_ids = self._ordered_evidence_ids(draft)
@@ -181,7 +199,7 @@ class ModelBackedAnswerGenerator:
             warnings=list(dict.fromkeys(warnings)),
             retrieval_strategy=retrieval_strategy,
             trace_id=trace_id,
-            metadata=self._metadata(),
+            metadata=self._metadata(schema_recovery),
         )
 
     def _build_user_prompt(
@@ -228,7 +246,8 @@ class ModelBackedAnswerGenerator:
         )
 
     @staticmethod
-    def _parse_draft(completion: str) -> ModelAnswerDraft:
+    def _decode_payload(completion: str) -> object:
+        """Decode one JSON object without exposing its text outside generation."""
         value = completion.strip()
         if value.startswith("```") and value.endswith("```"):
             lines = value.splitlines()
@@ -251,9 +270,43 @@ class ModelBackedAnswerGenerator:
                 "Model completion is not valid JSON for the grounded answer schema",
                 failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR.value,
             )
+        return payload
+
+    @staticmethod
+    def _parse_draft(
+        completion: str,
+        *,
+        allow_schema_recovery: bool,
+    ) -> tuple[ModelAnswerDraft, ModelAnswerSchemaRecoveryResult | None]:
+        """Strictly parse a draft, optionally repairing terminal shape errors once."""
+        payload = ModelBackedAnswerGenerator._decode_payload(completion)
         try:
-            return ModelAnswerDraft.model_validate(payload)
-        except (ValidationError, TypeError) as error:
+            return ModelAnswerDraft.model_validate(payload), None
+        except ValidationError as error:
+            if allow_schema_recovery:
+                recovery = recover_terminal_model_answer_schema(payload, error)
+                if recovery.draft is not None:
+                    return recovery.draft, recovery
+                raise StructuredGenerationError(
+                    "Model completion failed grounded answer schema validation",
+                    failure_code=(
+                        StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value
+                    ),
+                    schema_issue_codes=tuple(
+                        value.value for value in recovery.issue_codes
+                    ),
+                    schema_repair_codes=tuple(
+                        value.value for value in recovery.repair_codes
+                    ),
+                    schema_recovery_outcome=recovery.outcome.value,
+                ) from error
+            raise StructuredGenerationError(
+                "Model completion failed grounded answer schema validation",
+                failure_code=(
+                    StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value
+                ),
+            ) from error
+        except TypeError as error:
             raise StructuredGenerationError(
                 "Model completion failed grounded answer schema validation",
                 failure_code=(
@@ -419,6 +472,7 @@ class ModelBackedAnswerGenerator:
         trace_id: str,
         *,
         warnings: list[str],
+        schema_recovery: ModelAnswerSchemaRecoveryResult | None = None,
     ) -> AnswerResponse:
         return AnswerResponse(
             question=query.original_question,
@@ -427,14 +481,26 @@ class ModelBackedAnswerGenerator:
             warnings=list(dict.fromkeys(warnings)),
             retrieval_strategy=retrieval_strategy,
             trace_id=trace_id,
-            metadata=self._metadata(),
+            metadata=self._metadata(schema_recovery),
         )
 
-    def _metadata(self) -> dict[str, str | bool]:
-        return {
+    def _metadata(
+        self,
+        schema_recovery: ModelAnswerSchemaRecoveryResult | None = None,
+    ) -> dict[str, object]:
+        metadata: dict[str, object] = {
             "generator_backend": self._provider.provider_name,
             "generator_provider_version": self._provider.provider_version,
             "model_name": self._provider.model_name,
             "model_revision": self._provider.model_revision,
             "semantic_synthesis": True,
         }
+        if schema_recovery is not None:
+            metadata["schema_recovery"] = {
+                "attempted": schema_recovery.attempted,
+                "count": 1,
+                "outcome": schema_recovery.outcome.value,
+                "issue_codes": [value.value for value in schema_recovery.issue_codes],
+                "repair_codes": [value.value for value in schema_recovery.repair_codes],
+            }
+        return metadata

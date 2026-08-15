@@ -162,3 +162,22 @@ def test_registry_preserves_only_the_closed_structured_generation_code() -> None
     assert error.error_type == ToolErrorType.MODEL_ERROR
     assert error.generation_failure_code == StructuredGenerationFailureCode.JSON_DECODE_ERROR
     assert "private" not in error.message
+
+
+def test_registry_preserves_only_closed_schema_diagnostics() -> None:
+    """Schema recovery telemetry never needs the rejected completion text."""
+    error = ToolRegistry._domain_error(
+        StructuredGenerationError(
+            "PRIVATE_DRAFT_TEXT must not escape",
+            failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+            schema_issue_codes=("top_level_extra_fields",),
+            schema_repair_codes=("removed_top_level_extra_fields",),
+            schema_recovery_outcome="succeeded",
+        )
+    )
+
+    assert [value.value for value in error.generation_schema_issue_codes] == [
+        "top_level_extra_fields"
+    ]
+    assert error.generation_schema_recovery_outcome is not None
+    assert "PRIVATE_DRAFT_TEXT" not in error.message

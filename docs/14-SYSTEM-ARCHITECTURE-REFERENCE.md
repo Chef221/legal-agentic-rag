@@ -640,3 +640,13 @@ For an eligible verifier result, `claim_salvage` constructs a temporary answer
 from exact already-supported claims and original citations. The normal verifier
 must accept it before a response is returned. Persisted telemetry contains only
 aggregate counts and error codes, never claim text.
+
+## M49.5 terminal schema-recovery boundary
+
+The generator is the only component that can inspect an untrusted model JSON
+completion. Strict Pydantic validation is attempted first. Only after the final
+existing correction retry can the generator apply one allow-listed structural
+normalization and validate again. A recovered draft follows the exact same
+grounding and citation-verification path as a normal draft. The tool, Agent and
+batch analyzer receive only closed issue, repair and outcome labels; they never
+receive raw completion bytes, Pydantic messages, field names or legal text.

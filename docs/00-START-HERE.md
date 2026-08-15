@@ -128,3 +128,13 @@ citation identities, drops only numeric/negation-mismatched claims, and always
 verifies the resulting answer before returning it. Do not run the 991-question
 batch before reviewing the targeted seven-question gate and unchanged
 50-question smoke set.
+
+## M49.5 terminal schema recovery
+
+M49.5 is a default-off generator reliability experiment. It preserves the
+strict answer schema and, only after the existing model correction is exhausted,
+can make one content-preserving structural repair of a terminal schema error.
+Recovery never edits legal claim text, evidence identity, numbers, negation or
+the insufficiency decision. The two terminal schema-error IDs must be tested
+first, followed by the immutable 50-question smoke set. Do not run the 991-case
+batch unless both reports show no citation or retrieval regression.

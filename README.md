@@ -300,3 +300,20 @@ isolated k=40/doc-cap-2 experiment. It never regenerates a negation-mismatch
 response with the model. Any missing citation mapping, verifier timeout/error,
 or rejected salvaged response remains fail-closed. M49.4 changes no BTC data,
 artifacts, retrieval ranking, model, scorer, or submission format.
+
+## M49.5 - bounded terminal schema recovery
+
+M49.5 keeps `ModelAnswerDraft` strict. After the existing one model correction
+attempt is exhausted, the generator may perform one default-off local recovery
+of an allow-listed structural mistake: removing extra fields, wrapping one
+claim or one valid evidence ID in its required list, deduplicating IDs/warnings,
+or retaining only complete claims within the existing four-claim contract.
+It never rewrites claim text, numbers, negation, evidence identity, or a
+grounding-state decision. Every recovered draft still passes the normal
+allowlist, claim-boundary, Vietnamese and citation-verification gates.
+
+The candidate profile alone enables this recovery. Persisted diagnostics are
+closed issue/repair/outcome codes; rejected model JSON and Pydantic messages
+never leave the generation boundary. M49.5 requires the two-ID targeted GPU
+gate and the immutable 50-question smoke regression before any 991-question
+batch is considered.

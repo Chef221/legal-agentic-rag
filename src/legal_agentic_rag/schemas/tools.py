@@ -62,6 +62,46 @@ class StructuredGenerationFailureCode(StrEnum):
     MODEL_OUTPUT_VALIDATION = "model_output_validation"
 
 
+class StructuredGenerationSchemaIssueCode(StrEnum):
+    """Closed, content-free reasons a model JSON draft missed its schema."""
+
+    TOP_LEVEL_EXTRA_FIELDS = "top_level_extra_fields"
+    CLAIM_EXTRA_FIELDS = "claim_extra_fields"
+    CLAIMS_OBJECT_INSTEAD_OF_LIST = "claims_object_instead_of_list"
+    CLAIM_EVIDENCE_ID_SCALAR = "claim_evidence_id_scalar"
+    DUPLICATE_CLAIM_EVIDENCE_IDS = "duplicate_claim_evidence_ids"
+    DUPLICATE_WARNINGS = "duplicate_warnings"
+    CLAIM_LIMIT_EXCEEDED = "claim_limit_exceeded"
+    MISSING_REQUIRED_FIELD = "missing_required_field"
+    INVALID_TOP_LEVEL_TYPE = "invalid_top_level_type"
+    INVALID_CLAIM_TYPE = "invalid_claim_type"
+    INVALID_CLAIM_TEXT = "invalid_claim_text"
+    INVALID_CLAIM_EVIDENCE_IDS = "invalid_claim_evidence_ids"
+    INVALID_WARNINGS = "invalid_warnings"
+    GROUNDING_STATE_MISMATCH = "grounding_state_mismatch"
+    OTHER_SCHEMA_VALIDATION_ERROR = "other_schema_validation_error"
+
+
+class StructuredGenerationSchemaRepairCode(StrEnum):
+    """Closed deterministic edits that preserve accepted claim text exactly."""
+
+    REMOVED_TOP_LEVEL_EXTRA_FIELDS = "removed_top_level_extra_fields"
+    REMOVED_CLAIM_EXTRA_FIELDS = "removed_claim_extra_fields"
+    WRAPPED_SINGLE_CLAIM = "wrapped_single_claim"
+    WRAPPED_SCALAR_EVIDENCE_ID = "wrapped_scalar_evidence_id"
+    DEDUPLICATED_EVIDENCE_IDS = "deduplicated_evidence_ids"
+    DEDUPLICATED_WARNINGS = "deduplicated_warnings"
+    DROPPED_EXCESS_CLAIMS = "dropped_excess_claims"
+
+
+class StructuredGenerationSchemaRecoveryOutcome(StrEnum):
+    """Terminal result of one bounded local schema-recovery evaluation."""
+
+    SUCCEEDED = "succeeded"
+    NOT_RECOVERABLE = "not_recoverable"
+    REVALIDATION_FAILED = "revalidation_failed"
+
+
 class AnswerGenerationCorrectionSignal(StrEnum):
     """Closed, content-free request for one generation correction mode."""
 
@@ -156,6 +196,15 @@ class ToolError(BaseModel):
     message: str
     retryable: bool = False
     generation_failure_code: StructuredGenerationFailureCode | None = None
+    generation_schema_issue_codes: list[StructuredGenerationSchemaIssueCode] = (
+        Field(default_factory=list)
+    )
+    generation_schema_repair_codes: list[StructuredGenerationSchemaRepairCode] = (
+        Field(default_factory=list)
+    )
+    generation_schema_recovery_outcome: (
+        StructuredGenerationSchemaRecoveryOutcome | None
+    ) = None
 
     @field_validator("message")
     @classmethod
@@ -168,7 +217,7 @@ class ToolError(BaseModel):
 
     @model_validator(mode="after")
     def validate_generation_failure_code(self) -> "ToolError":
-        """Only expose a structured-generation code on model-tool failures."""
+        """Expose only content-free schema detail on the matching model failure."""
         if (
             self.generation_failure_code is not None
             and self.error_type is not ToolErrorType.MODEL_ERROR
@@ -176,6 +225,25 @@ class ToolError(BaseModel):
             raise ValueError(
                 "generation failure code is valid only for model errors"
             )
+        details_present = bool(
+            self.generation_schema_issue_codes
+            or self.generation_schema_repair_codes
+            or self.generation_schema_recovery_outcome is not None
+        )
+        if details_present and (
+            self.error_type is not ToolErrorType.MODEL_ERROR
+            or self.generation_failure_code
+            is not StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR
+        ):
+            raise ValueError(
+                "generation schema detail is valid only for schema model errors"
+            )
+        for values in (
+            self.generation_schema_issue_codes,
+            self.generation_schema_repair_codes,
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError("generation schema detail must be unique")
         return self
 
 

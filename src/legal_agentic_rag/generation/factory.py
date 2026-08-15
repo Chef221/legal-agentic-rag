@@ -42,10 +42,12 @@ def build_answer_generator(
             max_structured_output_retries=(
                 config.max_structured_output_retries
             ),
+            max_schema_recovery_attempts=config.max_schema_recovery_attempts,
         )
     return ModelBackedAnswerGenerator(
         provider or OpenAICompatibleChatProvider(config),
         max_structured_output_retries=config.max_structured_output_retries,
+        max_schema_recovery_attempts=config.max_schema_recovery_attempts,
     )
 
 

@@ -514,6 +514,79 @@ def test_model_generator_exposes_only_a_closed_structured_failure_code() -> None
     assert raised.value.failure_code == StructuredGenerationFailureCode.JSON_DECODE_ERROR
 
 
+def test_model_generator_recovers_only_terminal_safe_schema_shape_errors() -> None:
+    """One local repair avoids another model call and preserves trusted checks."""
+    completion_payload = json.loads(_completion())
+    completion_payload["claims"] = {
+        "text": completion_payload["claims"][0]["text"],
+        "evidence_ids": "E1",
+        "discard": "private",
+    }
+    completion_payload["discard"] = "private"
+    completion = json.dumps(completion_payload, ensure_ascii=False)
+    provider = _FixtureProvider(completion)
+
+    response = ModelBackedAnswerGenerator(
+        provider,
+        max_structured_output_retries=0,
+        max_schema_recovery_attempts=1,
+    ).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert len(provider.calls) == 1
+    assert response.answer.endswith("[E1].")
+    assert response.metadata["schema_recovery"] == {
+        "attempted": True,
+        "count": 1,
+        "outcome": "succeeded",
+        "issue_codes": [
+            "top_level_extra_fields",
+            "claims_object_instead_of_list",
+            "claim_extra_fields",
+            "claim_evidence_id_scalar",
+        ],
+        "repair_codes": [
+            "removed_top_level_extra_fields",
+            "wrapped_single_claim",
+            "removed_claim_extra_fields",
+            "wrapped_scalar_evidence_id",
+        ],
+    }
+    assert "private" not in json.dumps(response.metadata)
+
+
+def test_model_generator_terminal_schema_failure_exposes_only_closed_diagnostics() -> None:
+    """Nonrecoverable terminal schema output stays fail-closed without text leak."""
+    private_completion = json.dumps(
+        {
+            "claims": [{"text": "PRIVATE_DRAFT_TEXT", "evidence_ids": "bad"}],
+            "insufficient_evidence": False,
+            "warnings": [],
+        }
+    )
+
+    with pytest.raises(StructuredGenerationError) as raised:
+        ModelBackedAnswerGenerator(
+            _FixtureProvider(private_completion),
+            max_structured_output_retries=0,
+            max_schema_recovery_attempts=1,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+    assert raised.value.failure_code == StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR
+    assert raised.value.schema_issue_codes == ("invalid_claim_evidence_ids",)
+    assert raised.value.schema_recovery_outcome == "not_recoverable"
+    assert "PRIVATE_DRAFT_TEXT" not in str(raised.value)
+
+
 def test_model_generator_rejects_duplicate_evidence_before_inference() -> None:
     """Ambiguous evidence identity fails before a model call."""
     provider = _FixtureProvider(_completion())

@@ -1434,3 +1434,18 @@ attempt/success/failure/outcome counts. Persisted `claim_salvage` metadata is
 content-free: counts, verifier codes and verifier summary only. Internal
 `SupportedClaimSalvageResult` can hold a temporary response for re-verification,
 but is never persisted.
+
+### 21.12 M49.5 terminal schema-recovery telemetry
+
+`StructuredGenerationSchemaIssueCode`, `StructuredGenerationSchemaRepairCode`
+and `StructuredGenerationSchemaRecoveryOutcome` are closed enums. They are
+valid only on a `model_error` with
+`generation_failure_code == schema_validation_error`. `ToolError` may carry
+only these codes; it never carries a rejected completion, Pydantic error,
+field name or legal text.
+
+Successful generator responses may persist a content-free `schema_recovery`
+object with attempt count, outcome and closed issue/repair codes. Terminal
+generation failures retain the same information beneath `generation_failure`.
+`CompetitionBatchAnalysisReport` aggregates issue, repair and terminal outcome
+counts without storing question, evidence or answer content.

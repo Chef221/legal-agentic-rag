@@ -318,6 +318,14 @@ class CompetitionBatchAnalysisReport(BaseModel):
     generator_model_error_count: int = Field(ge=0)
     generation_failure_code_counts: dict[str, int] = Field(default_factory=dict)
     generator_model_error_unclassified_count: int = Field(default=0, ge=0)
+    generation_schema_issue_counts: dict[str, int] = Field(default_factory=dict)
+    generation_schema_repair_code_counts: dict[str, int] = Field(
+        default_factory=dict
+    )
+    schema_recovery_attempted_count: int = Field(default=0, ge=0)
+    schema_recovery_succeeded_count: int = Field(default=0, ge=0)
+    schema_recovery_failed_count: int = Field(default=0, ge=0)
+    schema_recovery_outcome_counts: dict[str, int] = Field(default_factory=dict)
     retrieval_model_error_count: int = Field(ge=0)
     stop_reason_counts: dict[str, int] = Field(default_factory=dict)
     warning_counts: dict[str, int] = Field(default_factory=dict)
@@ -351,6 +359,9 @@ class CompetitionBatchAnalysisReport(BaseModel):
             self.insufficient_evidence_count,
             self.generator_model_error_count,
             self.generator_model_error_unclassified_count,
+            self.schema_recovery_attempted_count,
+            self.schema_recovery_succeeded_count,
+            self.schema_recovery_failed_count,
             self.retrieval_model_error_count,
             self.citation.verification_present_count,
             self.citation.verification_failed_count,
@@ -364,11 +375,24 @@ class CompetitionBatchAnalysisReport(BaseModel):
         )
         if any(count > self.record_count for count in bounded_counts):
             raise ValueError("aggregate outcome count exceeds batch record count")
-        if any(
-            not key.strip() or count <= 0
-            for key, count in self.generation_failure_code_counts.items()
+        for counts in (
+            self.generation_failure_code_counts,
+            self.generation_schema_issue_counts,
+            self.generation_schema_repair_code_counts,
+            self.schema_recovery_outcome_counts,
         ):
-            raise ValueError("generation failure code counts must be positive")
+            if any(not key.strip() or count <= 0 for key, count in counts.items()):
+                raise ValueError("generation aggregate code counts must be positive")
+        if (
+            self.schema_recovery_succeeded_count
+            + self.schema_recovery_failed_count
+            != self.schema_recovery_attempted_count
+        ):
+            raise ValueError("schema recovery outcomes must equal attempted recoveries")
+        if self.schema_recovery_outcome_counts and sum(
+            self.schema_recovery_outcome_counts.values()
+        ) != self.schema_recovery_attempted_count:
+            raise ValueError("schema recovery outcome counts must equal attempts")
         if (
             sum(self.generation_failure_code_counts.values())
             + self.generator_model_error_unclassified_count

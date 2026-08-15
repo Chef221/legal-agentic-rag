@@ -54,6 +54,12 @@ class CompetitionBatchAnalysisService:
         generator_error_count = 0
         generation_failure_codes = Counter[str]()
         generator_error_unclassified_count = 0
+        schema_issue_codes = Counter[str]()
+        schema_repair_codes = Counter[str]()
+        schema_recovery_attempted_count = 0
+        schema_recovery_succeeded_count = 0
+        schema_recovery_failed_count = 0
+        schema_recovery_outcomes = Counter[str]()
         retrieval_error_count = 0
         verification_present_count = 0
         verification_failed_count = 0
@@ -72,27 +78,48 @@ class CompetitionBatchAnalysisService:
 
         for record in batch.records:
             response = record.response
+            metadata = _object_metadata(response.metadata)
             warnings.update(response.warnings)
             insufficient_count += int(response.insufficient_evidence)
             generator_error_count += int(
                 _GENERATOR_MODEL_ERROR_WARNING in response.warnings
             )
             if _GENERATOR_MODEL_ERROR_WARNING in response.warnings:
-                failure = _object_value(
-                    _object_metadata(response.metadata), "generation_failure"
-                )
+                failure = _object_value(metadata, "generation_failure")
                 failure_code = _string_value(failure, "failure_code")
                 if failure_code is None:
                     generator_error_unclassified_count += 1
                 else:
                     generation_failure_codes[failure_code] += 1
+            failure = _object_value(metadata, "generation_failure")
+            recovery = _object_value(metadata, "schema_recovery")
+            if recovery is None:
+                recovery = _object_value(failure, "schema_recovery")
+            issue_values = _list_value(recovery, "issue_codes")
+            if issue_values is None:
+                issue_values = _list_value(failure, "schema_issue_codes")
+            if issue_values is not None:
+                schema_issue_codes.update(
+                    value for value in issue_values if isinstance(value, str) and value.strip()
+                )
+            if recovery is not None and recovery.get("attempted") is True:
+                schema_recovery_attempted_count += 1
+                outcome = _string_value(recovery, "outcome") or "missing"
+                schema_recovery_outcomes[outcome] += 1
+                repair_values = _list_value(recovery, "repair_codes") or []
+                schema_repair_codes.update(
+                    value for value in repair_values if isinstance(value, str) and value.strip()
+                )
+                if outcome == "succeeded":
+                    schema_recovery_succeeded_count += 1
+                else:
+                    schema_recovery_failed_count += 1
             retrieval_error_count += int(
                 _RETRIEVAL_MODEL_ERROR_WARNING in response.warnings
             )
             citation_warning_failure_count += int(
                 _CITATION_FAILURE_WARNING in response.warnings
             )
-            metadata = _object_metadata(response.metadata)
             stop_reason = _string_value(_object_value(metadata, "agent"), "stop_reason")
             if stop_reason is None:
                 stop_reasons["missing"] += 1
@@ -172,6 +199,12 @@ class CompetitionBatchAnalysisService:
             generator_model_error_count=generator_error_count,
             generation_failure_code_counts=dict(sorted(generation_failure_codes.items())),
             generator_model_error_unclassified_count=generator_error_unclassified_count,
+            generation_schema_issue_counts=dict(sorted(schema_issue_codes.items())),
+            generation_schema_repair_code_counts=dict(sorted(schema_repair_codes.items())),
+            schema_recovery_attempted_count=schema_recovery_attempted_count,
+            schema_recovery_succeeded_count=schema_recovery_succeeded_count,
+            schema_recovery_failed_count=schema_recovery_failed_count,
+            schema_recovery_outcome_counts=dict(sorted(schema_recovery_outcomes.items())),
             retrieval_model_error_count=retrieval_error_count,
             stop_reason_counts=dict(sorted(stop_reasons.items())),
             warning_counts=dict(sorted(warnings.items())),

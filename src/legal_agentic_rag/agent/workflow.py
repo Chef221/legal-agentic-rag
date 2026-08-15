@@ -1098,6 +1098,11 @@ class DeterministicAgentWorkflow:
                     and result.error.generation_failure_code is not None
                     else None
                 ),
+                "generation_schema_issue_codes": (
+                    [value.value for value in result.error.generation_schema_issue_codes]
+                    if result.error is not None
+                    else []
+                ),
                 "latency_ms": result.latency_ms,
             }
         )
@@ -1115,12 +1120,24 @@ class DeterministicAgentWorkflow:
             or error.generation_failure_code is None
         ):
             return {}
-        return {
-            "generation_failure": {
-                "error_type": error.error_type.value,
-                "failure_code": error.generation_failure_code.value,
-            }
+        failure: dict[str, object] = {
+            "error_type": error.error_type.value,
+            "failure_code": error.generation_failure_code.value,
         }
+        if error.generation_schema_issue_codes:
+            failure["schema_issue_codes"] = [
+                value.value for value in error.generation_schema_issue_codes
+            ]
+        if error.generation_schema_recovery_outcome is not None:
+            failure["schema_recovery"] = {
+                "attempted": True,
+                "count": 1,
+                "outcome": error.generation_schema_recovery_outcome.value,
+                "repair_codes": [
+                    value.value for value in error.generation_schema_repair_codes
+                ],
+            }
+        return {"generation_failure": failure}
 
     @staticmethod
     def _validate_retrieval(
