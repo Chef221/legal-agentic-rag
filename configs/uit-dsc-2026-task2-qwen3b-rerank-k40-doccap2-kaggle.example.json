@@ -96,7 +96,8 @@
       "temperature": 0.0,
       "max_output_tokens": 384,
       "max_structured_output_retries": 1,
-      "max_schema_recovery_attempts": 1
+      "max_schema_recovery_attempts": 1,
+      "max_missing_field_corrections": 1
     },
     "context_grading": {
       "minimum_evidence_count": 1,

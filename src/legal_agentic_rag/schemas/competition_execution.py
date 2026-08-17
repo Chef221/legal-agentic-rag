@@ -326,6 +326,12 @@ class CompetitionBatchAnalysisReport(BaseModel):
     schema_recovery_succeeded_count: int = Field(default=0, ge=0)
     schema_recovery_failed_count: int = Field(default=0, ge=0)
     schema_recovery_outcome_counts: dict[str, int] = Field(default_factory=dict)
+    missing_field_correction_attempted_count: int = Field(default=0, ge=0)
+    missing_field_correction_succeeded_count: int = Field(default=0, ge=0)
+    missing_field_correction_failed_count: int = Field(default=0, ge=0)
+    missing_field_correction_outcome_counts: dict[str, int] = Field(
+        default_factory=dict
+    )
     retrieval_model_error_count: int = Field(ge=0)
     stop_reason_counts: dict[str, int] = Field(default_factory=dict)
     warning_counts: dict[str, int] = Field(default_factory=dict)
@@ -362,6 +368,9 @@ class CompetitionBatchAnalysisReport(BaseModel):
             self.schema_recovery_attempted_count,
             self.schema_recovery_succeeded_count,
             self.schema_recovery_failed_count,
+            self.missing_field_correction_attempted_count,
+            self.missing_field_correction_succeeded_count,
+            self.missing_field_correction_failed_count,
             self.retrieval_model_error_count,
             self.citation.verification_present_count,
             self.citation.verification_failed_count,
@@ -380,6 +389,7 @@ class CompetitionBatchAnalysisReport(BaseModel):
             self.generation_schema_issue_counts,
             self.generation_schema_repair_code_counts,
             self.schema_recovery_outcome_counts,
+            self.missing_field_correction_outcome_counts,
         ):
             if any(not key.strip() or count <= 0 for key, count in counts.items()):
                 raise ValueError("generation aggregate code counts must be positive")
@@ -393,6 +403,20 @@ class CompetitionBatchAnalysisReport(BaseModel):
             self.schema_recovery_outcome_counts.values()
         ) != self.schema_recovery_attempted_count:
             raise ValueError("schema recovery outcome counts must equal attempts")
+        if (
+            self.missing_field_correction_succeeded_count
+            + self.missing_field_correction_failed_count
+            != self.missing_field_correction_attempted_count
+        ):
+            raise ValueError(
+                "missing-field correction outcomes must equal attempted corrections"
+            )
+        if self.missing_field_correction_outcome_counts and sum(
+            self.missing_field_correction_outcome_counts.values()
+        ) != self.missing_field_correction_attempted_count:
+            raise ValueError(
+                "missing-field correction outcome counts must equal attempts"
+            )
         if (
             sum(self.generation_failure_code_counts.values())
             + self.generator_model_error_unclassified_count

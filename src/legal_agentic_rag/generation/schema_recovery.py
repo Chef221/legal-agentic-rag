@@ -142,6 +142,7 @@ def _classify_issues(
         if any(key not in _TOP_LEVEL_FIELDS for key in payload):
             codes.append(StructuredGenerationSchemaIssueCode.TOP_LEVEL_EXTRA_FIELDS)
         if "insufficient_evidence" not in payload:
+            codes.append(StructuredGenerationSchemaIssueCode.MISSING_TOP_LEVEL_FIELD)
             codes.append(StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD)
         claims = payload.get("claims")
         if isinstance(claims, dict):
@@ -165,22 +166,29 @@ def _classify_issues(
                     continue
                 if any(key not in _CLAIM_FIELDS for key in claim):
                     codes.append(StructuredGenerationSchemaIssueCode.CLAIM_EXTRA_FIELDS)
-                if "text" in claim and not isinstance(claim["text"], str):
+                if "text" not in claim:
+                    codes.append(StructuredGenerationSchemaIssueCode.MISSING_CLAIM_FIELD)
+                    codes.append(StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD)
+                elif not isinstance(claim["text"], str):
                     codes.append(StructuredGenerationSchemaIssueCode.INVALID_CLAIM_TEXT)
-                evidence_ids = claim.get("evidence_ids")
-                if _is_valid_evidence_id(evidence_ids):
-                    codes.append(
-                        StructuredGenerationSchemaIssueCode.CLAIM_EVIDENCE_ID_SCALAR
-                    )
-                elif evidence_ids is not None and not isinstance(evidence_ids, list):
-                    codes.append(
-                        StructuredGenerationSchemaIssueCode.INVALID_CLAIM_EVIDENCE_IDS
-                    )
-                elif isinstance(evidence_ids, list):
-                    if _has_duplicates(evidence_ids):
+                if "evidence_ids" not in claim:
+                    codes.append(StructuredGenerationSchemaIssueCode.MISSING_CLAIM_FIELD)
+                    codes.append(StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD)
+                else:
+                    evidence_ids = claim.get("evidence_ids")
+                    if _is_valid_evidence_id(evidence_ids):
                         codes.append(
-                            StructuredGenerationSchemaIssueCode.DUPLICATE_CLAIM_EVIDENCE_IDS
+                            StructuredGenerationSchemaIssueCode.CLAIM_EVIDENCE_ID_SCALAR
                         )
+                    elif evidence_ids is not None and not isinstance(evidence_ids, list):
+                        codes.append(
+                            StructuredGenerationSchemaIssueCode.INVALID_CLAIM_EVIDENCE_IDS
+                        )
+                    elif isinstance(evidence_ids, list):
+                        if _has_duplicates(evidence_ids):
+                            codes.append(
+                                StructuredGenerationSchemaIssueCode.DUPLICATE_CLAIM_EVIDENCE_IDS
+                            )
         warnings = payload.get("warnings")
         if warnings is not None and not isinstance(warnings, list):
             codes.append(StructuredGenerationSchemaIssueCode.INVALID_WARNINGS)
@@ -193,6 +201,10 @@ def _classify_issues(
         error_type = error.get("type")
         location = error.get("loc")
         if error_type == "missing":
+            if location and location[0] == "claims" and len(location) >= 3:
+                codes.append(StructuredGenerationSchemaIssueCode.MISSING_CLAIM_FIELD)
+            elif location and location[0] in _TOP_LEVEL_FIELDS:
+                codes.append(StructuredGenerationSchemaIssueCode.MISSING_TOP_LEVEL_FIELD)
             codes.append(StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD)
         elif location == () and error_type == "value_error":
             codes.append(StructuredGenerationSchemaIssueCode.GROUNDING_STATE_MISMATCH)

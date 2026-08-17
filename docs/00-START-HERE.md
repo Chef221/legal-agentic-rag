@@ -138,3 +138,11 @@ Recovery never edits legal claim text, evidence identity, numbers, negation or
 the insufficiency decision. The two terminal schema-error IDs must be tested
 first, followed by the immutable 50-question smoke set. Do not run the 991-case
 batch unless both reports show no citation or retrieval regression.
+
+## M49.6 missing-required-field model correction
+
+M49.6 tests whether terminal missing-required-field schema failures that cannot
+be repaired locally can be resolved by exactly one targeted model correction. It
+preserves M49.5 local structural repair precedence, classifies missing fields
+without text leakage, never guesses semantic values, and strictly revalidates
+the corrected completion fail-closed.

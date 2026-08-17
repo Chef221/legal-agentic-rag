@@ -136,3 +136,33 @@ def test_schema_recovery_detail_requires_a_schema_model_error() -> None:
                 StructuredGenerationSchemaIssueCode.TOP_LEVEL_EXTRA_FIELDS
             ],
         )
+
+
+def test_missing_field_correction_detail_requires_a_schema_model_error() -> None:
+    """Missing-field correction telemetry is allowed only on schema validation model errors."""
+    from legal_agentic_rag.schemas import (
+        StructuredGenerationMissingFieldCorrectionOutcome,
+    )
+
+    error = ToolError(
+        error_type=ToolErrorType.MODEL_ERROR,
+        message="Model output rejected.",
+        generation_failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR,
+        generation_missing_field_correction_attempted=True,
+        generation_missing_field_correction_outcome=(
+            StructuredGenerationMissingFieldCorrectionOutcome.SUCCEEDED
+        ),
+    )
+    assert error.generation_missing_field_correction_attempted is True
+    assert (
+        error.generation_missing_field_correction_outcome
+        == StructuredGenerationMissingFieldCorrectionOutcome.SUCCEEDED
+    )
+
+    with pytest.raises(ValidationError):
+        ToolError(
+            error_type=ToolErrorType.MODEL_ERROR,
+            message="Model output rejected.",
+            generation_failure_code=StructuredGenerationFailureCode.JSON_DECODE_ERROR,
+            generation_missing_field_correction_attempted=True,
+        )

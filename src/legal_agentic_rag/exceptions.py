@@ -44,12 +44,20 @@ class StructuredGenerationError(ModelError):
         schema_issue_codes: tuple[str, ...] = (),
         schema_repair_codes: tuple[str, ...] = (),
         schema_recovery_outcome: str | None = None,
+        missing_field_correction_attempted: bool = False,
+        missing_field_correction_outcome: str | None = None,
     ) -> None:
         super().__init__(message)
         self.failure_code = failure_code
         self.schema_issue_codes = schema_issue_codes
         self.schema_repair_codes = schema_repair_codes
         self.schema_recovery_outcome = schema_recovery_outcome
+        self.missing_field_correction_attempted = (
+            missing_field_correction_attempted
+        )
+        self.missing_field_correction_outcome = (
+            missing_field_correction_outcome
+        )
 
 
 class OperationTimeoutError(LegalAgenticRAGError):

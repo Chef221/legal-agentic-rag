@@ -181,3 +181,24 @@ def test_registry_preserves_only_closed_schema_diagnostics() -> None:
     ]
     assert error.generation_schema_recovery_outcome is not None
     assert "PRIVATE_DRAFT_TEXT" not in error.message
+
+
+def test_registry_preserves_closed_missing_field_correction_diagnostics() -> None:
+    """Missing field correction telemetry is forwarded safely without leaking content."""
+    error = ToolRegistry._domain_error(
+        StructuredGenerationError(
+            "PRIVATE_MISSING_ERROR must not escape",
+            failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+            schema_issue_codes=("missing_required_field", "missing_top_level_field"),
+            missing_field_correction_attempted=True,
+            missing_field_correction_outcome="failed",
+        )
+    )
+
+    assert error.error_type == ToolErrorType.MODEL_ERROR
+    assert error.generation_missing_field_correction_attempted is True
+    assert (
+        error.generation_missing_field_correction_outcome.value
+        == "failed"
+    )
+    assert "PRIVATE_MISSING_ERROR" not in error.message

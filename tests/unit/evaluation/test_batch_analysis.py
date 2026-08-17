@@ -221,6 +221,28 @@ class _M49_5Answerer:
         )
 
 
+class _M49_6Answerer:
+    """Fixture emitting only content-free missing-field model correction telemetry."""
+
+    def answer(self, request):  # type: ignore[no-untyped-def]
+        return AnswerResponse(
+            question=request.question,
+            answer="Cau tra loi da duoc sua schema.",
+            insufficient_evidence=False,
+            warnings=[],
+            retrieval_strategy=RetrievalStrategy.HYBRID,
+            trace_id="m49-6-trace",
+            metadata={
+                "agent": {"stop_reason": "answer_verified", "total_latency_ms": 1.0},
+                "missing_field_correction": {
+                    "attempted": True,
+                    "count": 1,
+                    "outcome": "succeeded",
+                },
+            },
+        )
+
+
 def _questions(path: Path) -> None:
     path.write_text(
         json.dumps(
@@ -363,6 +385,26 @@ def test_batch_analysis_aggregates_m49_5_schema_recovery_without_content(
     assert report.schema_recovery_succeeded_count == 2
     assert report.schema_recovery_failed_count == 0
     assert report.schema_recovery_outcome_counts == {"succeeded": 2}
+
+
+def test_batch_analysis_aggregates_m49_6_missing_field_correction_without_content(
+    tmp_path: Path,
+) -> None:
+    """M49.6 missing-field correction telemetry is bounded and counted without content."""
+    questions = tmp_path / "development.json"
+    batch = tmp_path / "m49-6"
+    _questions(questions)
+    CompetitionBatchRunner(
+        _M49_6Answerer(),
+        application_config_hash="a" * 64,
+    ).run(questions, batch)
+
+    report = CompetitionBatchAnalysisService().analyze(batch)
+
+    assert report.missing_field_correction_attempted_count == 2
+    assert report.missing_field_correction_succeeded_count == 2
+    assert report.missing_field_correction_failed_count == 0
+    assert report.missing_field_correction_outcome_counts == {"succeeded": 2}
 
 
 def test_batch_analysis_rejects_records_that_do_not_match_manifest(

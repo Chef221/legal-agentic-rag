@@ -60,6 +60,10 @@ class CompetitionBatchAnalysisService:
         schema_recovery_succeeded_count = 0
         schema_recovery_failed_count = 0
         schema_recovery_outcomes = Counter[str]()
+        missing_field_correction_attempted_count = 0
+        missing_field_correction_succeeded_count = 0
+        missing_field_correction_failed_count = 0
+        missing_field_correction_outcomes = Counter[str]()
         retrieval_error_count = 0
         verification_present_count = 0
         verification_failed_count = 0
@@ -114,6 +118,17 @@ class CompetitionBatchAnalysisService:
                     schema_recovery_succeeded_count += 1
                 else:
                     schema_recovery_failed_count += 1
+            missing_corr = _object_value(metadata, "missing_field_correction")
+            if missing_corr is None:
+                missing_corr = _object_value(failure, "missing_field_correction")
+            if missing_corr is not None and missing_corr.get("attempted") is True:
+                missing_field_correction_attempted_count += 1
+                outcome = _string_value(missing_corr, "outcome") or "missing"
+                missing_field_correction_outcomes[outcome] += 1
+                if outcome == "succeeded":
+                    missing_field_correction_succeeded_count += 1
+                else:
+                    missing_field_correction_failed_count += 1
             retrieval_error_count += int(
                 _RETRIEVAL_MODEL_ERROR_WARNING in response.warnings
             )
@@ -205,6 +220,18 @@ class CompetitionBatchAnalysisService:
             schema_recovery_succeeded_count=schema_recovery_succeeded_count,
             schema_recovery_failed_count=schema_recovery_failed_count,
             schema_recovery_outcome_counts=dict(sorted(schema_recovery_outcomes.items())),
+            missing_field_correction_attempted_count=(
+                missing_field_correction_attempted_count
+            ),
+            missing_field_correction_succeeded_count=(
+                missing_field_correction_succeeded_count
+            ),
+            missing_field_correction_failed_count=(
+                missing_field_correction_failed_count
+            ),
+            missing_field_correction_outcome_counts=dict(
+                sorted(missing_field_correction_outcomes.items())
+            ),
             retrieval_model_error_count=retrieval_error_count,
             stop_reason_counts=dict(sorted(stop_reasons.items())),
             warning_counts=dict(sorted(warnings.items())),

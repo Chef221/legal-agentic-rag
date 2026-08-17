@@ -1437,15 +1437,19 @@ but is never persisted.
 
 ### 21.12 M49.5 terminal schema-recovery telemetry
 
-`StructuredGenerationSchemaIssueCode`, `StructuredGenerationSchemaRepairCode`
-and `StructuredGenerationSchemaRecoveryOutcome` are closed enums. They are
+`StructuredGenerationSchemaIssueCode`, `StructuredGenerationSchemaRepairCode`,
+`StructuredGenerationSchemaRecoveryOutcome`, and
+`StructuredGenerationMissingFieldCorrectionOutcome` are closed enums. They are
 valid only on a `model_error` with
 `generation_failure_code == schema_validation_error`. `ToolError` may carry
 only these codes; it never carries a rejected completion, Pydantic error,
 field name or legal text.
 
 Successful generator responses may persist a content-free `schema_recovery`
-object with attempt count, outcome and closed issue/repair codes. Terminal
-generation failures retain the same information beneath `generation_failure`.
-`CompetitionBatchAnalysisReport` aggregates issue, repair and terminal outcome
-counts without storing question, evidence or answer content.
+object with attempt count, outcome and closed issue/repair codes, as well as a
+`missing_field_correction` object with attempt count and outcome (`succeeded` /
+`failed`) if a bounded model correction was performed. Terminal generation
+failures retain the same information beneath `generation_failure`.
+`CompetitionBatchAnalysisReport` aggregates issue, repair, terminal recovery,
+and missing-field correction outcome counts without storing question, evidence,
+or answer content.

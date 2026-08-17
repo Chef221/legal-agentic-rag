@@ -288,6 +288,7 @@ class GenerationConfig(BaseModel):
     max_output_tokens: int = Field(default=1024, gt=0, le=8192)
     max_structured_output_retries: int = Field(default=1, ge=0, le=1)
     max_schema_recovery_attempts: int = Field(default=0, ge=0, le=1)
+    max_missing_field_corrections: int = Field(default=0, ge=0, le=1)
 
     @field_validator("inactive_effect_statuses")
     @classmethod

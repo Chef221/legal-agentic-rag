@@ -540,6 +540,26 @@ Telemetry `numeric_repair` chỉ chứa count, outcome và content-free verifica
 summary; batch analysis đếm riêng initial numeric mismatch để không che mất lỗi
 bị salvage hoặc abstain.
 
+Version `0.49.4` chuẩn hóa mã phân loại lỗi structured output thành closed enum
+`StructuredGenerationFailureCode` và mở rộng salvage để hỗ trợ cả
+`negation_mismatch`. Nhận định vi phạm phủ định bị loại bỏ, các nhận định đã
+`supported` được giữ nguyên văn và verifier lại độc lập trước khi quyết định
+abstain.
+
+Version `0.49.5` bổ sung cơ chế phục hồi cấu trúc JSON cục bộ ở bước cuối
+(`max_schema_recovery_attempts` trong `[0, 1]`, mặc định 0). Chỉ các lỗi thuần túy
+về cấu trúc như thừa field, claim đơn dạng object thay vì list, scalar evidence
+ID, hoặc danh sách claim vượt ngưỡng được chuẩn hóa mà không gọi thêm model. Cơ
+chế này tuyệt đối không suy đoán hay bổ sung thông tin ngữ nghĩa (không đoán cờ
+insufficiency, không bịa ID, không sinh claim).
+
+Version `0.49.6` cho phép thực hiện đúng một lần hiệu chỉnh model có mục tiêu
+(`max_missing_field_corrections` trong `[0, 1]`, mặc định 0) khi draft cuối cùng bị
+lỗi thiếu trường bắt buộc không thể sửa cục bộ (phân loại qua
+`missing_top_level_field` hoặc `missing_claim_field`). Lần gọi này tái sử dụng
+context và prompt chuẩn kèm hướng dẫn tiếng Việt yêu cầu đầy đủ các trường
+schema, bảo toàn thứ tự ưu tiên của M49.5 và quy trình xác thực fail-closed.
+
 `extractive` vẫn là default backend. `openai_compatible` chỉ được bật rõ bằng
 config và phải có endpoint cùng model name/revision đã pin.
 `transformers` chạy một causal language model local có chat template, cũng yêu

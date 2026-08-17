@@ -2556,3 +2556,26 @@ failure remains fail-closed. Persisted telemetry contains only closed schema
 issue, repair and outcome codes. Promotion requires the two-ID terminal-schema
 gate and the immutable 50-question smoke regression; no 991-case batch may be
 started automatically.
+
+---
+
+## D107 — M49.6 Recovers Terminal Missing Required Fields via Bounded Model Correction
+
+**Status:** Accepted (Local Implementation Complete; GPU Validation Pending)
+
+M49.5 targeted validation on Kaggle failed fail-closed on IDs `139655` and `25945`
+because both drafts omitted required fields (`missing_required_field`), which
+M49.5 correctly refused to invent locally. M49.6 retains this strict local
+refusal and introduces one final bounded model correction specifically for
+unrecoverable missing-required-field schema failures
+(`max_missing_field_corrections`, bounded to [0, 1], default 0).
+
+The correction prompt reuses the base prompt with sanitized Vietnamese guidance
+requiring complete strict `ModelAnswerDraft` fields without exposing raw Pydantic
+errors or rejected drafts. M49.5 safe local structural repairs take precedence;
+only truly unrecoverable missing-field drafts without disqualifying errors
+(e.g. JSON decode error, unknown evidence ID, grounding-state mismatch) are
+eligible. Telemetry records closed `missing_field_correction` counts and
+outcomes (`succeeded` / `failed`). All completions re-enter normal strict
+validation and citation verification. Promotion requires the two-ID targeted
+GPU gate and the immutable 50-question smoke regression.

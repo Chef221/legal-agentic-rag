@@ -30,6 +30,7 @@ from legal_agentic_rag.schemas.tools import (
     ToolInvocationResult,
     ToolName,
     StructuredGenerationFailureCode,
+    StructuredGenerationMissingFieldCorrectionOutcome,
 )
 from legal_agentic_rag.tools.contracts import TypedTool
 
@@ -161,6 +162,16 @@ class ToolRegistry:
                 generation_schema_repair_codes=list(error.schema_repair_codes),
                 generation_schema_recovery_outcome=(
                     error.schema_recovery_outcome
+                ),
+                generation_missing_field_correction_attempted=(
+                    error.missing_field_correction_attempted
+                ),
+                generation_missing_field_correction_outcome=(
+                    StructuredGenerationMissingFieldCorrectionOutcome(
+                        error.missing_field_correction_outcome
+                    )
+                    if error.missing_field_correction_outcome is not None
+                    else None
                 ),
             )
         mappings: tuple[

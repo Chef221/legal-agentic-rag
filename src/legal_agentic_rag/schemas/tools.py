@@ -73,6 +73,8 @@ class StructuredGenerationSchemaIssueCode(StrEnum):
     DUPLICATE_WARNINGS = "duplicate_warnings"
     CLAIM_LIMIT_EXCEEDED = "claim_limit_exceeded"
     MISSING_REQUIRED_FIELD = "missing_required_field"
+    MISSING_TOP_LEVEL_FIELD = "missing_top_level_field"
+    MISSING_CLAIM_FIELD = "missing_claim_field"
     INVALID_TOP_LEVEL_TYPE = "invalid_top_level_type"
     INVALID_CLAIM_TYPE = "invalid_claim_type"
     INVALID_CLAIM_TEXT = "invalid_claim_text"
@@ -100,6 +102,13 @@ class StructuredGenerationSchemaRecoveryOutcome(StrEnum):
     SUCCEEDED = "succeeded"
     NOT_RECOVERABLE = "not_recoverable"
     REVALIDATION_FAILED = "revalidation_failed"
+
+
+class StructuredGenerationMissingFieldCorrectionOutcome(StrEnum):
+    """Terminal outcome of one bounded missing-required-field correction attempt."""
+
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
 
 
 class AnswerGenerationCorrectionSignal(StrEnum):
@@ -205,6 +214,10 @@ class ToolError(BaseModel):
     generation_schema_recovery_outcome: (
         StructuredGenerationSchemaRecoveryOutcome | None
     ) = None
+    generation_missing_field_correction_attempted: bool = False
+    generation_missing_field_correction_outcome: (
+        StructuredGenerationMissingFieldCorrectionOutcome | None
+    ) = None
 
     @field_validator("message")
     @classmethod
@@ -229,6 +242,8 @@ class ToolError(BaseModel):
             self.generation_schema_issue_codes
             or self.generation_schema_repair_codes
             or self.generation_schema_recovery_outcome is not None
+            or self.generation_missing_field_correction_attempted
+            or self.generation_missing_field_correction_outcome is not None
         )
         if details_present and (
             self.error_type is not ToolErrorType.MODEL_ERROR

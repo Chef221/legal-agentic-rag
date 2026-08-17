@@ -1103,6 +1103,17 @@ class DeterministicAgentWorkflow:
                     if result.error is not None
                     else []
                 ),
+                "generation_missing_field_correction_attempted": (
+                    result.error.generation_missing_field_correction_attempted
+                    if result.error is not None
+                    else False
+                ),
+                "generation_missing_field_correction_outcome": (
+                    result.error.generation_missing_field_correction_outcome.value
+                    if result.error is not None
+                    and result.error.generation_missing_field_correction_outcome is not None
+                    else None
+                ),
                 "latency_ms": result.latency_ms,
             }
         )
@@ -1136,6 +1147,16 @@ class DeterministicAgentWorkflow:
                 "repair_codes": [
                     value.value for value in error.generation_schema_repair_codes
                 ],
+            }
+        if error.generation_missing_field_correction_attempted:
+            failure["missing_field_correction"] = {
+                "attempted": True,
+                "count": 1,
+                "outcome": (
+                    error.generation_missing_field_correction_outcome.value
+                    if error.generation_missing_field_correction_outcome is not None
+                    else "missing"
+                ),
             }
         return {"generation_failure": failure}
 

@@ -109,3 +109,25 @@ def test_recovery_does_not_truncate_invalid_claim_text() -> None:
     assert result.draft is None
     assert result.outcome is StructuredGenerationSchemaRecoveryOutcome.REVALIDATION_FAILED
     assert StructuredGenerationSchemaRepairCode.REMOVED_CLAIM_EXTRA_FIELDS in result.repair_codes
+
+
+def test_recovery_classifies_missing_top_level_and_claim_level_fields() -> None:
+    """Missing fields are classified with structural location without content leakage."""
+    missing_top_level = {"claims": [_claim()], "warnings": []}
+    result_top = recover_terminal_model_answer_schema(
+        missing_top_level, _validation_error(missing_top_level)
+    )
+    assert StructuredGenerationSchemaIssueCode.MISSING_TOP_LEVEL_FIELD in result_top.issue_codes
+    assert StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD in result_top.issue_codes
+
+    missing_claim_text = {
+        "claims": [{"evidence_ids": ["E1"]}],
+        "insufficient_evidence": False,
+        "warnings": [],
+    }
+    result_claim = recover_terminal_model_answer_schema(
+        missing_claim_text, _validation_error(missing_claim_text)
+    )
+    assert StructuredGenerationSchemaIssueCode.MISSING_CLAIM_FIELD in result_claim.issue_codes
+    assert StructuredGenerationSchemaIssueCode.MISSING_REQUIRED_FIELD in result_claim.issue_codes
+    assert result_claim.outcome is StructuredGenerationSchemaRecoveryOutcome.NOT_RECOVERABLE

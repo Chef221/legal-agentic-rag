@@ -35,6 +35,9 @@ from legal_agentic_rag.schemas.retrieval import RetrievalQuery, RetrievalStrateg
 from legal_agentic_rag.schemas.tools import (
     AnswerGenerationCorrectionSignal,
     StructuredGenerationFailureCode,
+    StructuredGenerationMissingFieldCorrectionOutcome,
+    StructuredGenerationSchemaIssueCode,
+    StructuredGenerationSchemaRecoveryOutcome,
 )
 
 _SYSTEM_INSTRUCTION = """\
@@ -91,6 +94,7 @@ class ModelBackedAnswerGenerator:
         *,
         max_structured_output_retries: int = 1,
         max_schema_recovery_attempts: int = 0,
+        max_missing_field_corrections: int = 0,
     ) -> None:
         if max_structured_output_retries not in {0, 1}:
             raise ValueError(
@@ -103,6 +107,11 @@ class ModelBackedAnswerGenerator:
                 "max_schema_recovery_attempts must be zero or one"
             )
         self._max_schema_recovery_attempts = max_schema_recovery_attempts
+        if max_missing_field_corrections not in {0, 1}:
+            raise ValueError(
+                "max_missing_field_corrections must be zero or one"
+            )
+        self._max_missing_field_corrections = max_missing_field_corrections
 
     def generate(
         self,
@@ -130,6 +139,11 @@ class ModelBackedAnswerGenerator:
         draft = None
         schema_recovery: ModelAnswerSchemaRecoveryResult | None = None
         validation_error_code: StructuredGenerationFailureCode | None = None
+        missing_field_correction_attempted = False
+        missing_field_correction_outcome: (
+            StructuredGenerationMissingFieldCorrectionOutcome | None
+        ) = None
+
         for attempt in range(self._max_structured_output_retries + 1):
             user_prompt = base_prompt
             if attempt:
@@ -168,11 +182,86 @@ class ModelBackedAnswerGenerator:
                     },
                 )
                 if attempt >= self._max_structured_output_retries:
-                    raise
+                    if (
+                        self._max_missing_field_corrections == 1
+                        and self._is_missing_field_correction_eligible(error)
+                    ):
+                        missing_field_correction_attempted = True
+                        correction_prompt = (
+                            self._missing_field_correction_prompt(
+                                base_prompt,
+                                error.schema_issue_codes,
+                            )
+                        )
+                        correction_completion = self._provider.complete(
+                            system_instruction=_SYSTEM_INSTRUCTION,
+                            user_prompt=correction_prompt,
+                        )
+                        try:
+                            draft, final_recovery = self._parse_draft(
+                                correction_completion,
+                                allow_schema_recovery=(
+                                    self._max_schema_recovery_attempts == 1
+                                ),
+                            )
+                            draft = self._validate_draft(draft, evidence_by_id)
+                            missing_field_correction_outcome = (
+                                StructuredGenerationMissingFieldCorrectionOutcome.SUCCEEDED
+                            )
+                            if final_recovery is not None:
+                                schema_recovery = final_recovery
+                            break
+                        except StructuredGenerationError as final_error:
+                            missing_field_correction_outcome = (
+                                StructuredGenerationMissingFieldCorrectionOutcome.FAILED
+                            )
+                            raise StructuredGenerationError(
+                                final_error.args[0]
+                                if final_error.args
+                                else "Model completion failed missing-field correction",
+                                failure_code=final_error.failure_code,
+                                schema_issue_codes=(
+                                    final_error.schema_issue_codes
+                                    or error.schema_issue_codes
+                                ),
+                                schema_repair_codes=(
+                                    final_error.schema_repair_codes
+                                    or error.schema_repair_codes
+                                ),
+                                schema_recovery_outcome=(
+                                    final_error.schema_recovery_outcome
+                                    or error.schema_recovery_outcome
+                                ),
+                                missing_field_correction_attempted=True,
+                                missing_field_correction_outcome=(
+                                    StructuredGenerationMissingFieldCorrectionOutcome.FAILED.value
+                                ),
+                            ) from final_error
+                    raise StructuredGenerationError(
+                        error.args[0]
+                        if error.args
+                        else "Model completion could not be validated",
+                        failure_code=error.failure_code,
+                        schema_issue_codes=error.schema_issue_codes,
+                        schema_repair_codes=error.schema_repair_codes,
+                        schema_recovery_outcome=error.schema_recovery_outcome,
+                        missing_field_correction_attempted=missing_field_correction_attempted,
+                        missing_field_correction_outcome=(
+                            missing_field_correction_outcome.value
+                            if missing_field_correction_outcome is not None
+                            else None
+                        ),
+                    ) from error
         if draft is None:
             raise StructuredGenerationError(
                 "Model completion could not be validated",
                 failure_code=StructuredGenerationFailureCode.MODEL_OUTPUT_VALIDATION.value,
+                missing_field_correction_attempted=missing_field_correction_attempted,
+                missing_field_correction_outcome=(
+                    missing_field_correction_outcome.value
+                    if missing_field_correction_outcome is not None
+                    else None
+                ),
             )
         if draft.insufficient_evidence:
             return self._abstention(
@@ -181,6 +270,8 @@ class ModelBackedAnswerGenerator:
                 trace_id,
                 warnings=[*draft.warnings, "model_reported_insufficient_evidence"],
                 schema_recovery=schema_recovery,
+                missing_field_correction_attempted=missing_field_correction_attempted,
+                missing_field_correction_outcome=missing_field_correction_outcome,
             )
         answer = self._render_answer(draft)
         cited_evidence_ids = self._ordered_evidence_ids(draft)
@@ -199,7 +290,11 @@ class ModelBackedAnswerGenerator:
             warnings=list(dict.fromkeys(warnings)),
             retrieval_strategy=retrieval_strategy,
             trace_id=trace_id,
-            metadata=self._metadata(schema_recovery),
+            metadata=self._metadata(
+                schema_recovery,
+                missing_field_correction_attempted=missing_field_correction_attempted,
+                missing_field_correction_outcome=missing_field_correction_outcome,
+            ),
         )
 
     def _build_user_prompt(
@@ -454,6 +549,60 @@ class ModelBackedAnswerGenerator:
             )
 
     @staticmethod
+    def _is_missing_field_correction_eligible(
+        error: StructuredGenerationError,
+    ) -> bool:
+        """Check if terminal failure is specifically eligible for missing-field correction."""
+        if (
+            error.failure_code
+            != StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value
+        ):
+            return False
+        if (
+            error.schema_recovery_outcome
+            != StructuredGenerationSchemaRecoveryOutcome.NOT_RECOVERABLE.value
+        ):
+            return False
+        issue_set = set(error.schema_issue_codes)
+        missing_issues = {
+            StructuredGenerationSchemaIssueCode.MISSING_TOP_LEVEL_FIELD.value,
+            StructuredGenerationSchemaIssueCode.MISSING_CLAIM_FIELD.value,
+        }
+        if not issue_set.intersection(missing_issues):
+            return False
+        disqualifying_issues = {
+            StructuredGenerationSchemaIssueCode.GROUNDING_STATE_MISMATCH.value,
+            StructuredGenerationSchemaIssueCode.INVALID_TOP_LEVEL_TYPE.value,
+        }
+        if issue_set.intersection(disqualifying_issues):
+            return False
+        return True
+
+    @staticmethod
+    def _missing_field_correction_prompt(
+        base_prompt: str,
+        issue_codes: tuple[str, ...],
+    ) -> str:
+        """Instruction for one final bounded model correction of missing required fields."""
+        if any("claim" in code for code in issue_codes):
+            field_hint = (
+                "Output trước bị thiếu trường bắt buộc trong claims (text hoặc evidence_ids). "
+                "Hãy đảm bảo mỗi claim trong 'claims' có đủ cả 'text' và 'evidence_ids'."
+            )
+        else:
+            field_hint = (
+                "Output trước bị thiếu trường bắt buộc ở cấp cao (claims, insufficient_evidence, warnings). "
+                "Hãy đảm bảo JSON có đầy đủ cả 3 trường cấp cao."
+            )
+        return (
+            f"{base_prompt}\n\n"
+            "OUTPUT TRƯỚC BỊ THIẾU TRƯỜNG SCHEMA BẮT BUỘC. Hãy tạo lại toàn bộ JSON từ đầu. "
+            f"HƯỚNG DẪN BỔ SUNG: {field_hint} "
+            "Chỉ xuất một JSON object hợp lệ chứa đầy đủ các trường, không giải thích ngoài. "
+            "Giữ nguyên căn cứ pháp lý và chỉ dùng evidence được cung cấp."
+        )
+
+    @staticmethod
     def _citation(evidence: Evidence) -> Citation:
         return Citation(
             evidence_id=evidence.evidence_id,
@@ -473,6 +622,10 @@ class ModelBackedAnswerGenerator:
         *,
         warnings: list[str],
         schema_recovery: ModelAnswerSchemaRecoveryResult | None = None,
+        missing_field_correction_attempted: bool = False,
+        missing_field_correction_outcome: (
+            StructuredGenerationMissingFieldCorrectionOutcome | None
+        ) = None,
     ) -> AnswerResponse:
         return AnswerResponse(
             question=query.original_question,
@@ -481,12 +634,20 @@ class ModelBackedAnswerGenerator:
             warnings=list(dict.fromkeys(warnings)),
             retrieval_strategy=retrieval_strategy,
             trace_id=trace_id,
-            metadata=self._metadata(schema_recovery),
+            metadata=self._metadata(
+                schema_recovery,
+                missing_field_correction_attempted=missing_field_correction_attempted,
+                missing_field_correction_outcome=missing_field_correction_outcome,
+            ),
         )
 
     def _metadata(
         self,
         schema_recovery: ModelAnswerSchemaRecoveryResult | None = None,
+        missing_field_correction_attempted: bool = False,
+        missing_field_correction_outcome: (
+            StructuredGenerationMissingFieldCorrectionOutcome | None
+        ) = None,
     ) -> dict[str, object]:
         metadata: dict[str, object] = {
             "generator_backend": self._provider.provider_name,
@@ -502,5 +663,15 @@ class ModelBackedAnswerGenerator:
                 "outcome": schema_recovery.outcome.value,
                 "issue_codes": [value.value for value in schema_recovery.issue_codes],
                 "repair_codes": [value.value for value in schema_recovery.repair_codes],
+            }
+        if missing_field_correction_attempted:
+            metadata["missing_field_correction"] = {
+                "attempted": True,
+                "count": 1,
+                "outcome": (
+                    missing_field_correction_outcome.value
+                    if missing_field_correction_outcome is not None
+                    else "missing"
+                ),
             }
         return metadata

@@ -2336,3 +2336,26 @@ Run the seven targeted IDs (`134613`, `139655`, `25945`, `38915`, `53115`,
 The acceptance sequence is: targeted IDs `139655` and `25945`, then the
 immutable 50-question smoke set. Do not run the 991-question batch before both
 reports are reviewed.
+
+## 63. Milestone 49.6 — Bounded Missing-Required-Field Model Correction
+
+**Status:** Implemented; requires targeted and fixed-smoke GPU validation
+
+- preserve strict `ModelAnswerDraft` validation and precedence of M49.5 local
+  structural repairs;
+- add default-off, one-shot model correction (`max_missing_field_corrections` in
+  `[0, 1]`, default 0) triggered only when terminal schema validation fails for
+  unrecoverable missing required fields;
+- classify missing required fields as top-level vs claim-level without leaking
+  content;
+- forbid local semantic guessing, default value synthesis, or claim invention;
+- propagate only closed missing-field correction telemetry through generator,
+  tool, Agent, and batch-analysis boundaries;
+- add unit coverage for eligibility, precedence, call-count limits (at most 1
+  extra call), failure fail-closed behavior, and batch diagnostics;
+- change no official data, corpus artifact, retrieval, model, scorer or
+  submission behavior.
+
+The acceptance sequence is: targeted IDs `139655` and `25945`, then the
+immutable 50-question smoke set. Do not run the 991-question batch before both
+reports are reviewed.

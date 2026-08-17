@@ -600,3 +600,252 @@ def test_model_generator_rejects_duplicate_evidence_before_inference() -> None:
             "model-answer-query",
         )
     assert provider.calls == []
+
+
+def test_model_generator_missing_field_correction_triggers_one_extra_call_and_succeeds() -> None:
+    """Eligible terminal missing-field failure makes exactly one correction call and succeeds."""
+    missing_top_level = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "Doanh nghiệp phải nộp thuế đúng thời hạn.",
+                    "evidence_ids": ["E1"],
+                }
+            ],
+            "warnings": [],
+        }
+    )
+    valid_completion = _completion()
+    provider = _SequenceProvider([missing_top_level, valid_completion])
+
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        max_structured_output_retries=0,
+        max_schema_recovery_attempts=1,
+        max_missing_field_corrections=1,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert len(provider.calls) == 2
+    assert response.answer.endswith("[E1].")
+    assert response.metadata["missing_field_correction"] == {
+        "attempted": True,
+        "count": 1,
+        "outcome": "succeeded",
+    }
+    correction_prompt = provider.calls[1][1]
+    assert "OUTPUT TRƯỚC BỊ THIẾU TRƯỜNG SCHEMA BẮT BUỘC" in correction_prompt
+    assert "ValidationError" not in correction_prompt
+
+
+def test_model_generator_missing_field_correction_disabled_by_default() -> None:
+    """Disabled missing-field correction preserves exact M49.5 behavior and makes no extra call."""
+    missing_top_level = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "Doanh nghiệp phải nộp thuế đúng thời hạn.",
+                    "evidence_ids": ["E1"],
+                }
+            ],
+            "warnings": [],
+        }
+    )
+    provider = _FixtureProvider(missing_top_level)
+
+    with pytest.raises(StructuredGenerationError) as raised:
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+            max_schema_recovery_attempts=1,
+            max_missing_field_corrections=0,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+    assert len(provider.calls) == 1
+    assert raised.value.failure_code == StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR
+    assert "missing_top_level_field" in raised.value.schema_issue_codes
+    assert raised.value.missing_field_correction_attempted is False
+
+
+def test_model_generator_missing_field_correction_fails_closed() -> None:
+    """Failed final missing-field correction terminates fail-closed without looping."""
+    missing_top_level = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "Doanh nghiệp phải nộp thuế đúng thời hạn.",
+                    "evidence_ids": ["E1"],
+                }
+            ],
+            "warnings": [],
+        }
+    )
+    still_broken = json.dumps({"claims": "not-valid"})
+    provider = _SequenceProvider([missing_top_level, still_broken])
+
+    with pytest.raises(StructuredGenerationError) as raised:
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+            max_schema_recovery_attempts=1,
+            max_missing_field_corrections=1,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+    assert len(provider.calls) == 2
+    assert raised.value.missing_field_correction_attempted is True
+    assert raised.value.missing_field_correction_outcome == "failed"
+
+
+def test_model_generator_m495_local_repair_precedes_missing_field_correction() -> None:
+    """M49.5 local structural repair avoids triggering M49.6 model correction."""
+    completion_payload = json.loads(_completion())
+    completion_payload["claims"] = {
+        "text": completion_payload["claims"][0]["text"],
+        "evidence_ids": "E1",
+    }
+    provider = _FixtureProvider(json.dumps(completion_payload, ensure_ascii=False))
+
+    response = ModelBackedAnswerGenerator(
+        provider,
+        max_structured_output_retries=0,
+        max_schema_recovery_attempts=1,
+        max_missing_field_corrections=1,
+    ).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert len(provider.calls) == 1
+    assert response.metadata["schema_recovery"]["outcome"] == "succeeded"
+    assert "missing_field_correction" not in response.metadata
+
+
+def test_model_generator_ineligible_errors_do_not_trigger_missing_field_correction() -> None:
+    """Ineligible errors such as unknown evidence IDs or JSON decode errors do not trigger M49.6."""
+    unknown_evidence_completion = json.dumps(
+        {
+            "claims": [
+                {
+                    "text": "Doanh nghiệp phải nộp thuế đúng thời hạn.",
+                    "evidence_ids": ["E999"],
+                }
+            ],
+            "insufficient_evidence": False,
+            "warnings": [],
+        }
+    )
+    provider = _FixtureProvider(unknown_evidence_completion)
+
+    with pytest.raises(StructuredGenerationError) as raised:
+        ModelBackedAnswerGenerator(
+            provider,
+            max_structured_output_retries=0,
+            max_schema_recovery_attempts=1,
+            max_missing_field_corrections=1,
+        ).generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+    assert len(provider.calls) == 1
+    assert raised.value.failure_code == StructuredGenerationFailureCode.UNKNOWN_EVIDENCE_ID
+    assert raised.value.missing_field_correction_attempted is False
+
+
+def test_model_generator_missing_claim_field_correction_succeeds() -> None:
+    """Missing claim-level field triggers one extra model correction call and succeeds."""
+    missing_claim_field = json.dumps(
+        {
+            "claims": [
+                {
+                    "evidence_ids": ["E1"],
+                }
+            ],
+            "insufficient_evidence": False,
+            "warnings": [],
+        }
+    )
+    valid_completion = _completion()
+    provider = _SequenceProvider([missing_claim_field, valid_completion])
+
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        max_structured_output_retries=0,
+        max_schema_recovery_attempts=1,
+        max_missing_field_corrections=1,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+
+    assert len(provider.calls) == 2
+    assert response.answer.endswith("[E1].")
+    assert response.metadata["missing_field_correction"] == {
+        "attempted": True,
+        "count": 1,
+        "outcome": "succeeded",
+    }
+
+
+def test_model_generator_generic_missing_required_field_only_is_ineligible() -> None:
+    """Generic MISSING_REQUIRED_FIELD alone without top-level or claim classification is ineligible."""
+    generic_only_error = StructuredGenerationError(
+        "Generic missing field",
+        failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+        schema_issue_codes=("missing_required_field",),
+        schema_recovery_outcome="not_recoverable",
+    )
+    assert not ModelBackedAnswerGenerator._is_missing_field_correction_eligible(
+        generic_only_error
+    )
+
+    top_level_error = StructuredGenerationError(
+        "Missing top-level field",
+        failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+        schema_issue_codes=("missing_top_level_field", "missing_required_field"),
+        schema_recovery_outcome="not_recoverable",
+    )
+    assert ModelBackedAnswerGenerator._is_missing_field_correction_eligible(
+        top_level_error
+    )
+
+    claim_level_error = StructuredGenerationError(
+        "Missing claim-level field",
+        failure_code=StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR.value,
+        schema_issue_codes=("missing_claim_field", "missing_required_field"),
+        schema_recovery_outcome="not_recoverable",
+    )
+    assert ModelBackedAnswerGenerator._is_missing_field_correction_eligible(
+        claim_level_error
+    )
+
+
+def test_model_generator_rejects_invalid_max_missing_field_corrections() -> None:
+    """Bound validation enforces max_missing_field_corrections in {0, 1}."""
+    provider = _FixtureProvider(_completion())
+    with pytest.raises(ValueError, match="max_missing_field_corrections"):
+        ModelBackedAnswerGenerator(provider, max_missing_field_corrections=2)
+    with pytest.raises(ValueError, match="max_missing_field_corrections"):
+        ModelBackedAnswerGenerator(provider, max_missing_field_corrections=-1)
