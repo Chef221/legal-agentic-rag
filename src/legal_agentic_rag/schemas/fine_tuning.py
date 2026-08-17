@@ -181,6 +181,8 @@ class DirectQAPairedComparisonReport(BaseModel):
     adapter_config_sha256: str | None = None
     adapter_weights_sha256: str | None = None
     best_checkpoint_step: int | None = None
+    base_hit_max_tokens_count: int = 0
+    treatment_hit_max_tokens_count: int = 0
     meteor: PairedMetricSummary
     rouge_l: PairedMetricSummary
     length_summary: dict[str, float]

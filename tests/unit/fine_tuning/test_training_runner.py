@@ -121,3 +121,125 @@ def test_verify_trainable_parameters_exact_count_check() -> None:
     # Mismatching exact expectation raises
     with pytest.raises(BackendInitializationError, match="Trainable parameter mismatch"):
         verify_trainable_parameters(model, allowed_target_modules=["k_proj"], expected_trainable_params=200)
+
+
+def test_optimizer_step_accounting_divisible_and_nondivisible() -> None:
+    import math
+
+    # Divisible case: 16 batches, accum 8 -> 2 steps
+    batches_divisible = 16
+    accum = 8
+    assert math.ceil(batches_divisible / accum) == 2
+
+    # Non-divisible case: 17 batches, accum 8 -> 3 steps
+    batches_nondivisible = 17
+    assert math.ceil(batches_nondivisible / accum) == 3
+
+    # Candidate 1 exact calculation:
+    train_records = 4500
+    microbatch = 2
+    total_batches = train_records // microbatch  # 2250
+    steps_candidate_1 = math.ceil(total_batches / accum)
+    assert steps_candidate_1 == 282
+    assert total_batches % accum == 2  # Final partial group has 2 microbatches
+
+
+def test_partial_gradient_accumulation_group_sizing() -> None:
+    batches_in_epoch = 2250
+    accum_steps = 8
+
+    # First batch (step 1) in normal group
+    step = 1
+    group_index = (step - 1) // accum_steps
+    is_final_group = group_index == ((batches_in_epoch - 1) // accum_steps)
+    assert not is_final_group
+    group_size_first = (
+        batches_in_epoch % accum_steps
+        if is_final_group and (batches_in_epoch % accum_steps != 0)
+        else accum_steps
+    )
+    assert group_size_first == 8
+
+    # Final batch (step 2250) in final partial group
+    step = 2250
+    group_index = (step - 1) // accum_steps
+    is_final_group = group_index == ((batches_in_epoch - 1) // accum_steps)
+    assert is_final_group
+    group_size_final = (
+        batches_in_epoch % accum_steps
+        if is_final_group and (batches_in_epoch % accum_steps != 0)
+        else accum_steps
+    )
+    assert group_size_final == 2
+
+
+def test_seeded_dataloader_reproducible_ordering() -> None:
+    from torch.utils.data import DataLoader, TensorDataset
+
+    dataset = TensorDataset(torch.arange(100))
+    gen1 = torch.Generator().manual_seed(2026)
+    gen2 = torch.Generator().manual_seed(2026)
+
+    loader1 = DataLoader(dataset, batch_size=10, shuffle=True, generator=gen1)
+    loader2 = DataLoader(dataset, batch_size=10, shuffle=True, generator=gen2)
+
+    batches1 = [b[0].tolist() for b in loader1]
+    batches2 = [b[0].tolist() for b in loader2]
+
+    assert batches1 == batches2
+
+
+class _MockRunnerTokenizer:
+    pad_token_id = 0
+    eos_token_id = 0
+
+    def apply_chat_template(
+        self,
+        messages: list[dict[str, str]],
+        tokenize: bool = False,
+        add_generation_prompt: bool = False,
+    ) -> str:
+        return "<|im_start|>user\nQ1?<|im_end|>\n<|im_start|>assistant\nA1.<|im_end|>\n"
+
+    def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
+        return [1, 2, 3]
+
+
+def test_fail_closed_paged_adamw_optimizer_on_invalid_environment(tmp_path: Path) -> None:
+    from legal_agentic_rag.schemas import QLoRACandidateConfig
+
+    config = QLoRACandidateConfig(candidate_id="CUSTOM_TEST", optimizer="paged_adamw_8bit")
+    trainer = M50QLoRATrainer(config=config)
+
+    train_p = tmp_path / "train.json"
+    val_p = tmp_path / "val.json"
+    train_p.write_text('{"1": {"question": "Q1?", "answer": "A1."}}', encoding="utf-8")
+    val_p.write_text('{"2": {"question": "Q2?", "answer": "A2."}}', encoding="utf-8")
+
+    # In CPU environment where bitsandbytes is unavailable, fail closed
+    # with BackendInitializationError
+    mock_model = _MockLoRAModel()
+    with pytest.raises(BackendInitializationError, match="paged_adamw_8bit"):
+        trainer.train(
+            train_partition_path=train_p,
+            val_partition_path=val_p,
+            output_directory=tmp_path / "out",
+            model=mock_model,
+            tokenizer=_MockRunnerTokenizer(),
+        )
+
+
+def test_git_commit_validation() -> None:
+    from legal_agentic_rag.fine_tuning.training_runner import get_git_commit
+
+    # Valid 40-char commit
+    valid_sha = "aa4d1106e7abae7c67fa080f0dd097d63ff898c7"
+    assert get_git_commit(explicit_commit=valid_sha) == valid_sha
+
+    # Invalid commit raises
+    with pytest.raises(BackendInitializationError, match="Invalid explicit commit"):
+        get_git_commit(explicit_commit="short_commit")
+
+    # Local repo discovery returns 40-character hex
+    discovered = get_git_commit()
+    assert len(discovered) == 40

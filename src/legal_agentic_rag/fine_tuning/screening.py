@@ -227,12 +227,22 @@ def load_and_validate_base_direct_qa_cache(
     jsonl_path: Path,
     manifest_path: Path,
     screen_holdout_path: Path,
+    *,
+    expected_base_model_id: str = "Qwen/Qwen2.5-3B-Instruct",
+    expected_base_model_revision: str = "a1d308dfcc03e09da285d49d912439a655a571e8",
+    expected_tokenizer_revision: str = "a1d308dfcc03e09da285d49d912439a655a571e8",
+    expected_system_prompt: str = SYSTEM_PROMPT,
+    expected_max_new_tokens: int | None = None,
+    expected_do_sample: bool = False,
+    expected_record_count: int = 617,
 ) -> list[DirectQACaseResult]:
     """Load and verify BASE cache against screen_holdout.json hash and manifest contract."""
     if not manifest_path.exists():
         raise ArtifactCompatibilityError(f"BASE cache manifest missing at {manifest_path}")
     if not jsonl_path.exists():
         raise ArtifactCompatibilityError(f"BASE cache JSONL missing at {jsonl_path}")
+    if not screen_holdout_path.exists():
+        raise ArtifactCompatibilityError(f"Screen holdout dataset missing at {screen_holdout_path}")
 
     manifest = DirectQABaseCacheManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
 
@@ -250,10 +260,53 @@ def load_and_validate_base_direct_qa_cache(
             f"BASE cache JSONL corrupted: expected {manifest.results_sha256}, got {actual_results_sha}"
         )
 
-    results = load_cached_direct_qa_results(jsonl_path)
-    if len(results) != manifest.record_count:
+    # Verify model and tokenizer identity
+    if manifest.base_model_id != expected_base_model_id:
         raise ArtifactCompatibilityError(
-            f"BASE cache count mismatch: manifest says {manifest.record_count}, loaded {len(results)}"
+            f"BASE cache model ID mismatch: expected {expected_base_model_id}, got {manifest.base_model_id}"
+        )
+    if manifest.base_model_revision != expected_base_model_revision:
+        raise ArtifactCompatibilityError(
+            f"BASE cache model revision mismatch: expected {expected_base_model_revision}, got {manifest.base_model_revision}"
+        )
+    if manifest.tokenizer_revision != expected_tokenizer_revision:
+        raise ArtifactCompatibilityError(
+            f"BASE cache tokenizer revision mismatch: expected {expected_tokenizer_revision}, got {manifest.tokenizer_revision}"
+        )
+    if manifest.system_prompt != expected_system_prompt:
+        raise ArtifactCompatibilityError("BASE cache system prompt mismatch")
+
+    # Verify generation config parameters
+    gen_cfg = manifest.generation_config or {}
+    if expected_max_new_tokens is not None:
+        if gen_cfg.get("max_new_tokens") != expected_max_new_tokens:
+            raise ArtifactCompatibilityError(
+                f"BASE cache max_new_tokens mismatch: expected {expected_max_new_tokens}, got {gen_cfg.get('max_new_tokens')}"
+            )
+    if gen_cfg.get("do_sample", False) != expected_do_sample:
+        raise ArtifactCompatibilityError(
+            f"BASE cache do_sample mismatch: expected {expected_do_sample}, got {gen_cfg.get('do_sample')}"
+        )
+
+    # Verify record counts
+    if manifest.record_count != expected_record_count:
+        raise ArtifactCompatibilityError(
+            f"BASE cache manifest record count mismatch: expected {expected_record_count}, got {manifest.record_count}"
+        )
+    if manifest.unique_question_id_count != expected_record_count:
+        raise ArtifactCompatibilityError(
+            f"BASE cache manifest unique ID count mismatch: expected {expected_record_count}, got {manifest.unique_question_id_count}"
+        )
+
+    results = load_cached_direct_qa_results(jsonl_path)
+    if len(results) != expected_record_count:
+        raise ArtifactCompatibilityError(
+            f"BASE cache count mismatch: expected {expected_record_count}, loaded {len(results)}"
+        )
+    unique_loaded_ids = {r.question_id for r in results}
+    if len(unique_loaded_ids) != expected_record_count:
+        raise ArtifactCompatibilityError(
+            f"BASE cache duplicate IDs detected: expected {expected_record_count} unique, found {len(unique_loaded_ids)}"
         )
 
     return results

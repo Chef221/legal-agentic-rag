@@ -133,6 +133,17 @@ class DirectQAPairedScorer:
             ref_ans = ref_map[qid].reference_answer
             assert ref_ans is not None
 
+            # 1. Reject failed generations - do not score error placeholders
+            if (
+                b_res.status != "success"
+                or t_res.status != "success"
+                or b_res.generated_answer.startswith("GENERATION_ERROR:")
+                or t_res.generated_answer.startswith("GENERATION_ERROR:")
+            ):
+                raise DataValidationError(
+                    f"Generation error detected for question ID {qid} (BASE status: {b_res.status}, TREATMENT status: {t_res.status}). Paired evaluation rejected."
+                )
+
             b_meteor, b_rouge = self.score_pair(b_res.generated_answer, ref_ans)
             t_meteor, t_rouge = self.score_pair(t_res.generated_answer, ref_ans)
 
@@ -206,6 +217,21 @@ class DirectQAPairedScorer:
             "mean_character_delta": fmean(treat_lens) - fmean(base_lens),
         }
 
+        # Max token censorship inspection
+        base_hit_max_count = sum(1 for r in base_results if r.hit_max_tokens)
+        treatment_hit_max_count = sum(1 for r in treatment_results if r.hit_max_tokens)
+
+        warnings: list[str] = []
+        if base_hit_max_count > 0:
+            warnings.append(f"base_generations_hit_max_tokens_count_{base_hit_max_count}")
+        if treatment_hit_max_count > 0:
+            warnings.append(f"treatment_generations_hit_max_tokens_count_{treatment_hit_max_count}")
+
+        total_cases = len(cases)
+        if total_cases > 0:
+            if (base_hit_max_count / total_cases > 0.02) or (treatment_hit_max_count / total_cases > 0.02):
+                warnings.append("screening_potentially_censored")
+
         sample_base = base_results[0]
         sample_treat = treatment_results[0]
 
@@ -224,9 +250,11 @@ class DirectQAPairedScorer:
             adapter_config_sha256=adapter_config_sha256,
             adapter_weights_sha256=adapter_weights_sha256,
             best_checkpoint_step=best_checkpoint_step,
+            base_hit_max_tokens_count=base_hit_max_count,
+            treatment_hit_max_tokens_count=treatment_hit_max_count,
             meteor=meteor_summary,
             rouge_l=rouge_summary,
             length_summary=length_summary,
             cases=cases,
-            warnings=[],
+            warnings=warnings,
         )

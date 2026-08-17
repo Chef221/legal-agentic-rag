@@ -89,3 +89,94 @@ def test_direct_qa_paired_scorer() -> None:
     assert report.meteor.mean_delta is not None
     assert report.rouge_l.mean_delta is not None
     assert report.meteor.bootstrap_ci_95.resamples == 200
+
+
+def test_direct_qa_paired_scorer_rejects_failed_generations() -> None:
+    from legal_agentic_rag.exceptions import DataValidationError
+
+    now = datetime.now(UTC)
+    references = [
+        CompetitionQuestion(question_id="1", question="Q1?", reference_answer="Answer 1."),
+    ]
+
+    base_results = [
+        DirectQACaseResult(
+            question_id="1",
+            question="Q1?",
+            generated_answer="GENERATION_ERROR: CUDA OOM",
+            generated_token_count=10,
+            status="error",
+            model_id="base",
+            model_revision="rev1",
+            created_at=now,
+        )
+    ]
+    treatment_results = [
+        DirectQACaseResult(
+            question_id="1",
+            question="Q1?",
+            generated_answer="Valid answer.",
+            generated_token_count=10,
+            status="success",
+            model_id="treatment",
+            model_revision="rev2",
+            created_at=now,
+        )
+    ]
+
+    scorer = DirectQAPairedScorer(use_diagnostic_fallback=True)
+    with pytest.raises(DataValidationError, match="Generation error detected"):
+        scorer.compare(
+            base_results=base_results,
+            treatment_results=treatment_results,
+            references=references,
+        )
+
+
+def test_direct_qa_paired_scorer_censorship_warnings() -> None:
+    now = datetime.now(UTC)
+    references = [
+        CompetitionQuestion(question_id=str(i), question=f"Q{i}?", reference_answer=f"Answer {i}.")
+        for i in range(100)
+    ]
+
+    base_results = [
+        DirectQACaseResult(
+            question_id=str(i),
+            question=f"Q{i}?",
+            generated_answer=f"Answer {i}.",
+            generated_token_count=10,
+            status="success",
+            hit_max_tokens=(i < 5),  # 5% hit max tokens -> triggers censorship warning
+            model_id="base",
+            model_revision="rev1",
+            created_at=now,
+        )
+        for i in range(100)
+    ]
+    treatment_results = [
+        DirectQACaseResult(
+            question_id=str(i),
+            question=f"Q{i}?",
+            generated_answer=f"Answer {i}.",
+            generated_token_count=10,
+            status="success",
+            hit_max_tokens=False,
+            model_id="treatment",
+            model_revision="rev2",
+            created_at=now,
+        )
+        for i in range(100)
+    ]
+
+    scorer = DirectQAPairedScorer(use_diagnostic_fallback=True)
+    report = scorer.compare(
+        base_results=base_results,
+        treatment_results=treatment_results,
+        references=references,
+    )
+
+    assert report.base_hit_max_tokens_count == 5
+    assert report.treatment_hit_max_tokens_count == 0
+    assert "screening_potentially_censored" in report.warnings
+    assert "base_generations_hit_max_tokens_count_5" in report.warnings

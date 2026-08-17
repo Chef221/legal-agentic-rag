@@ -6,10 +6,15 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import importlib.metadata
 import json
+import math
 from pathlib import Path
+import random
+import re
+import subprocess
 import time
 from typing import Any
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -33,7 +38,6 @@ TRAINING_MANIFEST_FILENAME = "training_manifest.json"
 TRAINING_HISTORY_FILENAME = "training_history.json"
 ADAPTER_MODEL_FILENAME = "adapter_model.safetensors"
 ADAPTER_CONFIG_FILENAME = "adapter_config.json"
-
 
 EXPECTED_M50_C1_TRAINABLE_PARAMS = 3_686_400
 
@@ -106,6 +110,34 @@ def verify_trainable_parameters(
     return total_params, trainable_params, trainable_pct
 
 
+def get_git_commit(
+    repo_root: Path | None = None,
+    explicit_commit: str | None = None,
+) -> str:
+    """Retrieve and validate authoritative 40-character Git commit hash."""
+    if explicit_commit:
+        if len(explicit_commit) == 40 and re.fullmatch(r"[0-9a-fA-F]{40}", explicit_commit):
+            return explicit_commit.lower()
+        raise BackendInitializationError(f"Invalid explicit commit SHA format: {explicit_commit}")
+
+    root = repo_root or Path(__file__).resolve().parents[3]
+    try:
+        res = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commit = res.stdout.strip()
+        if len(commit) == 40 and re.fullmatch(r"[0-9a-fA-F]{40}", commit):
+            return commit.lower()
+        raise BackendInitializationError(f"Unexpected git output for commit SHA: {commit}")
+    except Exception as err:
+        raise BackendInitializationError(
+            f"Valid 40-character Git commit SHA could not be determined from {root}: {err}"
+        ) from err
+
+
 class M50QLoRATrainer:
     """Execute bounded Candidate 1 QLoRA fine-tuning on official SFT partitions."""
 
@@ -124,6 +156,10 @@ class M50QLoRATrainer:
         output_directory: Path,
         *,
         split_manifest_path: Path | None = None,
+        config_source_path: Path | None = None,
+        expected_config_sha256: str | None = None,
+        git_commit: str | None = None,
+        repo_root: Path | None = None,
         tokenizer: Any | None = None,
         model: Any | None = None,
         device: torch.device | None = None,
@@ -148,11 +184,17 @@ class M50QLoRATrainer:
         train_questions = self.loader.load_questions(train_partition_path, require_reference_answers=True)
         val_questions = self.loader.load_questions(val_partition_path, require_reference_answers=True)
 
-        # 2. Setup Device & Dependencies
-        training_device = device or (torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+        # 2. Setup Device & Seed Controls
+        training_device = device or (torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
         cuda_version = torch.version.cuda if torch.cuda.is_available() else None
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
         dep_versions = get_environment_dependency_versions()
+
+        random.seed(self.config.seed)
+        np.random.seed(self.config.seed)
+        torch.manual_seed(self.config.seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(self.config.seed)
 
         # 3. Model & Tokenizer Initialization
         if tokenizer is None:
@@ -177,10 +219,13 @@ class M50QLoRATrainer:
                 bnb_4bit_compute_dtype=torch.float16 if self.config.compute_dtype == "float16" else torch.bfloat16,
             )
 
+            device_map = {"": 0} if torch.cuda.is_available() else None
+
             base_model = AutoModelForCausalLM.from_pretrained(
                 self.config.base_model_id,
                 revision=self.config.base_model_revision,
-                quantization_config=bnb_config,
+                quantization_config=bnb_config if torch.cuda.is_available() else None,
+                device_map=device_map,
                 torch_dtype=torch.float16 if self.config.compute_dtype == "float16" else torch.bfloat16,
                 trust_remote_code=False,
             )
@@ -201,7 +246,7 @@ class M50QLoRATrainer:
             )
             model = get_peft_model(base_model, lora_config)
 
-        # 4. Parameter Preflight Check
+        # 4. Parameter Preflight & Placement Check
         expected_params = (
             EXPECTED_M50_C1_TRAINABLE_PARAMS if self.config.candidate_id == "M50-C1" else None
         )
@@ -210,6 +255,13 @@ class M50QLoRATrainer:
             allowed_target_modules=self.config.target_modules,
             expected_trainable_params=expected_params,
         )
+
+        # Verify device placement consistency
+        for name, p in model.named_parameters():
+            if training_device.type == "cuda" and p.device.type != "cuda":
+                raise BackendInitializationError(
+                    f"Model parameter '{name}' is on {p.device}, expected {training_device}"
+                )
 
         # 5. Datasets and DataLoaders
         train_dataset = SFTAnswerOnlyDataset(
@@ -221,10 +273,14 @@ class M50QLoRATrainer:
 
         collator = SFTDynamicDataCollator(pad_token_id=pad_token_id, pad_label_id=-100)
 
+        loader_generator = torch.Generator()
+        loader_generator.manual_seed(self.config.seed)
+
         train_loader = DataLoader(
             train_dataset,
             batch_size=self.config.per_device_train_batch_size,
             shuffle=True,
+            generator=loader_generator,
             collate_fn=collator,
         )
         val_loader = DataLoader(
@@ -234,21 +290,29 @@ class M50QLoRATrainer:
             collate_fn=collator,
         )
 
-        # 6. Optimizer and Scheduler
-        try:
-            import bitsandbytes as bnb
+        # 6. Fail-Closed Optimizer and Scheduler
+        if self.config.optimizer == "paged_adamw_8bit":
+            try:
+                import bitsandbytes as bnb
 
-            optimizer = bnb.optim.PagedAdamW8bit(
-                [p for p in model.parameters() if p.requires_grad],
-                lr=self.config.learning_rate,
-            )
-        except Exception:
+                optimizer = bnb.optim.PagedAdamW8bit(
+                    [p for p in model.parameters() if p.requires_grad],
+                    lr=self.config.learning_rate,
+                )
+            except Exception as err:
+                raise BackendInitializationError(
+                    f"Failed to initialize paged_adamw_8bit optimizer: {err}"
+                ) from err
+        elif self.config.optimizer == "adamw":
             optimizer = torch.optim.AdamW(
                 [p for p in model.parameters() if p.requires_grad],
                 lr=self.config.learning_rate,
             )
+        else:
+            raise ConfigurationError(f"Unsupported optimizer: {self.config.optimizer}")
 
-        total_steps = (len(train_loader) // self.config.gradient_accumulation_steps) * self.config.num_train_epochs
+        steps_per_epoch = math.ceil(len(train_loader) / self.config.gradient_accumulation_steps)
+        total_steps = steps_per_epoch * self.config.num_train_epochs
         warmup_steps = int(total_steps * self.config.warmup_ratio)
 
         from transformers import get_cosine_schedule_with_warmup
@@ -257,7 +321,7 @@ class M50QLoRATrainer:
             optimizer, num_warmup_steps=warmup_steps, num_training_steps=max(total_steps, 1)
         )
 
-        # 7. Training Loop with Periodic Validation
+        # 7. Training Loop with Partial Accumulation Group Scaling & Periodic Validation
         model.train()
         global_step = 0
         best_val_loss = float("inf")
@@ -267,16 +331,26 @@ class M50QLoRATrainer:
 
         optimizer.zero_grad()
 
+        batches_in_epoch = len(train_loader)
+        accum_steps = self.config.gradient_accumulation_steps
+
         for epoch in range(self.config.num_train_epochs):
             accumulated_loss = 0.0
             for step, batch in enumerate(train_loader, start=1):
+                group_index = (step - 1) // accum_steps
+                is_final_group = group_index == ((batches_in_epoch - 1) // accum_steps)
+                if is_final_group and (batches_in_epoch % accum_steps != 0):
+                    current_group_size = batches_in_epoch % accum_steps
+                else:
+                    current_group_size = accum_steps
+
                 batch = {k: v.to(training_device) for k, v in batch.items()}
                 outputs = model(**batch)
-                loss = outputs.loss / self.config.gradient_accumulation_steps
+                loss = outputs.loss / current_group_size
                 loss.backward()
                 accumulated_loss += loss.item()
 
-                if step % self.config.gradient_accumulation_steps == 0 or step == len(train_loader):
+                if step % accum_steps == 0 or step == batches_in_epoch:
                     optimizer.step()
                     scheduler.step()
                     optimizer.zero_grad()
@@ -289,8 +363,7 @@ class M50QLoRATrainer:
                     )
 
                     val_loss_recorded: float | None = None
-                    # Periodic Validation Evaluation
-                    if global_step % self.config.eval_steps == 0 or step == len(train_loader):
+                    if global_step % self.config.eval_steps == 0 or step == batches_in_epoch:
                         val_loss = self._evaluate_loss(model, val_loader, training_device)
                         final_val_loss = val_loss
                         val_loss_recorded = val_loss
@@ -303,7 +376,7 @@ class M50QLoRATrainer:
                     if (
                         global_step % self.config.logging_steps == 0
                         or val_loss_recorded is not None
-                        or step == len(train_loader)
+                        or step == batches_in_epoch
                     ):
                         history_entries.append(
                             {
@@ -327,6 +400,20 @@ class M50QLoRATrainer:
 
         end_time = datetime.now(UTC)
 
+        # 8. Compute Authoritative Config SHA
+        if config_source_path:
+            if not config_source_path.exists():
+                raise DataValidationError(f"Candidate config file missing at {config_source_path}")
+            config_sha = _file_sha256(config_source_path)
+            if expected_config_sha256 and config_sha != expected_config_sha256:
+                raise DataValidationError(
+                    f"Config SHA mismatch: expected {expected_config_sha256}, got {config_sha}"
+                )
+        elif expected_config_sha256:
+            config_sha = expected_config_sha256
+        else:
+            config_sha = sha256(self.config.model_dump_json().encode("utf-8")).hexdigest()
+
         # Save project-owned training history
         history_payload = {
             "schema_version": "1.0",
@@ -346,13 +433,13 @@ class M50QLoRATrainer:
             json.dumps(history_payload, indent=2), encoding="utf-8"
         )
 
-        config_sha = sha256(self.config.model_dump_json().encode("utf-8")).hexdigest()
+        commit_sha = get_git_commit(repo_root=repo_root, explicit_commit=git_commit)
 
         manifest = M50TrainingManifest(
             created_at=end_time,
             code_version=__version__,
             candidate_id=self.config.candidate_id,
-            git_commit=self._get_git_commit(),
+            git_commit=commit_sha,
             source_split_manifest_sha256=split_manifest_sha,
             sft_train_sha256=sft_train_sha,
             sft_val_sha256=sft_val_sha,
@@ -408,13 +495,3 @@ class M50QLoRATrainer:
             model.save_pretrained(str(path))
         else:
             torch.save(model.state_dict(), str(path / "pytorch_model.bin"))
-
-    @staticmethod
-    def _get_git_commit() -> str:
-        import subprocess
-
-        try:
-            res = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
-            return res.stdout.strip()
-        except Exception:
-            return "unknown_commit"

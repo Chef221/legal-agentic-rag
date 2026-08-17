@@ -51,6 +51,7 @@ def test_base_direct_qa_cache_roundtrip(tmp_path: Path) -> None:
         jsonl_path=jsonl_path,
         manifest_path=manifest_path,
         screen_holdout_path=screen_holdout,
+        expected_record_count=1,
     )
     assert len(loaded) == 1
     assert loaded[0].question_id == "1"
@@ -155,4 +156,65 @@ def test_screen_token_audit_roundtrip_and_validation(tmp_path: Path) -> None:
             audit_path=audit_path,
             screen_holdout_path=screen_holdout,
             expected_question_count=1,
+        )
+
+
+def test_base_direct_qa_cache_rejects_mismatched_generation_config(tmp_path: Path) -> None:
+    screen_holdout = tmp_path / "screen_holdout.json"
+    screen_holdout.write_text('{"1": {"question": "Q1?", "answer": "A1."}}', encoding="utf-8")
+
+    jsonl_path = tmp_path / "m50-screen-base-results.jsonl"
+    manifest_path = tmp_path / "m50-screen-base-manifest.json"
+
+    results = [
+        DirectQACaseResult(
+            question_id="1",
+            question="Q1?",
+            generated_answer="Generated answer 1.",
+            generated_token_count=10,
+            model_id="Qwen/Qwen2.5-3B-Instruct",
+            model_revision="a1d308dfcc03e09da285d49d912439a655a571e8",
+            created_at=datetime.now(UTC),
+        )
+    ]
+
+    save_base_direct_qa_cache(
+        jsonl_output_path=jsonl_path,
+        manifest_output_path=manifest_path,
+        results=results,
+        screen_holdout_path=screen_holdout,
+        base_model_id="Qwen/Qwen2.5-3B-Instruct",
+        base_model_revision="a1d308dfcc03e09da285d49d912439a655a571e8",
+        tokenizer_revision="a1d308dfcc03e09da285d49d912439a655a571e8",
+        generation_config={"max_new_tokens": 1536, "do_sample": False},
+    )
+
+    # Rejection on max_new_tokens mismatch
+    with pytest.raises(ArtifactCompatibilityError, match="max_new_tokens mismatch"):
+        load_and_validate_base_direct_qa_cache(
+            jsonl_path=jsonl_path,
+            manifest_path=manifest_path,
+            screen_holdout_path=screen_holdout,
+            expected_max_new_tokens=2048,
+            expected_record_count=1,
+        )
+
+    # Rejection on model revision mismatch
+    with pytest.raises(ArtifactCompatibilityError, match="model revision mismatch"):
+        load_and_validate_base_direct_qa_cache(
+            jsonl_path=jsonl_path,
+            manifest_path=manifest_path,
+            screen_holdout_path=screen_holdout,
+            expected_base_model_revision="wrong_revision",
+            expected_record_count=1,
+        )
+
+    # Rejection on prompt mismatch
+    with pytest.raises(ArtifactCompatibilityError, match="system prompt mismatch"):
+        load_and_validate_base_direct_qa_cache(
+            jsonl_path=jsonl_path,
+            manifest_path=manifest_path,
+            screen_holdout_path=screen_holdout,
+            expected_system_prompt="Different system prompt",
+            expected_record_count=1,
         )
