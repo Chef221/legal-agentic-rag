@@ -212,23 +212,22 @@ command completed successfully.
 
 A completed run is not an accepted result until its report has been reviewed.
 
-## 12. M49.5 Handoff Guardrail
+## 12. Baseline and Frontier Guardrail
 
-At the handoff snapshot, the active frontier recorded in
-`docs/CURRENT-WORK.md` is M49.5 bounded terminal schema recovery.
+The frozen validated reliability baseline is **M49.6** (commit
+`9b0cd0b1d40fb01bb62d4841f7728af2264f3957`, version `0.49.6`), which completed
+both targeted and immutable 50-smoke gates with zero model errors.
 
-Before any new M49.5 implementation work:
+The active experimental frontier is **M50 — Official-Data LegalQA Generator
+Fine-Tuning**.
 
-1. inspect the current implementation and tests;
-2. determine whether targeted IDs `139655` and `25945` have already been run;
-3. locate/review the resulting report if it exists;
-4. determine whether the immutable 50-question smoke has already been run;
-5. do not infer missing results from code or commit history.
+Candidate 1 (`M50-C1`) infrastructure is implemented locally; GPU training and
+direct-QA semantic screening on `screen_holdout.json` are pending. `M50-C1` has
+**not** yet been trained or proven successful.
 
-Do not automatically start the 991-question batch.
+Do not start the 991-question historical development benchmark until Candidate 1
+passes both direct screening and the immutable 50-smoke.
 
-If the required smaller gates have not passed, validation is the next action,
-not additional feature work.
 
 ## 13. Documentation Responsibilities
 

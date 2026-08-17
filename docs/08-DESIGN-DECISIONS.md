@@ -2579,3 +2579,32 @@ eligible. Telemetry records closed `missing_field_correction` counts and
 outcomes (`succeeded` / `failed`). All completions re-enter normal strict
 validation and citation verification. Promotion requires the two-ID targeted
 GPU gate and the immutable 50-question smoke regression.
+
+---
+
+## D108 — M50 Official-Data QLoRA Fine-Tuning Infrastructure and Screening Ladder
+
+**Status:** Accepted (Local Implementation Complete; GPU Execution Pending)
+
+M50 establishes the infrastructure to fine-tune `Qwen/Qwen2.5-3B-Instruct`
+using exclusively official organizer supervision without changing retrieval,
+reranking, context selection, or strict verification gates. The 991-record
+`development.json` is preserved as a frozen historical development benchmark
+and is strictly excluded from gradient updates and intermediate model selection.
+
+The clean 5,617 training pool (`training.json`) is partitioned into a
+deterministic three-way split (`sft_train.json` ~4,500, `sft_val.json` ~500,
+`screen_holdout.json` ~617) preserving all exact and near-duplicate groups with
+seed 2026. `quarantined.json` (392 records) remains permanently excluded. Exact
+tokenizer audit determines $L=1536$ truncation ceiling (truncating only 39/5617
+assistant answers, or 0.694%), using answer-only ChatML loss masking (`-100` for
+all prompt tokens) and dynamic batch padding.
+
+Candidate 1 (M50-C1) defines a conservative QLoRA recipe ($r=8, \alpha=16,
+\text{lr}=5\times 10^{-5}$, attention-only projections, 1 epoch, microbatch 2,
+accumulation 8). Candidate evaluation uses a staged ladder: (1) training loss on
+validation, (2) cheap direct-QA paired screening on `screen_holdout.json` (617
+records) with cached BASE outputs and paired bootstrap 95% confidence intervals
+for $\Delta\text{METEOR}$ and $\Delta\text{ROUGE-L}$, (3) immutable 50-question
+production RAG smoke, and (4) full 991 development benchmark run exactly once
+for the final selected candidate.

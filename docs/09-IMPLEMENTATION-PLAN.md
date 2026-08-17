@@ -2359,3 +2359,15 @@ reports are reviewed.
 The acceptance sequence is: targeted IDs `139655` and `25945`, then the
 immutable 50-question smoke set. Do not run the 991-question batch before both
 reports are reviewed.
+
+## 64. Milestone 50.1 — Official-Data QLoRA Fine-Tuning Infrastructure and Direct Screening
+
+**Status:** Implemented locally; GPU execution pending
+
+- preserve frozen M49.6 baseline and strict validation / citation / recovery gates;
+- partition clean 5,617 `training.json` into deterministic three-way split (`sft_train.json` ~4,500, `sft_val.json` ~500, `screen_holdout.json` ~617) preserving duplicate groups with seed 2026;
+- exclude `development.json` (991 records) as frozen historical benchmark and permanently exclude `quarantined.json` (392 records);
+- implement exact ChatML answer-only SFT encoding with `-100` prompt loss masking and dynamic batch padding at $L=1536$;
+- implement Candidate 1 QLoRA training runner with trainable parameter preflight check ($< 3\%$ trainable parameters) and comprehensive training manifest;
+- implement cached BASE direct-QA generator and paired METEOR / ROUGE-L comparison with 95% bootstrap confidence intervals on `screen_holdout.json`;
+- validate locally with unit test suite; do not run full 991 development benchmark until Candidate 1 passes direct screening and immutable 50-smoke.

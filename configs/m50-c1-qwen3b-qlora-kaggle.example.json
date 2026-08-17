@@ -1,0 +1,45 @@
+{
+  "candidate_id": "M50-C1",
+  "base_model": {
+    "model_id": "Qwen/Qwen2.5-3B-Instruct",
+    "model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8"
+  },
+  "quantization": {
+    "quantization_type": "4bit_nf4",
+    "double_quantization": true,
+    "compute_dtype": "float16"
+  },
+  "lora": {
+    "r": 8,
+    "lora_alpha": 16,
+    "lora_dropout": 0.05,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj"
+    ]
+  },
+  "training": {
+    "max_seq_length": 1536,
+    "system_prompt": "Bạn là một trợ lý AI hữu ích và chuyên gia pháp luật Việt Nam.",
+    "learning_rate": 0.00005,
+    "lr_scheduler_type": "cosine",
+    "warmup_ratio": 0.05,
+    "num_train_epochs": 1,
+    "per_device_train_batch_size": 2,
+    "gradient_accumulation_steps": 8,
+    "gradient_checkpointing": true,
+    "use_cache": false,
+    "optimizer": "paged_adamw_8bit",
+    "logging_steps": 10,
+    "eval_steps": 75,
+    "save_steps": 75,
+    "seed": 2026
+  },
+  "data_sources": {
+    "training_partition": "sft_train.json",
+    "validation_partition": "sft_val.json",
+    "screening_partition": "screen_holdout.json"
+  }
+}

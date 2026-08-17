@@ -177,63 +177,50 @@ Before modifying a module, follow the module-specific reading path in
 
 ---
 
-## 7. Current Development Frontier: M49.6
+## 7. Current Development Frontier: M50 (Official-Data QLoRA Fine-Tuning)
 
-The active development frontier is **M49.6 — bounded missing-required-field model
-correction**.
+The active development frontier is **M50 — Official-Data LegalQA Generator Fine-Tuning**.
 
-Background and transition from M49.5:
+Background and status:
 
-- M49.5 implemented bounded terminal schema recovery for safe structural errors;
-- M49.5 targeted GPU validation on Kaggle was executed for IDs `139655` and `25945`;
-- targeted gate failed: both cases failed with `missing_required_field` and outcome `not_recoverable`;
-- M49.5 correctly refused local structural recovery because required semantic fields cannot be guessed locally;
-- Codex began M49.6 implementation to provide a narrowly bounded one-shot model correction for eligible `missing_required_field` cases;
-- Codex reached usage limit before completion; partial edits were intentionally undone by the user;
-- current working source is logically restored to committed M49.5 (`be190a5`);
-- M49.6 is being reconstructed from confirmed design behavior, not recovered from worktree fragments.
+- M49.6 completed both targeted 2-ID and immutable 50-smoke gates with zero errors, establishing the frozen reliability baseline;
+- M50 Phase 0 & 0.5 established competition compliance, three-way split design (`sft_train.json` ~4,500, `sft_val.json` ~500, `screen_holdout.json` ~617), and sequence length $L=1536$ truncation ceiling;
+- `development.json` (991 records) is preserved as the frozen historical development benchmark (strictly excluded from gradient updates and intermediate selection);
+- `quarantined.json` (392 records) remains permanently excluded;
+- M50 Phase 1 infrastructure is implemented locally: deterministic splitter, answer-only dataset with `-100` prompt loss masking, dynamic collator, QLoRA Candidate-1 trainer with parameter preflight, cached BASE direct-QA screening runner, and paired bootstrap scoring;
+- Local unit tests (513 passed) and pre-commit checks verified; Kaggle GPU training execution is pending.
 
 ---
 
-## 8. M49.5 Targeted GPU Validation Result
+## 8. Frozen Reliability Baseline: M49.6 GPU Validation Results
 
-The M49.5 targeted GPU gate was executed on Kaggle for IDs `139655` and `25945`:
+The M49.6 reliability candidate (`9b0cd0b1d40fb01bb62d4841f7728af2264f3957`, version `0.49.6`) successfully passed both acceptance gates on Kaggle Tesla T4:
 
-```json
-{
-  "records": 2,
-  "generator_model_errors": 2,
-  "retrieval_model_errors": 0,
-  "insufficient_evidence": 2,
-  "citation_verification_failed": 0,
-  "schema_issue_counts": {
-    "missing_required_field": 2
-  },
-  "schema_repair_counts": {},
-  "schema_recovery_attempted": 2,
-  "schema_recovery_succeeded": 0,
-  "schema_recovery_failed": 2,
-  "schema_recovery_outcomes": {
-    "not_recoverable": 2
-  }
-}
-```
+1. **Targeted 2-ID Gate (`139655`, `25945`)**:
+   - `records = 2`
+   - `generator_model_errors = 0`
+   - `missing_field_correction_attempted = 2`
+   - `missing_field_correction_succeeded = 2`
+   - `stop_reason: answer_verified = 2`
 
-Key takeaways:
+2. **Immutable 50-Question Smoke Gate**:
+   - `records = 50`
+   - `stop_reason_counts: answer_verified = 46, insufficient_evidence = 4`
+   - `generator_model_errors = 0`
+   - `retrieval_model_errors = 0`
+   - `citation_verification_failed = 0`
+   - `missing_field_correction: attempted = 2, succeeded = 2, failed = 0`
+   - `numeric_salvage = 2/2`, `supported_claim_salvage = 1/1`
 
-- retrieval was clean (0 retrieval errors);
-- citation verification did not regress (0 verification failures);
-- schema recovery was reached for both cases;
-- both failed fail-closed because missing required fields cannot be synthesized safely without hallucination;
-- M49.5 targeted gate failed, so the 50-question M49.5 smoke was intentionally not run.
+M49.6 is the frozen fallback baseline. It must not be redesigned or weakened.
 
 ---
 
-## 9. Immediate Predecessors: M49.4 and M49.5
+## 9. Immediate Predecessors: M49.5 and M49.6
 
-- **M49.4**: bounded supported-claim salvage after structured model-output/citation-verification rejection;
 - **M49.5**: bounded local structural terminal schema recovery (shape normalization, single claim wrapping, duplicate stripping, excess complete claim dropping);
-- **M49.6**: bounded terminal model-correction attempt specifically for unrecoverable missing-required-field failures.
+- **M49.6**: bounded terminal model-correction attempt specifically for unrecoverable missing-required-field failures;
+- **M50.1**: official-data QLoRA fine-tuning infrastructure and staged direct-QA semantic screening ladder.
 
 Each experiment remains independently measurable with its own closed telemetry.
 
