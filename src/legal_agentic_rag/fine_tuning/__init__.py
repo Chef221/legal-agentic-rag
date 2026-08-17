@@ -39,6 +39,7 @@ from legal_agentic_rag.fine_tuning.training_runner import (
     TRAINING_MANIFEST_FILENAME,
     M50QLoRATrainer,
     get_environment_dependency_versions,
+    load_qlora_candidate_config,
     verify_trainable_parameters,
 )
 
@@ -72,6 +73,7 @@ __all__ = [
     "M50FineTuningSplitter",
     "find_overlength_question_ids",
     "M50QLoRATrainer",
+    "load_qlora_candidate_config",
     "get_environment_dependency_versions",
     "verify_trainable_parameters",
 ]

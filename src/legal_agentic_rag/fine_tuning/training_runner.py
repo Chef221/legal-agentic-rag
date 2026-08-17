@@ -42,6 +42,19 @@ ADAPTER_CONFIG_FILENAME = "adapter_config.json"
 EXPECTED_M50_C1_TRAINABLE_PARAMS = 3_686_400
 
 
+def load_qlora_candidate_config(path: Path) -> tuple[QLoRACandidateConfig, str]:
+    """Load and validate a candidate QLoRA config from a JSON file and return config + exact file SHA."""
+    if not path.exists():
+        raise DataValidationError(f"Candidate configuration file missing at {path}")
+    raw_bytes = path.read_bytes()
+    file_sha = sha256(raw_bytes).hexdigest()
+    try:
+        config = QLoRACandidateConfig.model_validate_json(raw_bytes.decode("utf-8"))
+    except Exception as err:
+        raise DataValidationError(f"Invalid candidate configuration in {path}: {err}") from err
+    return config, file_sha
+
+
 def get_environment_dependency_versions() -> dict[str, str]:
     """Inspect and return installed versions of key training dependencies."""
     packages = ["transformers", "peft", "bitsandbytes", "accelerate", "torch", "numpy"]
@@ -170,21 +183,59 @@ class M50QLoRATrainer:
             raise ArtifactCompatibilityError(
                 f"Training output directory {output} is not empty"
             )
-        output.mkdir(parents=True, exist_ok=True)
 
+        # 1. Early Fail-Closed Config, Partition, and Split-Manifest Validation
+        if config_source_path:
+            loaded_cfg, actual_config_sha = load_qlora_candidate_config(config_source_path)
+            if expected_config_sha256 and actual_config_sha != expected_config_sha256:
+                raise DataValidationError(
+                    f"Config SHA mismatch: expected {expected_config_sha256}, got {actual_config_sha}"
+                )
+            if loaded_cfg != self.config:
+                raise DataValidationError(
+                    "Config file content does not match trainer configuration instance"
+                )
+            config_sha = actual_config_sha
+        elif expected_config_sha256:
+            config_sha = expected_config_sha256
+        else:
+            config_sha = sha256(self.config.model_dump_json().encode("utf-8")).hexdigest()
+
+        # Validate partition filenames against config
+        if train_partition_path.name != self.config.training_partition:
+            raise DataValidationError(
+                f"Train partition filename mismatch: expected {self.config.training_partition}, got {train_partition_path.name}"
+            )
+        if val_partition_path.name != self.config.validation_partition:
+            raise DataValidationError(
+                f"Validation partition filename mismatch: expected {self.config.validation_partition}, got {val_partition_path.name}"
+            )
+
+        # Candidate-1 requires valid split manifest
+        if self.config.candidate_id == "M50-C1":
+            if not split_manifest_path or not split_manifest_path.exists():
+                raise DataValidationError(
+                    "M50-C1 training requires a valid existing split_manifest_path"
+                )
+            split_manifest_sha = _file_sha256(split_manifest_path)
+        else:
+            split_manifest_sha = (
+                _file_sha256(split_manifest_path)
+                if split_manifest_path and split_manifest_path.exists()
+                else "unknown"
+            )
+
+        output.mkdir(parents=True, exist_ok=True)
         start_time = datetime.now(UTC)
 
-        # 1. Validate dataset sources
+        # 2. Validate dataset sources
         sft_train_sha = _file_sha256(train_partition_path)
         sft_val_sha = _file_sha256(val_partition_path)
-        split_manifest_sha = (
-            _file_sha256(split_manifest_path) if split_manifest_path and split_manifest_path.exists() else "unknown"
-        )
 
         train_questions = self.loader.load_questions(train_partition_path, require_reference_answers=True)
         val_questions = self.loader.load_questions(val_partition_path, require_reference_answers=True)
 
-        # 2. Setup Device & Seed Controls
+        # 3. Setup Device & Seed Controls
         training_device = device or (torch.device("cuda:0" if torch.cuda.is_available() else "cpu"))
         cuda_version = torch.version.cuda if torch.cuda.is_available() else None
         gpu_name = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU"
@@ -196,7 +247,7 @@ class M50QLoRATrainer:
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(self.config.seed)
 
-        # 3. Model & Tokenizer Initialization
+        # 4. Model & Tokenizer Initialization
         if tokenizer is None:
             from transformers import AutoTokenizer
 
@@ -246,7 +297,7 @@ class M50QLoRATrainer:
             )
             model = get_peft_model(base_model, lora_config)
 
-        # 4. Parameter Preflight & Placement Check
+        # 5. Parameter Preflight & Placement Check
         expected_params = (
             EXPECTED_M50_C1_TRAINABLE_PARAMS if self.config.candidate_id == "M50-C1" else None
         )
@@ -263,12 +314,18 @@ class M50QLoRATrainer:
                     f"Model parameter '{name}' is on {p.device}, expected {training_device}"
                 )
 
-        # 5. Datasets and DataLoaders
+        # 6. Datasets with Authoritative Config System Prompt and DataLoaders
         train_dataset = SFTAnswerOnlyDataset(
-            train_questions, tokenizer, max_seq_length=self.config.max_seq_length
+            train_questions,
+            tokenizer,
+            system_prompt=self.config.system_prompt,
+            max_seq_length=self.config.max_seq_length,
         )
         val_dataset = SFTAnswerOnlyDataset(
-            val_questions, tokenizer, max_seq_length=self.config.max_seq_length
+            val_questions,
+            tokenizer,
+            system_prompt=self.config.system_prompt,
+            max_seq_length=self.config.max_seq_length,
         )
 
         collator = SFTDynamicDataCollator(pad_token_id=pad_token_id, pad_label_id=-100)
@@ -290,7 +347,7 @@ class M50QLoRATrainer:
             collate_fn=collator,
         )
 
-        # 6. Fail-Closed Optimizer and Scheduler
+        # 7. Fail-Closed Optimizer and Scheduler
         if self.config.optimizer == "paged_adamw_8bit":
             try:
                 import bitsandbytes as bnb
@@ -321,7 +378,7 @@ class M50QLoRATrainer:
             optimizer, num_warmup_steps=warmup_steps, num_training_steps=max(total_steps, 1)
         )
 
-        # 7. Training Loop with Partial Accumulation Group Scaling & Periodic Validation
+        # 8. Training Loop with Partial Accumulation Group Scaling & Periodic Validation
         model.train()
         global_step = 0
         best_val_loss = float("inf")
@@ -399,20 +456,6 @@ class M50QLoRATrainer:
         self._save_checkpoint(model, final_checkpoint_dir)
 
         end_time = datetime.now(UTC)
-
-        # 8. Compute Authoritative Config SHA
-        if config_source_path:
-            if not config_source_path.exists():
-                raise DataValidationError(f"Candidate config file missing at {config_source_path}")
-            config_sha = _file_sha256(config_source_path)
-            if expected_config_sha256 and config_sha != expected_config_sha256:
-                raise DataValidationError(
-                    f"Config SHA mismatch: expected {expected_config_sha256}, got {config_sha}"
-                )
-        elif expected_config_sha256:
-            config_sha = expected_config_sha256
-        else:
-            config_sha = sha256(self.config.model_dump_json().encode("utf-8")).hexdigest()
 
         # Save project-owned training history
         history_payload = {

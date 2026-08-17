@@ -236,6 +236,7 @@ class QLoRACandidateConfig(BaseModel):
     lora_dropout: float = Field(ge=0.0, le=0.5, default=0.05)
     target_modules: list[str] = Field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
     max_seq_length: int = Field(ge=256, le=4096, default=1536)
+    system_prompt: str = "Bạn là một trợ lý AI hữu ích và chuyên gia pháp luật Việt Nam."
     learning_rate: float = Field(gt=0.0, default=5e-5)
     lr_scheduler_type: Literal["cosine", "linear", "constant"] = "cosine"
     warmup_ratio: float = Field(ge=0.0, le=0.5, default=0.05)
@@ -243,11 +244,15 @@ class QLoRACandidateConfig(BaseModel):
     per_device_train_batch_size: int = Field(ge=1, default=2)
     gradient_accumulation_steps: int = Field(ge=1, default=8)
     gradient_checkpointing: bool = True
+    use_cache: Literal[False] = False
     optimizer: str = "paged_adamw_8bit"
     logging_steps: int = 10
     eval_steps: int = 75
     save_steps: int = 75
     seed: int = 2026
+    training_partition: str = "sft_train.json"
+    validation_partition: str = "sft_val.json"
+    screening_partition: str = "screen_holdout.json"
 
 
 class M50TrainingManifest(BaseModel):

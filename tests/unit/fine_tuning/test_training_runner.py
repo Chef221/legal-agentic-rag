@@ -211,8 +211,8 @@ def test_fail_closed_paged_adamw_optimizer_on_invalid_environment(tmp_path: Path
     config = QLoRACandidateConfig(candidate_id="CUSTOM_TEST", optimizer="paged_adamw_8bit")
     trainer = M50QLoRATrainer(config=config)
 
-    train_p = tmp_path / "train.json"
-    val_p = tmp_path / "val.json"
+    train_p = tmp_path / "sft_train.json"
+    val_p = tmp_path / "sft_val.json"
     train_p.write_text('{"1": {"question": "Q1?", "answer": "A1."}}', encoding="utf-8")
     val_p.write_text('{"2": {"question": "Q2?", "answer": "A2."}}', encoding="utf-8")
 
@@ -243,3 +243,68 @@ def test_git_commit_validation() -> None:
     # Local repo discovery returns 40-character hex
     discovered = get_git_commit()
     assert len(discovered) == 40
+
+
+def test_committed_candidate_1_config_parses_with_loader() -> None:
+    from legal_agentic_rag.fine_tuning.training_runner import load_qlora_candidate_config
+
+    repo_root = Path(__file__).resolve().parents[3]
+    config_path = repo_root / "configs" / "m50-c1-qwen3b-qlora-kaggle.example.json"
+
+    assert config_path.exists()
+    config, config_sha = load_qlora_candidate_config(config_path)
+
+    assert config.candidate_id == "M50-C1"
+    assert config.base_model_id == "Qwen/Qwen2.5-3B-Instruct"
+    assert config.base_model_revision == "a1d308dfcc03e09da285d49d912439a655a571e8"
+    assert config.lora_r == 8
+    assert config.lora_alpha == 16
+    assert config.lora_dropout == 0.05
+    assert config.target_modules == ["q_proj", "k_proj", "v_proj", "o_proj"]
+    assert config.learning_rate == 5e-5
+    assert config.max_seq_length == 1536
+    assert config.per_device_train_batch_size == 2
+    assert config.gradient_accumulation_steps == 8
+    assert config.seed == 2026
+    assert config.system_prompt == "Bạn là một trợ lý AI hữu ích và chuyên gia pháp luật Việt Nam."
+    assert config.use_cache is False
+    assert config.training_partition == "sft_train.json"
+    assert config.validation_partition == "sft_val.json"
+    assert config.screening_partition == "screen_holdout.json"
+    assert len(config_sha) == 64
+
+
+def test_pre_training_config_and_manifest_fail_closed(tmp_path: Path) -> None:
+    from legal_agentic_rag.exceptions import DataValidationError
+    from legal_agentic_rag.schemas import QLoRACandidateConfig
+
+    # 1. Reject partition filename mismatch before model load
+    config = QLoRACandidateConfig(candidate_id="CUSTOM_TEST", training_partition="sft_train.json")
+    trainer = M50QLoRATrainer(config=config)
+
+    wrong_train = tmp_path / "wrong_train_name.json"
+    val_p = tmp_path / "sft_val.json"
+    wrong_train.write_text('{"1": {"question": "Q1?", "answer": "A1."}}', encoding="utf-8")
+    val_p.write_text('{"2": {"question": "Q2?", "answer": "A2."}}', encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="Train partition filename mismatch"):
+        trainer.train(
+            train_partition_path=wrong_train,
+            val_partition_path=val_p,
+            output_directory=tmp_path / "out",
+        )
+
+    # 2. Reject missing split manifest for Candidate 1 before model load
+    c1_config = QLoRACandidateConfig(candidate_id="M50-C1")
+    c1_trainer = M50QLoRATrainer(config=c1_config)
+
+    correct_train = tmp_path / "sft_train.json"
+    correct_train.write_text('{"1": {"question": "Q1?", "answer": "A1."}}', encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="M50-C1 training requires a valid existing split_manifest_path"):
+        c1_trainer.train(
+            train_partition_path=correct_train,
+            val_partition_path=val_p,
+            output_directory=tmp_path / "out2",
+            split_manifest_path=None,
+        )
