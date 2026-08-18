@@ -6,6 +6,7 @@ from legal_agentic_rag.fine_tuning.dataset import (
     SYSTEM_PROMPT,
     SFTAnswerOnlyDataset,
     encode_sft_example,
+    validate_sft_dataset_encoding,
 )
 from legal_agentic_rag.fine_tuning.generation_gates import (
     evaluate_checkpoint_health_gate,
@@ -118,6 +119,7 @@ __all__ = [
     "SFTDynamicDataCollator",
     "SFTAnswerOnlyDataset",
     "encode_sft_example",
+    "validate_sft_dataset_encoding",
     "DirectQAScreeningRunner",
     "load_cached_direct_qa_results",
     "save_base_direct_qa_cache",

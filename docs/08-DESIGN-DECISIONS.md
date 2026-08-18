@@ -2633,9 +2633,12 @@ multi-checkpoint health gates:
    decay, warmup ratio 0.05, microbatch 2, accumulation 8, `paged_adamw_8bit`.
 3. **Pilot Step Bound**: capped at `max_optimizer_steps=150` with evaluation and
    checkpoint gates executed at steps [50, 100, 150].
-4. **EOS-Preserving SFT Encoding**: `encode_sft_example` strictly guarantees that
-   truncated assistant targets retain the terminal EOS token (`<|im_end|>`) in
-   the final sequence position with unmasked label `eos_token_id`.
+4. **EOS-Preserving SFT Encoding & ChatML Suffix Canonicalization**: `encode_sft_example`
+   strictly guarantees that ChatML template trailing whitespace tokens (such as `\n` token ID 198
+   after `<|im_end|>` token ID 151645) are canonicalized so that the final supervised label is the actual
+   EOS token `151645`. Truncated assistant targets retain the terminal EOS token in the final sequence
+   position with unmasked label `eos_token_id`. `validate_sft_dataset_encoding` performs sub-second
+   CPU preflight validation across all 5,000 records before GPU model loading.
 5. **Strict Holdout Isolation**: `screen_holdout.json` is strictly frozen and
    never touched during training or intermediate probing. Probing operates on
    20 deterministic questions extracted exclusively from `sft_val.json` via

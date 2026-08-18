@@ -190,8 +190,10 @@ def test_seeded_dataloader_reproducible_ordering() -> None:
 
 
 class _MockRunnerTokenizer:
-    pad_token_id = 0
-    eos_token_id = 0
+    def __init__(self) -> None:
+        self.pad_token_id = 151645
+        self.eos_token_id = 151645
+        self.eos_token = "<|im_end|>"
 
     def apply_chat_template(
         self,
@@ -199,10 +201,18 @@ class _MockRunnerTokenizer:
         tokenize: bool = False,
         add_generation_prompt: bool = False,
     ) -> str:
-        return "<|im_start|>user\nQ1?<|im_end|>\n<|im_start|>assistant\nA1.<|im_end|>\n"
+        text = ""
+        for m in messages:
+            text += f"<|im_start|>{m['role']}\n{m['content']}<|im_end|>\n"
+        if add_generation_prompt:
+            text += "<|im_start|>assistant\n"
+        return text
 
     def encode(self, text: str, add_special_tokens: bool = False) -> list[int]:
-        return [1, 2, 3]
+        tokens = [1, 2, 3]
+        if text.rstrip().endswith("<|im_end|>"):
+            tokens.extend([151645, 198])
+        return tokens
 
 
 def test_fail_closed_paged_adamw_optimizer_on_invalid_environment(tmp_path: Path) -> None:

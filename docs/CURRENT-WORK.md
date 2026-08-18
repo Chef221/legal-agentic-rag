@@ -44,7 +44,7 @@ Current remote `main` snapshot:
 
 Current source/package version:
 
-- `0.50.3` (M50-C2 Conservative QLoRA Pilot Infrastructure)
+- `0.50.4` (M50-C2 QLoRA Pilot SFT EOS Canonicalization Patch)
 
 ---
 
@@ -409,11 +409,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline
 
 Current repository state:
-    0.50.3 (M50-C2 conservative QLoRA pilot infrastructure implemented and locally verified)
+    0.50.4 (M50-C2 conservative QLoRA pilot SFT EOS canonicalization patch implemented and verified on 5000 canonical records)
 
 Active development frontier:
     M50-C2 conservative QLoRA pilot execution on Kaggle GPU
 
 Next action:
-    review M50-C2 local infrastructure -> run Kaggle pilot (Cells 1-5) -> review checkpoint selection report
-`````
+    review M50-C2 local infrastructure & EOS canonicalization -> run Kaggle pilot (Cells 1-5) -> review checkpoint selection report
+```

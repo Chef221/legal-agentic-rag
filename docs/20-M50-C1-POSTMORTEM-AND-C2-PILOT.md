@@ -164,7 +164,7 @@ if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 
 # Strict version assertions
-assert legal_agentic_rag.__version__ == "0.50.3", f"Expected 0.50.3, got {legal_agentic_rag.__version__}"
+assert legal_agentic_rag.__version__ == "0.50.4", f"Expected 0.50.4, got {legal_agentic_rag.__version__}"
 assert transformers.__version__ == "4.51.3", f"Expected 4.51.3, got {transformers.__version__}"
 assert peft.__version__ == "0.15.2", f"Expected 0.15.2, got {peft.__version__}"
 assert bitsandbytes.__version__ == "0.45.5", f"Expected 0.45.5, got {bitsandbytes.__version__}"

@@ -33,6 +33,7 @@ from legal_agentic_rag.fine_tuning.collator import SFTDynamicDataCollator
 from legal_agentic_rag.fine_tuning.dataset import (
     DEFAULT_MAX_SEQ_LENGTH,
     SFTAnswerOnlyDataset,
+    validate_sft_dataset_encoding,
 )
 from legal_agentic_rag.fine_tuning.generation_gates import (
     evaluate_checkpoint_health_gate,
@@ -347,6 +348,15 @@ class M50QLoRATrainer:
             )
 
         pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id
+
+        # Preflight SFT encoding audit across train and val splits before model loading
+        validate_sft_dataset_encoding(
+            train_questions,
+            val_questions,
+            tokenizer,
+            max_seq_length=self.config.max_seq_length,
+            system_prompt=self.config.system_prompt,
+        )
 
         if model is None:
             from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training

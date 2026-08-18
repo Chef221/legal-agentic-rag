@@ -294,7 +294,7 @@ def test_checkpoint_selection_tie_breaking_rules() -> None:
         from datetime import UTC, datetime
         return CheckpointGateReport(
             created_at=datetime.now(UTC),
-            code_version="0.50.3",
+            code_version="0.50.4",
             candidate_id="M50-C2",
             optimizer_step=step,
             val_loss=val_loss,
@@ -412,7 +412,7 @@ def test_selection_ineligible_cannot_be_selected() -> None:
         from datetime import UTC, datetime
         return CheckpointGateReport(
             created_at=datetime.now(UTC),
-            code_version="0.50.3",
+            code_version="0.50.4",
             candidate_id="M50-C2",
             optimizer_step=step,
             val_loss=1.0,

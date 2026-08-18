@@ -2380,7 +2380,7 @@ reports are reviewed.
 - implement Candidate 2 conservative pilot recipe: rank $r=4, \alpha=8$, dropout $0.05$, target modules $\{q\_proj, v\_proj\}$ yielding exactly 921,600 trainable parameters;
 - configure $\text{LR}=10^{-5}$ (5x lower than C1), cosine scheduler, warmup ratio 0.05, microbatch 2, accumulation 8, `paged_adamw_8bit`;
 - bound pilot to `max_optimizer_steps=150` with evaluation and checkpoint gates executed at steps [50, 100, 150];
-- implement EOS-preserving SFT encoding: `encode_sft_example` strictly preserves the terminal `<|im_end|>` token with label `eos_token_id` in sequence truncation;
+- implement EOS-preserving SFT encoding & ChatML suffix canonicalization: `encode_sft_example` strips post-EOS template whitespace tokens (e.g. `\n` token ID 198 after `<|im_end|>` token ID 151645) so the final supervised label is strictly `151645`, while sequence truncation preserves terminal `<|im_end|>`; `validate_sft_dataset_encoding` performs sub-second CPU preflight validation across all 5,000 records before GPU model loading;
 - preserve strict holdout isolation: `screen_holdout.json` is strictly frozen; intermediate probing uses 20 deterministic questions extracted from `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`) with content-level lineage checks;
 - implement checkpoint safety gate (0 errors, `cap_without_eos` $\le \text{BASE}+1$, `repeat8_high` $\le \text{BASE}+1$, `duplicate_line_high` $\le \text{BASE}+1$, `eos_emitted` $\ge \text{BASE}-1$, mean length $\le \text{BASE}\times 1.35$, median length $\le \max(\text{BASE}\times 1.35, \text{BASE}+64.0)$);
 - implement semantic preservation gate ($\Delta\text{ROUGE-L} \ge -0.01$, $\Delta\text{METEOR} \ge -0.01$ if available, and at least one $> 0$);
