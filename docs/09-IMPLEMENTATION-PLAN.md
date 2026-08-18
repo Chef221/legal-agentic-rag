@@ -2362,7 +2362,7 @@ reports are reviewed.
 
 ## 64. Milestone 50.1 — Official-Data QLoRA Fine-Tuning Infrastructure and Direct Screening
 
-**Status:** Implemented locally; GPU execution pending
+**Status:** Completed; C1 executed and rejected due to free-generation degeneration
 
 - preserve frozen M49.6 baseline and strict validation / citation / recovery gates;
 - partition clean 5,617 `training.json` into deterministic three-way split (`sft_train.json` ~4,500, `sft_val.json` ~500, `screen_holdout.json` ~617) preserving duplicate groups with seed 2026;
@@ -2371,3 +2371,18 @@ reports are reviewed.
 - implement Candidate 1 QLoRA training runner with trainable parameter preflight check ($< 3\%$ trainable parameters) and comprehensive training manifest;
 - implement cached BASE direct-QA generator and paired METEOR / ROUGE-L comparison with 95% bootstrap confidence intervals on `screen_holdout.json`;
 - validate locally with unit test suite; do not run full 991 development benchmark until Candidate 1 passes direct screening and immutable 50-smoke.
+
+## 65. Milestone 50.2 — M50-C2 Conservative QLoRA Pilot with Multi-Checkpoint Health Gates
+
+**Status:** Implemented locally; Kaggle GPU pilot execution ready
+
+- post-mortem of M50-C1: teacher-forced validation converged (1.09828) with positive lexical ROUGE-L signal (+0.04153), but free-generation collapsed into repetition loops (18/20 high repetition, 14/20 cap reached, 6/20 EOS);
+- implement Candidate 2 conservative pilot recipe: rank $r=4, \alpha=8$, dropout $0.05$, target modules $\{q\_proj, v\_proj\}$ yielding exactly 921,600 trainable parameters;
+- configure $\text{LR}=10^{-5}$ (5x lower than C1), cosine scheduler, warmup ratio 0.05, microbatch 2, accumulation 8, `paged_adamw_8bit`;
+- bound pilot to `max_optimizer_steps=150` with evaluation and checkpoint gates executed at steps [50, 100, 150];
+- implement EOS-preserving SFT encoding: `encode_sft_example` strictly preserves the terminal `<|im_end|>` token with label `eos_token_id` in sequence truncation;
+- preserve strict holdout isolation: `screen_holdout.json` is strictly frozen; intermediate probing uses 20 deterministic questions extracted from `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`) with content-level lineage checks;
+- implement checkpoint safety gate (0 errors, `cap_without_eos` $\le \text{BASE}+1$, `repeat8_high` $\le \text{BASE}+1$, `duplicate_line_high` $\le \text{BASE}+1$, `eos_emitted` $\ge \text{BASE}-1$, mean length $\le \text{BASE}\times 1.35$, median length $\le \max(\text{BASE}\times 1.35, \text{BASE}+64.0)$);
+- implement semantic preservation gate ($\Delta\text{ROUGE-L} \ge -0.01$, $\Delta\text{METEOR} \ge -0.01$ if available, and at least one $> 0$);
+- implement multi-checkpoint ranking & selection report (`checkpoint-selection-report.json`); returns `no_promotable_checkpoint` if 0 checkpoints qualify;
+- implement atomic `progress.json` updates, arbitrary-hour `format_duration`, durable JSONL history, checkpoint recovery from steps 50 and 100, and complete archive packaging (`m50-c2-pilot-complete.zip`) with SHA-256 checksum manifest.

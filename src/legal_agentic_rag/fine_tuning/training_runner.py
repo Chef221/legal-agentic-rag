@@ -1,4 +1,4 @@
-"""Candidate-1 QLoRA training execution and reproducible manifest generation."""
+"""Candidate-1 & Candidate-2 QLoRA training execution, progress observability, and gate probing."""
 
 from __future__ import annotations
 
@@ -7,12 +7,14 @@ from hashlib import sha256
 import importlib.metadata
 import json
 import math
+import os
 from pathlib import Path
 import random
 import re
 import subprocess
+import tempfile
 import time
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import torch
@@ -32,14 +34,50 @@ from legal_agentic_rag.fine_tuning.dataset import (
     DEFAULT_MAX_SEQ_LENGTH,
     SFTAnswerOnlyDataset,
 )
-from legal_agentic_rag.schemas import M50TrainingManifest, QLoRACandidateConfig
+from legal_agentic_rag.fine_tuning.generation_gates import (
+    evaluate_checkpoint_health_gate,
+    run_free_generation_probe,
+    select_best_pilot_checkpoint,
+)
+from legal_agentic_rag.fine_tuning.val_probe import (
+    VAL_PROBE_BASE_MANIFEST_FILENAME,
+    VAL_PROBE_BASE_RESULTS_FILENAME,
+    VAL_PROBE_FILENAME,
+    VAL_PROBE_MANIFEST_FILENAME,
+    load_and_validate_val_probe_base_cache,
+)
+from legal_agentic_rag.schemas import (
+    CheckpointGateReport,
+    CheckpointManifest,
+    CheckpointSelectionReport,
+    CompetitionQuestion,
+    M50TrainingManifest,
+    QLoRACandidateConfig,
+    TrainingProgressSnapshot,
+    ValProbeBaseManifest,
+    ValProbeCaseResult,
+)
 
 TRAINING_MANIFEST_FILENAME = "training_manifest.json"
 TRAINING_HISTORY_FILENAME = "training_history.json"
+TRAINING_HISTORY_JSONL_FILENAME = "training_history.jsonl"
+PROGRESS_SNAPSHOT_FILENAME = "progress.json"
+CHECKPOINT_SELECTION_FILENAME = "checkpoint-selection-report.json"
 ADAPTER_MODEL_FILENAME = "adapter_model.safetensors"
 ADAPTER_CONFIG_FILENAME = "adapter_config.json"
+TRAINING_STATE_FILENAME = "training_state.pt"
 
 EXPECTED_M50_C1_TRAINABLE_PARAMS = 3_686_400
+EXPECTED_M50_C2_TRAINABLE_PARAMS = 921_600
+
+
+def format_duration(seconds: float) -> str:
+    """Format duration in seconds to arbitrary HH:MM:SS without modulo 24 wrap."""
+    total_secs = max(0, int(seconds))
+    hours = total_secs // 3600
+    minutes = (total_secs % 3600) // 60
+    secs = total_secs % 60
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
 def load_qlora_candidate_config(path: Path) -> tuple[QLoRACandidateConfig, str]:
@@ -57,7 +95,7 @@ def load_qlora_candidate_config(path: Path) -> tuple[QLoRACandidateConfig, str]:
 
 def get_environment_dependency_versions() -> dict[str, str]:
     """Inspect and return installed versions of key training dependencies."""
-    packages = ["transformers", "peft", "bitsandbytes", "accelerate", "torch", "numpy"]
+    packages = ["transformers", "peft", "bitsandbytes", "accelerate", "torch", "numpy", "nltk"]
     versions: dict[str, str] = {}
     for pkg in packages:
         try:
@@ -151,8 +189,25 @@ def get_git_commit(
         ) from err
 
 
+def write_progress_atomically(
+    output_dir: Path,
+    snapshot: TrainingProgressSnapshot,
+) -> None:
+    """Persist progress.json atomically via temporary file and replace."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target_path = output_dir / PROGRESS_SNAPSHOT_FILENAME
+    content = snapshot.model_dump_json(indent=2)
+
+    with tempfile.NamedTemporaryFile("w", dir=output_dir, delete=False, encoding="utf-8") as tf:
+        tf.write(content)
+        tf.flush()
+        temp_name = tf.name
+
+    os.replace(temp_name, target_path)
+
+
 class M50QLoRATrainer:
-    """Execute bounded Candidate 1 QLoRA fine-tuning on official SFT partitions."""
+    """Execute bounded Candidate 1 & Candidate 2 QLoRA fine-tuning on official SFT partitions."""
 
     def __init__(
         self,
@@ -168,6 +223,10 @@ class M50QLoRATrainer:
         val_partition_path: Path,
         output_directory: Path,
         *,
+        val_probe_path: Path | None = None,
+        val_probe_manifest_path: Path | None = None,
+        val_probe_base_results_path: Path | None = None,
+        val_probe_base_manifest_path: Path | None = None,
         split_manifest_path: Path | None = None,
         config_source_path: Path | None = None,
         expected_config_sha256: str | None = None,
@@ -176,10 +235,14 @@ class M50QLoRATrainer:
         tokenizer: Any | None = None,
         model: Any | None = None,
         device: torch.device | None = None,
+        resume_from_checkpoint_dir: Path | None = None,
+        official_meteor_scorer: Callable[[list[list[str]], list[str]], float] | None = None,
     ) -> M50TrainingManifest:
-        """Run 1-epoch QLoRA training and persist the best checkpoint and manifest."""
+        """Run bounded QLoRA training with observable progress and generation gate probing."""
         output = output_directory.resolve()
-        if output.exists() and any(output.iterdir()):
+        is_resuming = resume_from_checkpoint_dir is not None
+
+        if not is_resuming and output.exists() and any(output.iterdir()):
             raise ArtifactCompatibilityError(
                 f"Training output directory {output} is not empty"
             )
@@ -211,11 +274,11 @@ class M50QLoRATrainer:
                 f"Validation partition filename mismatch: expected {self.config.validation_partition}, got {val_partition_path.name}"
             )
 
-        # Candidate-1 requires valid split manifest
-        if self.config.candidate_id == "M50-C1":
+        # Official candidates require valid split manifest
+        if self.config.candidate_id in ["M50-C1", "M50-C2"]:
             if not split_manifest_path or not split_manifest_path.exists():
                 raise DataValidationError(
-                    "M50-C1 training requires a valid existing split_manifest_path"
+                    f"{self.config.candidate_id} training requires a valid existing split_manifest_path"
                 )
             split_manifest_sha = _file_sha256(split_manifest_path)
         else:
@@ -223,6 +286,32 @@ class M50QLoRATrainer:
                 _file_sha256(split_manifest_path)
                 if split_manifest_path and split_manifest_path.exists()
                 else "unknown"
+            )
+
+        # C2 candidate requires VAL probe & BASE cache paths
+        base_probe_cases: list[ValProbeCaseResult] = []
+        probe_questions: list[CompetitionQuestion] = []
+        if self.config.candidate_id == "M50-C2" and self.config.probe_steps:
+            if not val_probe_path or not val_probe_path.exists():
+                raise DataValidationError("M50-C2 training requires a valid val_probe_path")
+            if not val_probe_manifest_path or not val_probe_manifest_path.exists():
+                raise DataValidationError("M50-C2 training requires a valid val_probe_manifest_path")
+            if not val_probe_base_results_path or not val_probe_base_results_path.exists():
+                raise DataValidationError("M50-C2 training requires a valid val_probe_base_results_path")
+            if not val_probe_base_manifest_path or not val_probe_base_manifest_path.exists():
+                raise DataValidationError("M50-C2 training requires a valid val_probe_base_manifest_path")
+
+            probe_questions = self.loader.load_questions(val_probe_path, require_reference_answers=True)
+            val_probe_sha = _file_sha256(val_probe_path)
+            base_probe_cases, _ = load_and_validate_val_probe_base_cache(
+                val_probe_base_results_path,
+                val_probe_base_manifest_path,
+                expected_val_probe_sha256=val_probe_sha,
+                expected_base_model_id=self.config.base_model_id,
+                expected_base_revision=self.config.base_model_revision,
+                expected_system_prompt=self.config.system_prompt,
+                expected_max_new_tokens=self.config.generation_probe_max_new_tokens,
+                expected_record_count=self.config.generation_probe_question_count,
             )
 
         output.mkdir(parents=True, exist_ok=True)
@@ -298,9 +387,12 @@ class M50QLoRATrainer:
             model = get_peft_model(base_model, lora_config)
 
         # 5. Parameter Preflight & Placement Check
-        expected_params = (
-            EXPECTED_M50_C1_TRAINABLE_PARAMS if self.config.candidate_id == "M50-C1" else None
-        )
+        expected_params = None
+        if self.config.candidate_id == "M50-C1":
+            expected_params = EXPECTED_M50_C1_TRAINABLE_PARAMS
+        elif self.config.candidate_id == "M50-C2":
+            expected_params = EXPECTED_M50_C2_TRAINABLE_PARAMS
+
         total_params, trainable_params, trainable_pct = verify_trainable_parameters(
             model,
             allowed_target_modules=self.config.target_modules,
@@ -368,32 +460,149 @@ class M50QLoRATrainer:
         else:
             raise ConfigurationError(f"Unsupported optimizer: {self.config.optimizer}")
 
-        steps_per_epoch = math.ceil(len(train_loader) / self.config.gradient_accumulation_steps)
-        total_steps = steps_per_epoch * self.config.num_train_epochs
-        warmup_steps = int(total_steps * self.config.warmup_ratio)
+        batches_in_epoch = len(train_loader)
+        accum_steps = self.config.gradient_accumulation_steps
+        steps_per_epoch = math.ceil(batches_in_epoch / accum_steps)
+        total_epoch_steps = steps_per_epoch * self.config.num_train_epochs
+
+        # Step bound priority for pilot
+        if self.config.max_optimizer_steps is not None:
+            max_training_steps = min(self.config.max_optimizer_steps, total_epoch_steps)
+        else:
+            max_training_steps = total_epoch_steps
+
+        warmup_steps = int(max_training_steps * self.config.warmup_ratio)
 
         from transformers import get_cosine_schedule_with_warmup
 
         scheduler = get_cosine_schedule_with_warmup(
-            optimizer, num_warmup_steps=warmup_steps, num_training_steps=max(total_steps, 1)
+            optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=max(max_training_steps, 1),
         )
 
-        # 8. Training Loop with Partial Accumulation Group Scaling & Periodic Validation
+        # 8. Resume from checkpoint if requested
+        start_step = 0
+        consumed_microbatches = 0
+        start_consumed = 0
+        gate_reports: dict[int, CheckpointGateReport] = {}
+        checkpoint_dirs: dict[int, str] = {}
+
+        if resume_from_checkpoint_dir:
+            ckpt_path = resume_from_checkpoint_dir.resolve()
+            if not ckpt_path.exists():
+                raise ArtifactCompatibilityError(f"Resume checkpoint directory does not exist: {ckpt_path}")
+            manifest_file = ckpt_path / "checkpoint_manifest.json"
+            state_file = ckpt_path / TRAINING_STATE_FILENAME
+            if not manifest_file.exists() or not state_file.exists():
+                raise ArtifactCompatibilityError(f"Incomplete checkpoint at {ckpt_path}")
+
+            ckpt_manifest = CheckpointManifest.model_validate_json(manifest_file.read_text(encoding="utf-8"))
+            if ckpt_manifest.training_config_sha256 != config_sha:
+                raise ArtifactCompatibilityError("Resume checkpoint config SHA mismatch")
+            if ckpt_manifest.sft_train_sha256 != sft_train_sha or ckpt_manifest.sft_val_sha256 != sft_val_sha:
+                raise ArtifactCompatibilityError("Resume checkpoint partition SHA mismatch")
+
+            # Load weights
+            if hasattr(model, "load_adapter"):
+                model.load_adapter(str(ckpt_path), adapter_name="default")
+            elif (ckpt_path / "pytorch_model.bin").exists() and hasattr(model, "load_state_dict"):
+                model.load_state_dict(
+                    torch.load(str(ckpt_path / "pytorch_model.bin"), map_location=training_device, weights_only=False)
+                )
+
+            state_payload = torch.load(str(state_file), map_location=training_device, weights_only=False)
+            if state_payload.get("optimizer") is not None and hasattr(optimizer, "load_state_dict"):
+                optimizer.load_state_dict(state_payload["optimizer"])
+            if state_payload.get("scheduler") is not None and hasattr(scheduler, "load_state_dict"):
+                scheduler.load_state_dict(state_payload["scheduler"])
+            start_step = state_payload["global_step"]
+            consumed_microbatches = state_payload.get("consumed_microbatches", 0)
+            start_consumed = consumed_microbatches
+
+            # Restore RNG states
+            if "random_state" in state_payload:
+                random.setstate(state_payload["random_state"])
+            if "numpy_state" in state_payload:
+                np.random.set_state(state_payload["numpy_state"])
+            if "torch_state" in state_payload:
+                torch.set_rng_state(state_payload["torch_state"])
+            if "cuda_state" in state_payload and state_payload["cuda_state"] is not None and torch.cuda.is_available():
+                torch.cuda.set_rng_state_all(state_payload["cuda_state"])
+
+            # Reload existing probe reports
+            for p_file in output.glob("probe-step-*.json"):
+                try:
+                    rep = CheckpointGateReport.model_validate_json(p_file.read_text(encoding="utf-8"))
+                    gate_reports[rep.optimizer_step] = rep
+                    checkpoint_dirs[rep.optimizer_step] = str(output / f"checkpoint-step-{rep.optimizer_step:04d}")
+                except Exception:
+                    pass
+
+        # 9. Training Loop with Observable ETA, Periodic Validation, and Gate Probing
+        history_entries: list[dict[str, Any]] = []
+        if resume_from_checkpoint_dir and (output / TRAINING_HISTORY_JSONL_FILENAME).exists():
+            for line in (output / TRAINING_HISTORY_JSONL_FILENAME).read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    try:
+                        h_entry = json.loads(line)
+                        if h_entry.get("step", 0) <= start_step:
+                            history_entries.append(h_entry)
+                    except Exception:
+                        pass
+
         model.train()
-        global_step = 0
+        global_step = start_step
         best_val_loss = float("inf")
         best_step = 0
         final_val_loss = float("inf")
-        history_entries: list[dict[str, Any]] = []
 
         optimizer.zero_grad()
+        training_loop_start = time.perf_counter()
+        commit_sha = get_git_commit(repo_root=repo_root, explicit_commit=git_commit)
 
-        batches_in_epoch = len(train_loader)
-        accum_steps = self.config.gradient_accumulation_steps
+        # Initial progress snapshot
+        init_snapshot = TrainingProgressSnapshot(
+            updated_at=datetime.now(UTC),
+            code_version=__version__,
+            candidate_id=self.config.candidate_id,
+            git_commit=commit_sha,
+            training_config_sha256=config_sha,
+            status="initialized" if global_step == 0 else "training",
+            current_optimizer_step=global_step,
+            max_optimizer_steps=max_training_steps,
+            current_microbatch=consumed_microbatches,
+            total_microbatches=batches_in_epoch * self.config.num_train_epochs,
+            elapsed_seconds=0.0,
+            eta_seconds=0.0,
+            elapsed_formatted="00:00:00",
+            eta_formatted="00:00:00",
+            latest_train_loss=None,
+            latest_learning_rate=self.config.learning_rate,
+            latest_val_loss=None,
+            latest_completed_probe_step=max(gate_reports.keys()) if gate_reports else None,
+            latest_durable_checkpoint=checkpoint_dirs.get(max(gate_reports.keys())) if gate_reports else None,
+            warnings=[],
+        )
+        write_progress_atomically(output, init_snapshot)
+
+        history_jsonl_path = output / TRAINING_HISTORY_JSONL_FILENAME
 
         for epoch in range(self.config.num_train_epochs):
+            if global_step >= max_training_steps:
+                break
+
             accumulated_loss = 0.0
             for step, batch in enumerate(train_loader, start=1):
+                # If resuming, skip microbatches that were already processed prior to restart
+                current_overall_batch_idx = epoch * batches_in_epoch + step
+                if current_overall_batch_idx <= start_consumed:
+                    continue
+
+                if global_step >= max_training_steps:
+                    break
+
+                consumed_microbatches += 1
                 group_index = (step - 1) // accum_steps
                 is_final_group = group_index == ((batches_in_epoch - 1) // accum_steps)
                 if is_final_group and (batches_in_epoch % accum_steps != 0):
@@ -413,14 +622,111 @@ class M50QLoRATrainer:
                     optimizer.zero_grad()
                     global_step += 1
 
+                    elapsed = time.perf_counter() - training_loop_start
+                    steps_completed = global_step - start_step
+                    steps_remaining = max(0, max_training_steps - global_step)
+                    avg_time_per_step = elapsed / max(steps_completed, 1)
+                    eta_seconds = steps_remaining * avg_time_per_step
+
+                    elapsed_fmt = format_duration(elapsed)
+                    eta_fmt = format_duration(eta_seconds)
+
                     current_lr = (
                         scheduler.get_last_lr()[0]
                         if hasattr(scheduler, "get_last_lr")
                         else self.config.learning_rate
                     )
 
+                    # Visible logging every logging_steps
+                    if global_step % self.config.logging_steps == 0 or global_step == max_training_steps:
+                        print(
+                            f"[{self.config.candidate_id}] optimizer_step={global_step}/{max_training_steps} "
+                            f"train_loss={accumulated_loss:.4f} lr={current_lr:.2e} "
+                            f"elapsed={elapsed_fmt} eta={eta_fmt}",
+                            flush=True,
+                        )
+
+                    # Periodic Teacher-Forced Validation Loss and/or Checkpoint Probe Gates
+                    is_probe_step = global_step in self.config.probe_steps
+                    is_eval_step = (
+                        self.config.eval_steps and (global_step % self.config.eval_steps == 0)
+                    ) or is_probe_step or (global_step == max_training_steps)
+
                     val_loss_recorded: float | None = None
-                    if global_step % self.config.eval_steps == 0 or step == batches_in_epoch:
+
+                    if is_probe_step:
+                        print(
+                            f"\n[{self.config.candidate_id}] step={global_step}/{max_training_steps} teacher_forced_validation START",
+                            flush=True,
+                        )
+                        val_loss = self._evaluate_loss(model, val_loader, training_device)
+                        final_val_loss = val_loss
+                        val_loss_recorded = val_loss
+                        print(
+                            f"[{self.config.candidate_id}] step={global_step}/{max_training_steps} val_loss={val_loss:.6f}",
+                            flush=True,
+                        )
+
+                        # Save durable step checkpoint
+                        ckpt_dir = output / f"checkpoint-step-{global_step:04d}"
+                        self._save_checkpoint_bundle(
+                            model=model,
+                            optimizer=optimizer,
+                            scheduler=scheduler,
+                            global_step=global_step,
+                            consumed_microbatches=consumed_microbatches,
+                            val_loss=val_loss,
+                            output_dir=ckpt_dir,
+                            config_sha=config_sha,
+                            sft_train_sha=sft_train_sha,
+                            sft_val_sha=sft_val_sha,
+                            trainable_params=trainable_params,
+                        )
+                        checkpoint_dirs[global_step] = str(ckpt_dir)
+                        print(
+                            f"[{self.config.candidate_id}] step={global_step}/{max_training_steps} checkpoint_saved={ckpt_dir.name}",
+                            flush=True,
+                        )
+
+                        # Free-generation probe on VAL questions
+                        if probe_questions and base_probe_cases:
+                            print(
+                                f"[{self.config.candidate_id}] step={global_step}/{max_training_steps} free_generation_probe START (20 cases)",
+                                flush=True,
+                            )
+                            cand_probe_cases = run_free_generation_probe(
+                                model=model,
+                                tokenizer=tokenizer,
+                                questions=probe_questions,
+                                system_prompt=self.config.system_prompt,
+                                max_new_tokens=self.config.generation_probe_max_new_tokens,
+                            )
+
+                            gate_report = evaluate_checkpoint_health_gate(
+                                candidate_results=cand_probe_cases,
+                                base_results=base_probe_cases,
+                                references=probe_questions,
+                                config=self.config,
+                                optimizer_step=global_step,
+                                val_loss=val_loss,
+                                official_meteor_scorer=official_meteor_scorer,
+                            )
+                            gate_reports[global_step] = gate_report
+                            probe_report_path = output / f"probe-step-{global_step:04d}.json"
+                            probe_report_path.write_text(
+                                gate_report.model_dump_json(indent=2), encoding="utf-8"
+                            )
+
+                            print(
+                                f"[{self.config.candidate_id}] step={global_step}/{max_training_steps} "
+                                f"safety_eligible={gate_report.safety_eligible} "
+                                f"semantic_eligible={gate_report.semantic_eligible} "
+                                f"checkpoint_eligible={gate_report.checkpoint_eligible}\n",
+                                flush=True,
+                            )
+                        model.train()
+
+                    elif is_eval_step:
                         val_loss = self._evaluate_loss(model, val_loader, training_device)
                         final_val_loss = val_loss
                         val_loss_recorded = val_loss
@@ -430,32 +736,70 @@ class M50QLoRATrainer:
                             self._save_checkpoint(model, output / "best_checkpoint")
                         model.train()
 
-                    if (
-                        global_step % self.config.logging_steps == 0
-                        or val_loss_recorded is not None
-                        or step == batches_in_epoch
-                    ):
-                        history_entries.append(
-                            {
-                                "step": global_step,
-                                "epoch": epoch + 1,
-                                "train_loss": round(accumulated_loss, 6),
-                                "learning_rate": current_lr,
-                                "eval_loss": (
-                                    round(val_loss_recorded, 6)
-                                    if val_loss_recorded is not None
-                                    else None
-                                ),
-                                "timestamp": datetime.now(UTC).isoformat(),
-                            }
-                        )
+                    # Save history entry
+                    entry = {
+                        "step": global_step,
+                        "epoch": epoch + 1,
+                        "train_loss": round(accumulated_loss, 6),
+                        "learning_rate": current_lr,
+                        "eval_loss": round(val_loss_recorded, 6) if val_loss_recorded is not None else None,
+                        "elapsed_seconds": round(elapsed, 2),
+                        "timestamp": datetime.now(UTC).isoformat(),
+                    }
+                    history_entries.append(entry)
+                    with open(history_jsonl_path, "a", encoding="utf-8") as hf:
+                        hf.write(json.dumps(entry) + "\n")
+
+                    # Atomically update progress.json
+                    progress_snapshot = TrainingProgressSnapshot(
+                        updated_at=datetime.now(UTC),
+                        code_version=__version__,
+                        candidate_id=self.config.candidate_id,
+                        git_commit=commit_sha,
+                        training_config_sha256=config_sha,
+                        status="training" if global_step < max_training_steps else "completed",
+                        current_optimizer_step=global_step,
+                        max_optimizer_steps=max_training_steps,
+                        current_microbatch=consumed_microbatches,
+                        total_microbatches=batches_in_epoch * self.config.num_train_epochs,
+                        elapsed_seconds=round(elapsed, 2),
+                        eta_seconds=round(eta_seconds, 2),
+                        elapsed_formatted=elapsed_fmt,
+                        eta_formatted=eta_fmt,
+                        latest_train_loss=round(accumulated_loss, 6),
+                        latest_learning_rate=current_lr,
+                        latest_val_loss=round(val_loss_recorded, 6) if val_loss_recorded is not None else None,
+                        latest_completed_probe_step=max(gate_reports.keys()) if gate_reports else None,
+                        latest_durable_checkpoint=checkpoint_dirs.get(max(gate_reports.keys())) if gate_reports else None,
+                        warnings=[],
+                    )
+                    write_progress_atomically(output, progress_snapshot)
+
                     accumulated_loss = 0.0
 
-        # Finalize and Save Checkpoint
-        final_checkpoint_dir = output / "final_checkpoint"
-        self._save_checkpoint(model, final_checkpoint_dir)
-
+        # 10. Checkpoint Selection & Packaging
         end_time = datetime.now(UTC)
+
+        if gate_reports:
+            selection_report = select_best_pilot_checkpoint(
+                gate_reports=gate_reports,
+                candidate_id=self.config.candidate_id,
+                checkpoint_dirs=checkpoint_dirs,
+            )
+            (output / CHECKPOINT_SELECTION_FILENAME).write_text(
+                selection_report.model_dump_json(indent=2), encoding="utf-8"
+            )
+
+            if selection_report.status == "selected_pilot_checkpoint" and selection_report.selected_checkpoint_step:
+                best_step = selection_report.selected_checkpoint_step
+                best_val_loss = gate_reports[best_step].val_loss
+            else:
+                best_step = 0
+                best_val_loss = final_val_loss
+        else:
+            # Finalize final checkpoint if no gate reports
+            final_checkpoint_dir = output / "final_checkpoint"
+            self._save_checkpoint(model, final_checkpoint_dir)
 
         # Save project-owned training history
         history_payload = {
@@ -463,7 +807,8 @@ class M50QLoRATrainer:
             "created_at": end_time.isoformat(),
             "code_version": __version__,
             "candidate_id": self.config.candidate_id,
-            "total_steps": total_steps,
+            "total_steps": global_step,
+            "max_training_steps": max_training_steps,
             "num_train_epochs": self.config.num_train_epochs,
             "best_checkpoint_step": best_step,
             "best_validation_loss": (
@@ -475,8 +820,6 @@ class M50QLoRATrainer:
         (output / TRAINING_HISTORY_FILENAME).write_text(
             json.dumps(history_payload, indent=2), encoding="utf-8"
         )
-
-        commit_sha = get_git_commit(repo_root=repo_root, explicit_commit=git_commit)
 
         manifest = M50TrainingManifest(
             created_at=end_time,
@@ -516,6 +859,8 @@ class M50QLoRATrainer:
         (output / TRAINING_MANIFEST_FILENAME).write_text(
             manifest.model_dump_json(indent=2), encoding="utf-8"
         )
+        self.last_optimizer = optimizer
+        self.last_scheduler = scheduler
         return manifest
 
     @staticmethod
@@ -538,3 +883,75 @@ class M50QLoRATrainer:
             model.save_pretrained(str(path))
         else:
             torch.save(model.state_dict(), str(path / "pytorch_model.bin"))
+
+    def _save_checkpoint_bundle(
+        self,
+        model: Any,
+        optimizer: Any,
+        scheduler: Any,
+        global_step: int,
+        consumed_microbatches: int,
+        val_loss: float,
+        output_dir: Path,
+        config_sha: str,
+        sft_train_sha: str,
+        sft_val_sha: str,
+        trainable_params: int,
+    ) -> CheckpointManifest:
+        """Save durable checkpoint bundle with weights, training state, and manifest."""
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Save adapter weights and config
+        self._save_checkpoint(model, output_dir)
+
+        # 2. Save training state for exact resume
+        state_payload = {
+            "global_step": global_step,
+            "consumed_microbatches": consumed_microbatches,
+            "optimizer": optimizer.state_dict() if hasattr(optimizer, "state_dict") else None,
+            "scheduler": scheduler.state_dict() if hasattr(scheduler, "state_dict") else None,
+            "random_state": random.getstate(),
+            "numpy_state": np.random.get_state(),
+            "torch_state": torch.get_rng_state(),
+            "cuda_state": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        }
+        state_file = output_dir / TRAINING_STATE_FILENAME
+        torch.save(state_payload, str(state_file))
+
+        adapter_file = output_dir / ADAPTER_MODEL_FILENAME
+        if not adapter_file.exists():
+            adapter_file = output_dir / "pytorch_model.bin"
+        if not adapter_file.exists():
+            # In mock mode create placeholder
+            adapter_file.write_bytes(b"mock_adapter")
+
+        adapter_cfg_file = output_dir / ADAPTER_CONFIG_FILENAME
+        if not adapter_cfg_file.exists():
+            adapter_cfg_file.write_text("{}", encoding="utf-8")
+
+        adapter_sha = _file_sha256(adapter_file)
+        adapter_cfg_sha = _file_sha256(adapter_cfg_file)
+        state_sha = _file_sha256(state_file)
+
+        manifest = CheckpointManifest(
+            created_at=datetime.now(UTC),
+            code_version=__version__,
+            candidate_id=self.config.candidate_id,
+            optimizer_step=global_step,
+            training_config_sha256=config_sha,
+            sft_train_sha256=sft_train_sha,
+            sft_val_sha256=sft_val_sha,
+            base_model_id=self.config.base_model_id,
+            base_model_revision=self.config.base_model_revision,
+            tokenizer_revision=self.config.base_model_revision,
+            trainable_parameters=trainable_params,
+            val_loss=val_loss,
+            adapter_weights_sha256=adapter_sha,
+            adapter_config_sha256=adapter_cfg_sha,
+            training_state_sha256=state_sha,
+            warnings=[],
+        )
+        (output_dir / "checkpoint_manifest.json").write_text(
+            manifest.model_dump_json(indent=2), encoding="utf-8"
+        )
+        return manifest

@@ -308,3 +308,104 @@ def test_pre_training_config_and_manifest_fail_closed(tmp_path: Path) -> None:
             output_directory=tmp_path / "out2",
             split_manifest_path=None,
         )
+
+
+def test_candidate_2_lora_parameter_derivation() -> None:
+    from legal_agentic_rag.fine_tuning.training_runner import EXPECTED_M50_C2_TRAINABLE_PARAMS
+
+    hidden_size = 2048
+    num_layers = 36
+    num_attn_heads = 16
+    num_kv_heads = 2
+    head_dim = hidden_size // num_attn_heads  # 128
+    kv_dim = num_kv_heads * head_dim  # 256
+    lora_r = 4
+
+    # q_proj: (hidden_size -> hidden_size)
+    q_params = (hidden_size * lora_r) + (lora_r * hidden_size)  # 16,384 per layer
+    # v_proj: (hidden_size -> kv_dim)
+    v_params = (hidden_size * lora_r) + (lora_r * kv_dim)  # 9,216 per layer
+
+    per_layer_params = q_params + v_params  # 25,600
+    total_expected_lora_params = per_layer_params * num_layers  # 921,600
+
+    assert total_expected_lora_params == EXPECTED_M50_C2_TRAINABLE_PARAMS == 921_600
+
+
+def test_committed_candidate_2_config_parses_with_loader() -> None:
+    from legal_agentic_rag.fine_tuning.training_runner import load_qlora_candidate_config
+
+    repo_root = Path(__file__).resolve().parents[3]
+    config_path = repo_root / "configs" / "m50-c2-qwen3b-conservative-qlora-kaggle.example.json"
+
+    assert config_path.exists()
+    config, config_sha = load_qlora_candidate_config(config_path)
+
+    assert config.candidate_id == "M50-C2"
+    assert config.base_model_id == "Qwen/Qwen2.5-3B-Instruct"
+    assert config.base_model_revision == "a1d308dfcc03e09da285d49d912439a655a571e8"
+    assert config.quantization_type == "4bit_nf4"
+    assert config.double_quantization is True
+    assert config.compute_dtype == "float16"
+    assert config.lora_r == 4
+    assert config.lora_alpha == 8
+    assert config.lora_dropout == 0.05
+    assert config.target_modules == ["q_proj", "v_proj"]
+    assert config.max_seq_length == 1536
+    assert config.learning_rate == 1e-5
+    assert config.lr_scheduler_type == "cosine"
+    assert config.warmup_ratio == 0.05
+    assert config.per_device_train_batch_size == 2
+    assert config.gradient_accumulation_steps == 8
+    assert config.gradient_checkpointing is True
+    assert config.use_cache is False
+    assert config.optimizer == "paged_adamw_8bit"
+    assert config.seed == 2026
+    assert config.logging_steps == 10
+    assert config.system_prompt == "Bạn là một trợ lý AI hữu ích và chuyên gia pháp luật Việt Nam."
+    assert config.training_partition == "sft_train.json"
+    assert config.validation_partition == "sft_val.json"
+    assert config.screening_partition == "screen_holdout.json"
+    assert config.max_optimizer_steps == 150
+    assert config.probe_steps == [50, 100, 150]
+    assert config.generation_probe_question_count == 20
+    assert config.generation_probe_max_new_tokens == 512
+    assert len(config_sha) == 64
+
+
+def test_qlora_candidate_config_probe_validation_negative_rules() -> None:
+    # 1. Non-ascending probe steps fail
+    with pytest.raises(ValueError, match="strictly sorted in ascending order"):
+        QLoRACandidateConfig(
+            candidate_id="M50-C2",
+            max_optimizer_steps=150,
+            probe_steps=[100, 50, 150],
+        )
+
+    # 2. Duplicate probe steps fail
+    with pytest.raises(ValueError, match="strictly sorted in ascending order"):
+        QLoRACandidateConfig(
+            candidate_id="M50-C2",
+            max_optimizer_steps=150,
+            probe_steps=[50, 50, 150],
+        )
+
+    # 3. Non-positive probe step fails
+    with pytest.raises(ValueError, match="positive integers"):
+        QLoRACandidateConfig(
+            candidate_id="M50-C2",
+            max_optimizer_steps=150,
+            probe_steps=[0, 50, 100],
+        )
+
+    # 4. Probe step exceeding max_optimizer_steps fails
+    with pytest.raises(ValueError, match="cannot exceed max_optimizer_steps"):
+        QLoRACandidateConfig(
+            candidate_id="M50-C2",
+            max_optimizer_steps=100,
+            probe_steps=[50, 150],
+        )
+
+    # 5. Extra fields rejected (extra="forbid")
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        QLoRACandidateConfig.model_validate({"candidate_id": "M50-C2", "unrecognized_extra_param": 123})

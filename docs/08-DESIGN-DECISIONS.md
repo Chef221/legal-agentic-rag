@@ -2608,3 +2608,50 @@ records) with cached BASE outputs and paired bootstrap 95% confidence intervals
 for $\Delta\text{METEOR}$ and $\Delta\text{ROUGE-L}$, (3) immutable 50-question
 production RAG smoke, and (4) full 991 development benchmark run exactly once
 for the final selected candidate.
+
+---
+
+## D109 — M50-C2 Conservative QLoRA Pilot with Generation Health and Semantic Preservation Gates
+
+**Status:** Accepted (Local Infrastructure Complete; Kaggle Pilot Execution Ready)
+
+M50-C1 GPU execution revealed a fundamental dissociation: while teacher-forced
+validation loss decreased normally (1.09828) and reference-anchored direct-QA
+ROUGE-L showed positive lexical signal (+0.04153 over BASE on 20 paired cases),
+free-generation health collapsed (EOS emission dropped from 15/20 to 6/20,
+cap-reached rate rose from 5/20 to 14/20, 8-gram repetition ratio $\ge 0.25$
+rose from 4/20 to 18/20, mean generated tokens increased from 293.30 to 439.15,
+and median generated tokens rose from 262.50 to 512.00). Candidate 1 was
+conclusively rejected for promotion.
+
+M50-C2 introduces a conservative, generation-safe pilot recipe and strict
+multi-checkpoint health gates:
+1. **Architecture & Parameters**: rank $r=4, \alpha=8$, dropout $0.05$, target
+   modules $\{q\_proj, v\_proj\}$ yielding exactly 921,600 trainable parameters,
+   with exact runtime parameter counting and module allowlists.
+2. **Learning Rate & Schedule**: $\text{LR}=10^{-5}$ (5x lower than C1), cosine
+   decay, warmup ratio 0.05, microbatch 2, accumulation 8, `paged_adamw_8bit`.
+3. **Pilot Step Bound**: capped at `max_optimizer_steps=150` with evaluation and
+   checkpoint gates executed at steps [50, 100, 150].
+4. **EOS-Preserving SFT Encoding**: `encode_sft_example` strictly guarantees that
+   truncated assistant targets retain the terminal EOS token (`<|im_end|>`) in
+   the final sequence position with unmasked label `eos_token_id`.
+5. **Strict Holdout Isolation**: `screen_holdout.json` is strictly frozen and
+   never touched during training or intermediate probing. Probing operates on
+   20 deterministic questions extracted exclusively from `sft_val.json` via
+   salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`) with content-level
+   SHA verification.
+6. **Checkpoint Safety Gate**: checkpoints must satisfy: 0 generation errors,
+   `cap_without_eos` $\le \text{BASE} + 1$, `repeat8_high` $\le \text{BASE} + 1$,
+   `duplicate_line_high` $\le \text{BASE} + 1$, `eos_emitted` $\ge \text{BASE} - 1$,
+   mean length $\le \text{BASE} \times 1.35$, and median length $\le \max(\text{BASE} \times 1.35, \text{BASE} + 64.0)$.
+7. **Semantic Preservation Gate**: $\Delta\text{ROUGE-L} \ge -0.01$,
+   $\Delta\text{METEOR} \ge -0.01$ (if METEOR available), and at least one metric $> 0$.
+8. **Multi-Checkpoint Selection**: eligible checkpoints are ranked by average
+   semantic delta $\to$ lowest cap $\to$ lowest repetition $\to$ lowest val loss.
+   If zero checkpoints pass both gates, the pilot returns `no_promotable_checkpoint`
+   and prevents premature promotion without manual review.
+9. **Observability & Durability**: visible logging every 10 steps, arbitrary-hour
+   elapsed/ETA formatting (`format_duration`), atomic `progress.json` updates,
+   durable JSONL history, recovery from steps 50 and 100, and complete archive
+   bundling (`m50-c2-pilot-complete.zip`) with SHA-256 checksum manifests.

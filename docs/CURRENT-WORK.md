@@ -36,37 +36,15 @@ Repository:
 - `Chef221/legal-agentic-rag`
 - default branch: `main`
 
-Remote `main` snapshot used to prepare this handoff:
+Current remote `main` snapshot:
 
-- HEAD: `be190a531ff33a3172e34d2d30928c00a288a230`
-- commit message: `Add bounded terminal schema recovery`
-- commit date: 2026-08-15 UTC
+- HEAD: `690c35215160cc11319d5ada5701de4fec8fb82f`
+- commit message: `Fix M50 candidate config integration`
+- commit date: 2026-08-16 UTC
 
-Current source/package version at that snapshot:
+Current source/package version:
 
-- `0.49.5`
-
-Important documentation discrepancy:
-
-- some overview/status text still reports code version `0.49.3`;
-- source/package version at the handoff snapshot is `0.49.5`;
-- do not infer active milestone solely from an old version string in an overview
-  document;
-- before editing version/status documentation, inspect the current source,
-  recent commits, and the relevant milestone documentation.
-
-The local Antigravity working tree may differ from remote `main`. At the start
-of every takeover/session, inspect:
-
-```bash
-git status --short
-git branch --show-current
-git log --oneline -20
-git diff
-```
-
-If the local tree contains uncommitted changes, determine whether they are
-intentional work-in-progress before modifying them.
+- `0.50.3` (M50-C2 Conservative QLoRA Pilot Infrastructure)
 
 ---
 
@@ -385,25 +363,24 @@ Do not commit:
 
 The immediate next action is:
 
-1. **Reconstruct and implement the smallest safe M49.6 change**:
-   - bounded one-shot model correction specifically for unrecoverable `missing_required_field` schema errors;
-   - preserve strict `ModelAnswerDraft`, existing M49.5 local structural recovery, and all grounding/fail-closed invariants;
-   - add closed telemetry and full unit/regression tests.
-2. **Validate locally**: run targeted tests and the full regression suite.
-3. **Execute the 2-ID targeted GPU gate** on Kaggle for IDs `139655` and `25945`.
-4. **Review the targeted report**: require zero retrieval errors, zero verification failures, and verified answers with valid grounding.
-5. **Immutable 50-question smoke set**: run only after the targeted gate passes.
+1. **Review M50-C2 local infrastructure**:
+   - EOS-preserving SFT encoding with ChatML loss masking (`-100`);
+   - 20-case deterministic VAL probe extractor from `sft_val.json` (salted SHA-256) with strict holdout isolation;
+   - Baseline cache generation and validation with SHA256 verification;
+   - Candidate 2 pilot recipe ($r=4, \alpha=8, \text{LR}=10^{-5}$, target $\{q\_proj, v\_proj\}$, 921,600 trainable parameters);
+   - Checkpoint safety and semantic preservation gates at steps [50, 100, 150];
+   - Multi-checkpoint selection ranking;
+   - Complete pilot archive packaging (`m50-c2-pilot-complete.zip`) with checksum manifest.
+2. **Execute M50-C2 Pilot on Kaggle GPU**: Run 5-cell deterministic runbook per `docs/20-M50-C1-POSTMORTEM-AND-C2-PILOT.md`.
+3. **Inspect Pilot Output**: Check `checkpoint-selection-report.json` and diagnostic metrics before considering any stage 2/3 promotion.
 
 ---
 
 ## 16. Status of Historical Questions
 
-Previous takeover questions and their authoritative resolutions:
-
-- **Were uncommitted Codex changes present?** Resolved: Partial edits were intentionally undone; working tree matches M49.5 HEAD.
-- **Were M49.5 targeted IDs `139655` and `25945` executed on GPU?** Resolved: Yes, on Kaggle GPU. Both failed fail-closed with `missing_required_field` / `not_recoverable`.
-- **Was the M49.5 50-question smoke executed?** Resolved: No, intentionally skipped because the targeted gate failed.
-- **What is the intended direction for M49.6?** Resolved: Add one bounded model-correction attempt specifically for unrecoverable missing-required-field schema failures, rather than guessing semantic fields locally.
+- **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed positive ROUGE-L lexical gain (+0.04153), but collapsed in free-generation health (70% cap reached, 90% repetition loops). Rejected for production.
+- **Why is Candidate 2 bounded to 150 steps?** Resolved: To test intermediate checkpoints at steps 50, 100, and 150, evaluate whether conservative rank ($r=4$) and lower LR ($10^{-5}$) prevent degeneration earlier in training.
+- **Why is `screen_holdout.json` untouched?** Resolved: Strict holdout rule guarantees `screen_holdout.json` is never contaminated by intermediate probing or checkpoint selection.
 
 ---
 
@@ -429,18 +406,14 @@ keep this file focused on the current frontier.
 
 ```text
 Stable comparison baseline:
-    M43.1 @ 96e6d5a
+    M49.6 production RAG pipeline
 
-Current remote implementation snapshot:
-    0.49.5 @ be190a5
+Current repository state:
+    0.50.3 (M50-C2 conservative QLoRA pilot infrastructure implemented and locally verified)
 
 Active development frontier:
-    M49.6 bounded missing-required-field model correction
+    M50-C2 conservative QLoRA pilot execution on Kaggle GPU
 
 Next action:
-    reconstruct and implement minimal M49.6
-    -> run local unit/regression tests
-    -> run targeted IDs 139655 + 25945 on GPU
-    -> review report
-    -> only if passed, run immutable 50-question smoke
+    review M50-C2 local infrastructure -> run Kaggle pilot (Cells 1-5) -> review checkpoint selection report
 `````

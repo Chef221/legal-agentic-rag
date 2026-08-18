@@ -67,6 +67,9 @@ from legal_agentic_rag.schemas.competition_execution import (
     CompetitionWarmupScoreReport,
 )
 from legal_agentic_rag.schemas.fine_tuning import (
+    CheckpointGateReport,
+    CheckpointManifest,
+    CheckpointSelectionReport,
     DirectQABaseCacheManifest,
     DirectQACaseResult,
     DirectQAPairedCaseScore,
@@ -77,6 +80,10 @@ from legal_agentic_rag.schemas.fine_tuning import (
     PairedMetricSummary,
     QLoRACandidateConfig,
     ScreenTokenAuditReport,
+    TrainingProgressSnapshot,
+    ValProbeBaseManifest,
+    ValProbeCaseResult,
+    ValProbeManifest,
 )
 from legal_agentic_rag.schemas.evaluation import (
     EvaluationBenchmarkLabelStatus,
@@ -217,6 +224,9 @@ __all__ = [
     "CompetitionWarmupScoreComparisonCase",
     "CompetitionWarmupScoreComparisonReport",
     "CompetitionWarmupScoreReport",
+    "CheckpointGateReport",
+    "CheckpointManifest",
+    "CheckpointSelectionReport",
     "DirectQABaseCacheManifest",
     "DirectQACaseResult",
     "DirectQAPairedCaseScore",
@@ -227,6 +237,10 @@ __all__ = [
     "PairedMetricSummary",
     "QLoRACandidateConfig",
     "ScreenTokenAuditReport",
+    "TrainingProgressSnapshot",
+    "ValProbeBaseManifest",
+    "ValProbeCaseResult",
+    "ValProbeManifest",
     "DatasetManifest",
     "DocumentParsingDiagnostic",
     "DocumentChunkingDiagnostic",

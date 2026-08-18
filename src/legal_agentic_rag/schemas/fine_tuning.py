@@ -220,6 +220,235 @@ class DirectQABaseCacheManifest(BaseModel):
         return _validate_timestamp(value)
 
 
+class ValProbeManifest(BaseModel):
+    """Identity and deterministic selection manifest for the 20-question VAL generation probe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    source_val_sha256: str
+    selection_algorithm: str = "sha256_salted_hash_v1"
+    salt: str = "m50-c2-val-probe-v1"
+    question_count: int = Field(ge=1, default=20)
+    selected_question_ids: list[str] = Field(min_length=1)
+    probe_sha256: str
+    tokenizer_model_id: str = "Qwen/Qwen2.5-3B-Instruct"
+    tokenizer_revision: str = "a1d308dfcc03e09da285d49d912439a655a571e8"
+    system_prompt: str
+    diagnostic_generation_config: dict[str, Any]
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class ValProbeCaseResult(BaseModel):
+    """Output and generation health diagnostics for one probe question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    generated_answer: str
+    generated_token_count: int = Field(ge=0)
+    reached_cap: bool = False
+    eos_emitted: bool = True
+    cap_without_eos: bool = False
+    repeat_8gram_ratio: float = Field(ge=0.0, le=1.0, default=0.0)
+    duplicate_line_ratio: float = Field(ge=0.0, le=1.0, default=0.0)
+    status: Literal["success", "error"] = "success"
+    latency_ms: float = Field(ge=0.0, default=0.0)
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class ValProbeBaseManifest(BaseModel):
+    """Identity and provenance proof for cached BASE direct QA predictions on VAL probe."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    val_probe_sha256: str
+    base_model_id: str
+    base_model_revision: str
+    tokenizer_revision: str
+    system_prompt: str
+    generation_config: dict[str, Any]
+    results_sha256: str
+    record_count: int = Field(ge=1, default=20)
+    unique_question_id_count: int = Field(ge=1, default=20)
+    summary_health: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class CheckpointGateReport(BaseModel):
+    """Comprehensive generation health and semantic gate evaluation for a candidate checkpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    optimizer_step: int = Field(ge=1)
+    val_loss: float
+    base_probe_sha256: str
+    candidate_probe_sha256: str
+
+    # Raw Candidate metrics
+    candidate_eos_emitted_count: int
+    candidate_reached_cap_count: int
+    candidate_cap_without_eos_count: int
+    candidate_cap_without_eos_rate: float
+    candidate_repeat8_high_count: int
+    candidate_duplicate_line_high_count: int
+    candidate_mean_generated_token_count: float
+    candidate_median_generated_token_count: float
+    candidate_generation_error_count: int
+
+    # BASE metrics for comparison
+    base_eos_emitted_count: int
+    base_reached_cap_count: int
+    base_cap_without_eos_count: int
+    base_repeat8_high_count: int
+    base_duplicate_line_high_count: int
+    base_mean_generated_token_count: float
+    base_median_generated_token_count: float
+
+    # Paired semantic deltas
+    mean_rouge_l_delta: float
+    median_rouge_l_delta: float
+    mean_meteor_delta: float | None = None
+    median_meteor_delta: float | None = None
+    meteor_available: bool = True
+    combined_semantic_delta: float
+
+    # Gate eligibility
+    safety_eligible: bool
+    safety_failure_reasons: list[str] = Field(default_factory=list)
+    semantic_eligible: bool
+    semantic_failure_reasons: list[str] = Field(default_factory=list)
+    checkpoint_eligible: bool
+
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class CheckpointSelectionReport(BaseModel):
+    """Final selection report ranking eligible candidate checkpoints."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    status: Literal["selected_pilot_checkpoint", "no_promotable_checkpoint"]
+    selected_checkpoint_step: int | None = None
+    selected_checkpoint_dir: str | None = None
+    evaluated_steps: list[int]
+    eligible_steps: list[int]
+    ranked_steps: list[int]
+    ranking_explanation: list[str]
+    gate_reports: dict[str, CheckpointGateReport]
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class CheckpointManifest(BaseModel):
+    """Reproducible proof and provenance for an intermediate checkpoint."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    created_at: datetime
+    code_version: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    optimizer_step: int = Field(ge=1)
+    training_config_sha256: str
+    sft_train_sha256: str
+    sft_val_sha256: str
+    base_model_id: str
+    base_model_revision: str
+    tokenizer_revision: str
+    trainable_parameters: int
+    val_loss: float
+    adapter_weights_sha256: str
+    adapter_config_sha256: str
+    training_state_sha256: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("created_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
+class TrainingProgressSnapshot(BaseModel):
+    """Atomic real-time progress record of fine-tuning pilot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1.0"] = "1.0"
+    updated_at: datetime
+    code_version: str = Field(min_length=1)
+    candidate_id: str = Field(min_length=1)
+    git_commit: str | None = None
+    training_config_sha256: str
+    status: Literal[
+        "initialized",
+        "training",
+        "validating",
+        "checkpointing",
+        "probing",
+        "completed",
+        "failed",
+        "no_promotable_checkpoint",
+    ]
+    current_optimizer_step: int = Field(ge=0)
+    max_optimizer_steps: int = Field(ge=1)
+    current_microbatch: int = Field(ge=0)
+    total_microbatches: int = Field(ge=1)
+    elapsed_seconds: float = Field(ge=0.0)
+    eta_seconds: float = Field(ge=0.0)
+    elapsed_formatted: str
+    eta_formatted: str
+    latest_train_loss: float | None = None
+    latest_learning_rate: float | None = None
+    latest_val_loss: float | None = None
+    latest_completed_probe_step: int | None = None
+    latest_durable_checkpoint: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator("updated_at")
+    @classmethod
+    def validate_time(cls, value: datetime) -> datetime:
+        return _validate_timestamp(value)
+
+
 class QLoRACandidateConfig(BaseModel):
     """Pinned specification for one QLoRA fine-tuning experiment."""
 
@@ -253,6 +482,31 @@ class QLoRACandidateConfig(BaseModel):
     training_partition: str = "sft_train.json"
     validation_partition: str = "sft_val.json"
     screening_partition: str = "screen_holdout.json"
+
+    # M50-C2 Pilot extensions
+    max_optimizer_steps: int | None = Field(default=None, ge=1)
+    probe_steps: list[int] = Field(default_factory=list)
+    generation_probe_question_count: int = Field(ge=1, default=20)
+    generation_probe_max_new_tokens: int = Field(ge=64, default=512)
+    repetition_ngram_size: int = Field(ge=2, default=8)
+    repetition_high_threshold: float = Field(ge=0.0, le=1.0, default=0.25)
+    duplicate_line_high_threshold: float = Field(ge=0.0, le=1.0, default=0.25)
+    health_count_slack: int = Field(ge=0, default=1)
+    max_mean_length_ratio: float = Field(gt=1.0, default=1.35)
+    semantic_regression_tolerance: float = Field(default=-0.01)
+
+    @model_validator(mode="after")
+    def validate_candidate_config(self) -> "QLoRACandidateConfig":
+        if self.probe_steps:
+            if sorted(self.probe_steps) != self.probe_steps or len(self.probe_steps) != len(set(self.probe_steps)):
+                raise ValueError("probe_steps must be strictly sorted in ascending order and unique")
+            if any(s <= 0 for s in self.probe_steps):
+                raise ValueError("all probe_steps must be positive integers")
+            if self.max_optimizer_steps is not None and self.probe_steps[-1] > self.max_optimizer_steps:
+                raise ValueError(
+                    f"Final probe step ({self.probe_steps[-1]}) cannot exceed max_optimizer_steps ({self.max_optimizer_steps})"
+                )
+        return self
 
 
 class M50TrainingManifest(BaseModel):
