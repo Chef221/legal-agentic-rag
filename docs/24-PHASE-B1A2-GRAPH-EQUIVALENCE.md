@@ -142,6 +142,7 @@ print(f"Found unique canonical development.json at: {dev_path}")
 # 2. Discover serving artifact root uniquely satisfying Phase-A contract
 val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
 valid_serving_roots = []
+discovered_graph_metadata = {}
 
 for val_file in val_candidates:
     root = val_file.parent
@@ -158,12 +159,12 @@ for val_file in val_candidates:
         and isinstance(dataset_manifest, dict)
         and dataset_manifest.get("dataset_name") == "uit-dsc-2026-task2-selected-contexts"
     ):
-        # Verify graph manifest has 0 records
         graph_man_path = root / "graph" / "manifest.json"
         if graph_man_path.exists():
             g_man = json.loads(graph_man_path.read_text(encoding="utf-8"))
             if g_man.get("record_count") == 0:
                 valid_serving_roots.append(root)
+                discovered_graph_metadata = g_man.get("metadata", {})
 
 assert len(valid_serving_roots) == 1, (
     f"Expected exactly 1 valid serving artifact root with 0 graph records, "
@@ -171,6 +172,7 @@ assert len(valid_serving_roots) == 1, (
 )
 serving_root = valid_serving_roots[0]
 print(f"Found unique validated serving artifact root at: {serving_root}")
+print(f"Graph artifact record_count: 0, edge_count: {discovered_graph_metadata.get('edge_count')}")
 ```
 
 ---
@@ -210,6 +212,7 @@ assert identity["materialized_case_count"] == 22
 ```python
 import json
 from pathlib import Path
+from legal_agentic_rag.configuration import ApplicationConfig
 
 base_example = Path("legal-agentic-rag/configs/phase-a-current-system-census-kaggle.example.json")
 cfg = json.loads(base_example.read_text(encoding="utf-8"))
@@ -217,28 +220,31 @@ cfg = json.loads(base_example.read_text(encoding="utf-8"))
 # Point artifacts to discovered Kaggle serving root
 cfg["artifacts"]["root_path"] = str(serving_root)
 
-# Set runtime devices to single GPU (cuda:0) for retrieval components
-cfg["online"]["vector_runtime"]["search_device"] = "cuda:0"
-cfg["offline"]["embedding"]["device"] = "cuda:0"
-cfg["online"]["reranker"]["device"] = "cuda:0"
+# Set runtime devices to single GPU ("cuda") for retrieval components
+cfg["online"]["vector_runtime"]["search_device"] = "cuda"
+cfg["offline"]["embedding"]["device"] = "cuda"
+cfg["online"]["reranker"]["device"] = "cuda"
 
-# Verify required retrieval invariants
-assert cfg["online"]["retrieval"]["top_k"] == 8
-assert cfg["online"]["retrieval"]["candidate_k"] == 40
-assert cfg["online"]["retrieval"].get("graph_seed_chunk_k", 20) == 20
-assert cfg["online"]["query_understanding"]["multi_query_enabled"] is True
+# Strictly validate final raw configuration through ApplicationConfig schema
+app_cfg = ApplicationConfig.model_validate(cfg)
+assert app_cfg.online.vector_runtime.search_device == "cuda"
+assert app_cfg.online.retrieval.top_k == 8
+assert app_cfg.online.retrieval.candidate_k == 40
+assert app_cfg.online.retrieval.graph_seed_chunk_k == 20
+assert app_cfg.online.query_understanding.multi_query_enabled is True
 
 runtime_cfg_path = work_dir / "runtime_config_b1a2.json"
 runtime_cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
-print(f"Runtime configuration written to: {runtime_cfg_path}")
+print(f"Runtime configuration validated and written to: {runtime_cfg_path}")
 ```
 
 ---
 
-### Cell A2-K5 — Retrieval-Only Execution
+### Cell A2-K5 — Retrieval-Only Execution & Protocol Verification
 
 ```python
 import subprocess
+import json
 from pathlib import Path
 
 raw_results_path = work_dir / "phase_b1a2_retrieval_results.jsonl"
@@ -253,7 +259,29 @@ cmd = [
 ]
 
 res = subprocess.run(cmd, capture_output=False, text=True, check=True)
-print("Phase B1A.2 execution completed.")
+
+# Load run summary and verify protocol fidelity before running analysis
+summary = json.loads(summary_path.read_text(encoding="utf-8"))
+counts = summary["aggregate_protocol_counts"]
+
+print("\n" + "=" * 60)
+print("PHASE B1A.2 EXECUTION SUMMARY")
+print("=" * 60)
+print(f"Total Cases Completed:        {summary['case_count']} / 22")
+print(f"Graph Zero-Record Cases:      {counts['graph_zero_record_cases']} / 22")
+print(f"Graph Zero-Step Cases:        {counts['graph_zero_step_cases']} / 22")
+print(f"Graph Single-Seed Calls:      {counts['graph_single_seed_call_cases']} / 22")
+print(f"G Seed Invariant Passes:      {counts['g_seed_invariant_pass_count']} / 22")
+print(f"S20 Seed Invariant Passes:    {counts['s20_invariant_pass_count']} / 22")
+print(f"Artifact Lineage Status:      PASS (startup validated)")
+print(f"LLM Generation Path:          NOT LOADED / NOT CALLED (retrieval-only)")
+print("=" * 60)
+
+assert summary["case_count"] == 22
+assert counts["graph_zero_step_cases"] == 22
+assert counts["graph_single_seed_call_cases"] == 22
+assert counts["g_seed_invariant_pass_count"] == 22
+assert counts["s20_invariant_pass_count"] == 22
 ```
 
 ---
@@ -319,6 +347,7 @@ cmd = [
     "--manifest", "legal-agentic-rag/configs/phase-b1a-graph-routing-cases.json",
     "--questions-identity", str(ident_output),
     "--runtime-config", str(runtime_cfg_path),
+    "--run-summary", str(summary_path),
     "--results", str(raw_results_path),
     "--report", str(report_path),
     "--decision", str(decision_path),

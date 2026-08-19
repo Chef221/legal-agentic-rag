@@ -29,7 +29,11 @@ from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.embeddings.sentence_transformer_provider import (
     SentenceTransformerEmbeddingProvider,
 )
-from legal_agentic_rag.exceptions import DataValidationError, RetrievalError
+from legal_agentic_rag.exceptions import (
+    ArtifactCompatibilityError,
+    DataValidationError,
+    RetrievalError,
+)
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
@@ -43,15 +47,19 @@ from legal_agentic_rag.retrieval.fixed import HybridRetriever
 from legal_agentic_rag.retrieval.graph import GraphExpandedRetriever
 from legal_agentic_rag.retrieval.rerank import RerankingRetriever
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
-from legal_agentic_rag.runtime.startup_validation import validate_startup_report
-from legal_agentic_rag.serving.config_loader import load_application_config
+from legal_agentic_rag.runtime.startup_validation import (
+    validate_competition_artifact_lineage,
+    validate_startup_report,
+)
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
+    GraphPathStep,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
     RetrievalStrategy,
 )
+from legal_agentic_rag.serving.config_loader import load_application_config
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,7 +98,7 @@ def normalize_question_text(question: str) -> str:
 
 
 # ----------------------------------------------------------------------
-# RECORDING HYBRID ADAPTER
+# OBSERVATIONAL RECORDING ADAPTERS
 # ----------------------------------------------------------------------
 
 
@@ -111,6 +119,32 @@ class RecordingHybridCandidateAdapter:
         response = self._inner.search(query)
         self.recorded_responses.append(response.model_copy(deep=True))
         return response
+
+
+class RecordingGraphBackend:
+    """Observational wrapper around GraphBackend to audit graph traversal calls and steps."""
+
+    def __init__(self, inner: GraphBackend) -> None:
+        self._inner = inner
+        self.traverse_call_count: int = 0
+        self.recorded_seed_doc_ids: list[list[str]] = []
+        self.recorded_steps: list[GraphPathStep] = []
+
+    @property
+    def manifest(self) -> ArtifactManifest:
+        return self._inner.manifest
+
+    def traverse(
+        self,
+        seed_document_ids: Sequence[str],
+        hop_limit: int,
+        relationship_types: Sequence[str] | None = None,
+    ) -> Iterator[GraphPathStep]:
+        self.traverse_call_count += 1
+        self.recorded_seed_doc_ids.append(list(seed_document_ids))
+        for step in self._inner.traverse(seed_document_ids, hop_limit, relationship_types):
+            self.recorded_steps.append(step.model_copy(deep=True))
+            yield step
 
 
 # ----------------------------------------------------------------------
@@ -193,15 +227,6 @@ def prepare_b1a2_dataset(
 # ----------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class HitProjection:
-    chunk_id: str
-    document_id: str
-    rank: int
-    score: float
-    strategy: str
-
-
 def _project_hits(hits: Sequence[RetrievalHit]) -> list[dict[str, object]]:
     return [
         {
@@ -215,8 +240,22 @@ def _project_hits(hits: Sequence[RetrievalHit]) -> list[dict[str, object]]:
     ]
 
 
+def _project_manifest(manifest: ArtifactManifest) -> dict[str, object]:
+    return {
+        "artifact_type": manifest.artifact_type.value,
+        "artifact_version": manifest.artifact_version,
+        "dataset_name": manifest.dataset_name,
+        "dataset_revision": manifest.dataset_revision,
+        "record_count": manifest.record_count,
+        "processing_config_hash": manifest.processing_config_hash,
+        "backend": manifest.backend,
+        "model_name": manifest.model_name,
+        "model_revision": manifest.model_revision,
+    }
+
+
 class RetrievalPipelineSuite:
-    """Assembles all retrieval backends and components without any generation models."""
+    """Assembles and validates all retrieval backends and components without any generation models."""
 
     def __init__(
         self,
@@ -227,6 +266,10 @@ class RetrievalPipelineSuite:
         bm25_backend: SQLiteFTS5BM25Backend | None = None,
         vector_backend: NumpyVectorBackend | None = None,
         chunk_manifest: ArtifactManifest | None = None,
+        bm25_manifest: ArtifactManifest | None = None,
+        vector_manifest: ArtifactManifest | None = None,
+        graph_manifest: ArtifactManifest | None = None,
+        skip_lineage_validation: bool = False,
     ) -> None:
         self.config = config
         deep_validation = config.online.startup_validation.mode == "full"
@@ -239,43 +282,55 @@ class RetrievalPipelineSuite:
             )
         self.chunk_manifest = chunk_manifest
 
-        if bm25_backend is None:
+        if bm25_manifest is None:
             bm25_manifest = load_artifact_manifest(
                 config.artifacts.directory("bm25_directory"),
                 expected_type=ArtifactType.BM25_INDEX,
             )
+        self.bm25_manifest = bm25_manifest
+
+        if vector_manifest is None:
+            vector_manifest = load_artifact_manifest(
+                config.artifacts.directory("vector_directory"),
+                expected_type=ArtifactType.VECTOR_INDEX,
+            )
+        self.vector_manifest = vector_manifest
+
+        if graph_manifest is None:
+            graph_manifest = load_artifact_manifest(
+                config.artifacts.directory("graph_directory"),
+                expected_type=ArtifactType.GRAPH_INDEX,
+            )
+        self.graph_manifest = graph_manifest
+
+        if not skip_lineage_validation:
+            self._validate_manifests_and_lineage()
+
+        if bm25_backend is None:
             bm25_backend = SQLiteFTS5BM25Backend(
                 config.offline.bm25,
                 runtime_config=config.online.bm25_runtime,
                 verify_integrity_on_load=deep_validation,
             )
-            bm25_backend.load(config.artifacts.directory("bm25_directory"), bm25_manifest)
+            bm25_backend.load(config.artifacts.directory("bm25_directory"), self.bm25_manifest)
         self.bm25 = bm25_backend
 
         if vector_backend is None:
-            vector_manifest = load_artifact_manifest(
-                config.artifacts.directory("vector_directory"),
-                expected_type=ArtifactType.VECTOR_INDEX,
-            )
             vector_backend = NumpyVectorBackend(
                 config.offline.vector_index,
                 runtime_config=config.online.vector_runtime,
                 verify_integrity_on_load=deep_validation,
                 serving_metadata_source=config.artifacts.directory("vector_serving_directory"),
             )
-            vector_backend.load(config.artifacts.directory("vector_directory"), vector_manifest)
+            vector_backend.load(config.artifacts.directory("vector_directory"), self.vector_manifest)
         self.vector = vector_backend
 
         if graph_backend is None:
-            graph_manifest = load_artifact_manifest(
-                config.artifacts.directory("graph_directory"),
-                expected_type=ArtifactType.GRAPH_INDEX,
-            )
             graph_backend = AdjacencyGraphBackend(
                 config.offline.graph_index,
                 verify_integrity_on_load=deep_validation,
             )
-            graph_backend.load(config.artifacts.directory("graph_directory"), graph_manifest)
+            graph_backend.load(config.artifacts.directory("graph_directory"), self.graph_manifest)
         self.graph = graph_backend
 
         if embedding_provider is None:
@@ -283,6 +338,9 @@ class RetrievalPipelineSuite:
                 config.offline.embedding
             )
         self.embedding_provider = embedding_provider
+
+        if not skip_lineage_validation:
+            self._validate_embedding_provider_identity()
 
         if reranker is None:
             reranker = CrossEncoderReranker(config.online.reranker)
@@ -303,6 +361,65 @@ class RetrievalPipelineSuite:
             self.reranker,
             config.online.reranker,
         )
+
+    def _validate_manifests_and_lineage(self) -> None:
+        """Validate artifact lineage across all four retrieval manifests."""
+        validate_competition_artifact_lineage(
+            (self.chunk_manifest, self.bm25_manifest, self.vector_manifest, self.graph_manifest),
+            self.config.competition,
+        )
+        expected_source = (
+            self.chunk_manifest.artifact_type.value,
+            self.chunk_manifest.artifact_version,
+            self.chunk_manifest.processing_config_hash,
+        )
+        for manifest in (self.bm25_manifest, self.vector_manifest):
+            actual_source = (
+                manifest.metadata.get("source_artifact_type"),
+                manifest.metadata.get("source_artifact_version"),
+                manifest.metadata.get("source_processing_config_hash"),
+            )
+            if actual_source != expected_source:
+                raise ArtifactCompatibilityError(
+                    f"{manifest.artifact_type.value} does not originate from runtime legal chunks"
+                )
+
+        normalized_hash = self.chunk_manifest.metadata.get(
+            "runtime_normalized_processing_config_hash"
+        )
+        if (
+            not isinstance(normalized_hash, str)
+            or self.graph_manifest.metadata.get("source_document_processing_config_hash")
+            != normalized_hash
+        ):
+            raise ArtifactCompatibilityError(
+                "Graph and legal chunks do not share normalized-document lineage"
+            )
+
+        if self.config.online.startup_validation.mode != "full":
+            report_path = (
+                self.config.artifacts.root_path
+                / self.config.build_validation.report_filename
+            )
+            validate_startup_report(
+                report_path,
+                (self.chunk_manifest, self.bm25_manifest, self.vector_manifest, self.graph_manifest),
+            )
+
+    def _validate_embedding_provider_identity(self) -> None:
+        """Validate configured embedding provider against vector manifest identity."""
+        metadata = self.vector_manifest.metadata
+        expected_dim = metadata.get("dimension")
+        if (
+            metadata.get("embedding_provider_name") != self.embedding_provider.provider_name
+            or metadata.get("embedding_provider_version") != self.embedding_provider.provider_version
+            or self.vector_manifest.model_name != self.embedding_provider.model_name
+            or self.vector_manifest.model_revision != self.embedding_provider.model_revision
+            or expected_dim != self.embedding_provider.dimension
+        ):
+            raise ArtifactCompatibilityError(
+                "Configured embedding provider is incompatible with vector artifact"
+            )
 
 
 def run_b1a2_case(
@@ -327,9 +444,11 @@ def run_b1a2_case(
     # ARM G — CURRENT GRAPH PATH
     # ------------------------------------------------------------------
     recording_hybrid = RecordingHybridCandidateAdapter(pipeline.hybrid)
+    recording_graph = RecordingGraphBackend(pipeline.graph)
+
     graph_retriever = GraphExpandedRetriever(
         candidate_retriever=recording_hybrid,
-        graph_backend=pipeline.graph,
+        graph_backend=recording_graph,
         reranker=pipeline.reranker,
         chunk_manifest=pipeline.chunk_manifest,
         retrieval_config=pipeline.config.online.retrieval,
@@ -403,14 +522,37 @@ def run_b1a2_case(
     union_ids = set(s20_ids) | set(h40_ids)
     jaccard = len(overlap_ids) / len(union_ids) if union_ids else 1.0
 
+    s20_ranks = {h["chunk_id"]: h["rank"] for h in s20_final_proj}
+    h40_ranks = {h["chunk_id"]: h["rank"] for h in h40_final_proj}
+    rank_movements = [
+        {
+            "chunk_id": cid,
+            "s20_rank": s20_ranks[cid],
+            "h40_rank": h40_ranks[cid],
+            "rank_delta": h40_ranks[cid] - s20_ranks[cid],
+        }
+        for cid in overlap_ids
+    ]
+
+    graph_edge_count = pipeline.graph.manifest.metadata.get("edge_count")
+
     return {
         "question_id": question_id,
         "query_intent": q_analysis.intent.value if q_analysis else None,
         "query_variants_count": len(enriched_query.query_variants),
         "g_arm": {
+            "graph_manifest_record_count": pipeline.graph.manifest.record_count,
+            "graph_manifest_edge_count": int(graph_edge_count) if graph_edge_count is not None else None,
+            "graph_traverse_call_count": recording_graph.traverse_call_count,
+            "graph_step_count": len(recording_graph.recorded_steps),
             "hybrid_calls": g_hybrid_calls,
-            "seed_query_top_k": g_captured_seed_query.top_k if g_captured_seed_query else None,
-            "seed_query_candidate_k": g_captured_seed_query.candidate_k if g_captured_seed_query else None,
+            "seed_requested_strategy": (
+                g_captured_seed_query.requested_strategy.value
+                if g_captured_seed_query and g_captured_seed_query.requested_strategy
+                else None
+            ),
+            "seed_top_k": g_captured_seed_query.top_k if g_captured_seed_query else None,
+            "seed_candidate_k": g_captured_seed_query.candidate_k if g_captured_seed_query else None,
             "seed_hits": g_seed_proj,
             "final_hits": g_final_proj,
             "warnings": g_response.warnings,
@@ -418,14 +560,20 @@ def run_b1a2_case(
         },
         "s20_arm": {
             "branch_candidate_depth": S20_BRANCH_CANDIDATE_DEPTH,
-            "seed_query_top_k": s20_seed_query.top_k,
-            "seed_query_candidate_k": s20_seed_query.candidate_k,
+            "seed_requested_strategy": (
+                s20_seed_query.requested_strategy.value
+                if s20_seed_query.requested_strategy
+                else None
+            ),
+            "seed_top_k": s20_seed_query.top_k,
+            "seed_candidate_k": s20_seed_query.candidate_k,
             "seed_hits": s20_seed_proj,
             "final_hits": s20_final_proj,
             "warnings": s20_final_response.warnings,
             "latency_ms": s20_final_response.latency_ms,
         },
         "h40_arm": {
+            "candidate_count": S20_BRANCH_CANDIDATE_DEPTH,
             "final_hits": h40_final_proj,
             "latency_ms": h40_final_response.latency_ms,
         },
@@ -441,6 +589,7 @@ def run_b1a2_case(
                 and final_docs_match
                 and scores_match
                 and g_hybrid_calls == 1
+                and len(recording_graph.recorded_steps) == 0
             ),
         },
         "s20_vs_h40": {
@@ -449,6 +598,7 @@ def run_b1a2_case(
             "top8_jaccard": round(jaccard, 4),
             "s20_only_chunk_ids": [cid for cid in s20_ids if cid not in overlap_ids],
             "h40_only_chunk_ids": [cid for cid in h40_ids if cid not in overlap_ids],
+            "rank_movements": rank_movements,
         },
     }
 
@@ -509,17 +659,61 @@ def run_b1a2_experiment(
     output_jsonl_path.write_bytes(output_bytes)
     results_sha = sha256_bytes(output_bytes)
 
+    # Compute protocol aggregate counts
+    zero_record_cases = sum(1 for r in results if r["g_arm"]["graph_manifest_record_count"] == 0)
+    zero_edge_cases = sum(
+        1 for r in results if r["g_arm"]["graph_manifest_edge_count"] in (None, 0)
+    )
+    zero_step_cases = sum(1 for r in results if r["g_arm"]["graph_step_count"] == 0)
+    single_seed_cases = sum(1 for r in results if r["g_arm"]["hybrid_calls"] == 1)
+    g_inv_passes = sum(
+        1
+        for r in results
+        if r["g_arm"]["seed_requested_strategy"] == "hybrid"
+        and r["g_arm"]["seed_top_k"] == S20_HYBRID_OUTPUT_LIMIT
+        and r["g_arm"]["seed_candidate_k"] == S20_BRANCH_CANDIDATE_DEPTH
+    )
+    s20_inv_passes = sum(
+        1
+        for r in results
+        if r["s20_arm"]["branch_candidate_depth"] == S20_BRANCH_CANDIDATE_DEPTH
+        and r["s20_arm"]["seed_requested_strategy"] == "hybrid"
+        and r["s20_arm"]["seed_top_k"] == S20_HYBRID_OUTPUT_LIMIT
+        and r["s20_arm"]["seed_candidate_k"] == S20_BRANCH_CANDIDATE_DEPTH
+    )
+
+    artifact_projections = {
+        "legal_chunks": _project_manifest(pipeline.chunk_manifest),
+        "bm25": _project_manifest(pipeline.bm25_manifest),
+        "vector": _project_manifest(pipeline.vector_manifest),
+        "graph": _project_manifest(pipeline.graph_manifest),
+    }
+
     summary = {
         "experiment_id": "PHASE-B1A.2",
+        "package_version": __version__,
         "created_at": datetime.now(UTC).isoformat(),
         "case_count": len(results),
+        "ordered_question_ids": ordered_qids,
         "results_sha256": results_sha,
         "config_sha256": sha256_file(config_path),
-        "questions_sha256": sha256_file(questions_path),
-        "graph_record_count": pipeline.graph.manifest.record_count,
-        "s20_branch_candidate_depth": S20_BRANCH_CANDIDATE_DEPTH,
-        "s20_hybrid_output_limit": S20_HYBRID_OUTPUT_LIMIT,
-        "final_top_k": FINAL_TOP_K,
+        "materialized_questions_sha256": sha256_file(questions_path),
+        "resolved_invariants": {
+            "top_k": FINAL_TOP_K,
+            "candidate_k": S20_BRANCH_CANDIDATE_DEPTH,
+            "graph_seed_chunk_k": S20_HYBRID_OUTPUT_LIMIT,
+            "s20_branch_candidate_depth": S20_BRANCH_CANDIDATE_DEPTH,
+            "s20_hybrid_output_limit": S20_HYBRID_OUTPUT_LIMIT,
+        },
+        "aggregate_protocol_counts": {
+            "graph_zero_record_cases": zero_record_cases,
+            "graph_zero_edge_cases": zero_edge_cases,
+            "graph_zero_step_cases": zero_step_cases,
+            "graph_single_seed_call_cases": single_seed_cases,
+            "g_seed_invariant_pass_count": g_inv_passes,
+            "s20_invariant_pass_count": s20_inv_passes,
+        },
+        "artifact_identities": artifact_projections,
     }
 
     if summary_output_path is not None:
@@ -554,8 +748,26 @@ def evaluate_b1a2_verdict_gate(
         g_arm = case.get("g_arm") or {}
         s20_arm = case.get("s20_arm") or {}
 
+        if g_arm.get("graph_manifest_record_count") != 0:
+            reasons.append(f"Hard protocol failure ({qid}): graph record_count ({g_arm.get('graph_manifest_record_count')}) != 0")
+            hard_fail = True
+        if g_arm.get("graph_manifest_edge_count") not in (None, 0):
+            reasons.append(f"Hard protocol failure ({qid}): graph edge_count ({g_arm.get('graph_manifest_edge_count')}) != 0")
+            hard_fail = True
+        if g_arm.get("graph_step_count", 0) != 0:
+            reasons.append(f"Hard protocol failure ({qid}): graph step count ({g_arm.get('graph_step_count')}) != 0")
+            hard_fail = True
         if g_arm.get("hybrid_calls") != 1:
             reasons.append(f"Hard protocol failure ({qid}): G hybrid calls ({g_arm.get('hybrid_calls')}) != 1")
+            hard_fail = True
+        if g_arm.get("seed_requested_strategy") != "hybrid":
+            reasons.append(f"Hard protocol failure ({qid}): G seed requested_strategy ({g_arm.get('seed_requested_strategy')}) != 'hybrid'")
+            hard_fail = True
+        if g_arm.get("seed_top_k") != S20_HYBRID_OUTPUT_LIMIT:
+            reasons.append(f"Hard protocol failure ({qid}): G seed top_k ({g_arm.get('seed_top_k')}) != {S20_HYBRID_OUTPUT_LIMIT}")
+            hard_fail = True
+        if g_arm.get("seed_candidate_k") != S20_BRANCH_CANDIDATE_DEPTH:
+            reasons.append(f"Hard protocol failure ({qid}): G seed candidate_k ({g_arm.get('seed_candidate_k')}) != {S20_BRANCH_CANDIDATE_DEPTH}")
             hard_fail = True
         if "no_graph_expansion" not in (g_arm.get("warnings") or []):
             reasons.append(f"Hard protocol failure ({qid}): G warnings missing 'no_graph_expansion'")
@@ -564,6 +776,15 @@ def evaluate_b1a2_verdict_gate(
             reasons.append(
                 f"Hard protocol failure ({qid}): S20 branch candidate depth ({s20_arm.get('branch_candidate_depth')}) != {S20_BRANCH_CANDIDATE_DEPTH}"
             )
+            hard_fail = True
+        if s20_arm.get("seed_requested_strategy") != "hybrid":
+            reasons.append(f"Hard protocol failure ({qid}): S20 seed requested_strategy ({s20_arm.get('seed_requested_strategy')}) != 'hybrid'")
+            hard_fail = True
+        if s20_arm.get("seed_top_k") != S20_HYBRID_OUTPUT_LIMIT:
+            reasons.append(f"Hard protocol failure ({qid}): S20 seed top_k ({s20_arm.get('seed_top_k')}) != {S20_HYBRID_OUTPUT_LIMIT}")
+            hard_fail = True
+        if s20_arm.get("seed_candidate_k") != S20_BRANCH_CANDIDATE_DEPTH:
+            reasons.append(f"Hard protocol failure ({qid}): S20 seed candidate_k ({s20_arm.get('seed_candidate_k')}) != {S20_BRANCH_CANDIDATE_DEPTH}")
             hard_fail = True
 
     if hard_fail:
@@ -589,9 +810,9 @@ def evaluate_b1a2_verdict_gate(
         return "GRAPH_REDUNDANCY_NOT_PROVEN", reasons
 
     reasons.append(
-        "All 22 cases match exactly in seed sequences, final top-8 chunk sequences, "
+        f"All {len(case_results)} cases match exactly in seed sequences, final top-8 chunk sequences, "
         f"final document sequences, and reranker scores (tolerance <= {SCORE_ABS_TOLERANCE}) "
-        "with exactly 0 graph steps and single seed candidate call."
+        "with exactly 0 graph records, 0 graph steps, and a single seed candidate call."
     )
     return "GRAPH_REDUNDANCY_PROVEN", reasons
 
@@ -701,6 +922,7 @@ def analyze_b1a2_experiment(
                     "s20_vs_h40_identical": c.get("s20_vs_h40", {}).get("top8_identical"),
                     "s20_vs_h40_overlap_count": c.get("s20_vs_h40", {}).get("top8_overlap_count"),
                     "s20_vs_h40_jaccard": c.get("s20_vs_h40", {}).get("top8_jaccard"),
+                    "s20_vs_h40_rank_movements": c.get("s20_vs_h40", {}).get("rank_movements", []),
                 },
                 ensure_ascii=False,
             )
@@ -723,6 +945,7 @@ def package_b1a2_evidence(
     manifest_path: Path,
     questions_identity_path: Path,
     runtime_config_path: Path,
+    run_summary_path: Path,
     results_jsonl_path: Path,
     report_path: Path,
     decision_path: Path,
@@ -733,6 +956,7 @@ def package_b1a2_evidence(
         zf.write(manifest_path, arcname="configs/phase-b1a-graph-routing-cases.json")
         zf.write(questions_identity_path, arcname="evidence/materialized_questions_identity.json")
         zf.write(runtime_config_path, arcname="configs/runtime_config.json")
+        zf.write(run_summary_path, arcname="evidence/phase_b1a2_run_summary.json")
         zf.write(results_jsonl_path, arcname="results/phase_b1a2_retrieval_results.jsonl")
         zf.write(report_path, arcname="results/phase_b1a2_graph_equivalence_report.json")
         zf.write(decision_path, arcname="results/phase_b1a2_decision_report.json")
@@ -788,6 +1012,7 @@ def main() -> None:
     p_pk.add_argument("--manifest", type=Path, required=True, help="Path to B1A cases manifest")
     p_pk.add_argument("--questions-identity", type=Path, required=True, help="Path to materialized questions identity JSON")
     p_pk.add_argument("--runtime-config", type=Path, required=True, help="Path to runtime config")
+    p_pk.add_argument("--run-summary", type=Path, required=True, help="Path to run summary JSON")
     p_pk.add_argument("--results", type=Path, required=True, help="Path to results JSONL")
     p_pk.add_argument("--report", type=Path, required=True, help="Path to equivalence report JSON")
     p_pk.add_argument("--decision", type=Path, required=True, help="Path to decision report JSON")
@@ -829,6 +1054,7 @@ def main() -> None:
             manifest_path=args.manifest.resolve(),
             questions_identity_path=args.questions_identity.resolve(),
             runtime_config_path=args.runtime_config.resolve(),
+            run_summary_path=args.run_summary.resolve(),
             results_jsonl_path=args.results.resolve(),
             report_path=args.report.resolve(),
             decision_path=args.decision.resolve(),
