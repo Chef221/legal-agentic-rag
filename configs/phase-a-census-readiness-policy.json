@@ -1,0 +1,7 @@
+{
+  "max_retrieval_model_error_count": 991,
+  "max_generator_model_error_count": 991,
+  "max_citation_verification_failure_count": 991,
+  "max_insufficient_evidence_rate": 1.0,
+  "require_context_selection_trace": true
+}
