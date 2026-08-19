@@ -161,7 +161,7 @@ def test_c2_training_stops_at_max_optimizer_steps(tmp_path: Path) -> None:
     base_res_p.write_bytes(base_bytes)
     base_man = ValProbeBaseManifest(
         created_at=datetime.now(UTC),
-        code_version="0.50.4",
+        code_version="0.50.5",
         val_probe_sha256=probe_man.probe_sha256,
         base_model_id="Qwen/Qwen2.5-3B-Instruct",
         base_model_revision="a1d308dfcc03e09da285d49d912439a655a571e8",
@@ -274,7 +274,7 @@ def test_c2_restart_recovery_from_checkpoint(tmp_path: Path) -> None:
     base_res_p.write_bytes(base_bytes)
     base_man = ValProbeBaseManifest(
         created_at=datetime.now(UTC),
-        code_version="0.50.4",
+        code_version="0.50.5",
         val_probe_sha256=probe_man.probe_sha256,
         base_model_id="Qwen/Qwen2.5-3B-Instruct",
         base_model_revision="a1d308dfcc03e09da285d49d912439a655a571e8",
@@ -418,7 +418,7 @@ def test_c2_deterministic_resume_equivalence(tmp_path: Path) -> None:
     base_res_p.write_bytes(base_bytes)
     base_man = ValProbeBaseManifest(
         created_at=datetime.now(UTC),
-        code_version="0.50.4",
+        code_version="0.50.5",
         val_probe_sha256=probe_man.probe_sha256,
         base_model_id="Qwen/Qwen2.5-3B-Instruct",
         base_model_revision="a1d308dfcc03e09da285d49d912439a655a571e8",

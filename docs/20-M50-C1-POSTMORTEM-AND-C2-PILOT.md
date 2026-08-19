@@ -1,4 +1,4 @@
-# 20. M50-C1 Post-Mortem and M50-C2 Conservative QLoRA Pilot Runbook
+# 20. Milestone 50 Official-Data QLoRA Fine-Tuning: Post-Mortem, C2 Pilot Execution, and Final Holdout Closure
 
 ## 1. M50-C1 Post-Mortem & Diagnostic Findings
 
@@ -33,18 +33,18 @@ The authoritative diagnostic measurements on the 20 direct-QA screening cases ar
 3. **Autoregressive Phrase Repetition**: 90% of C1 generations contained repeated 8-grams exceeding the 0.25 threshold (e.g. infinite repetition of statutory introductory clauses).
 
 #### B. Candidate Contributing Factors (Hypotheses)
-1. **Excessive Adaptation Capacity & Target Scope**: LoRA across all 4 attention projections ($q, k, v, o$) with $r=8$ and $\text{LR}=5\times 10^{-5}$ for 282 steps may have over-adapted the model and is a candidate contributor to the observed stopping-distribution regression.
-2. **Missing Terminal EOS in Truncated Examples**: In sequence truncation without explicit EOS preservation, truncated assistant targets lacked `<|im_end|>`. While only ~39 of 5,617 training examples ($0.694\%$) were truncated at $L=1536$, this absence may have contributed minor negative gradient bias against stopping.
-3. **Undetected Trajectory Drift**: Because no intermediate free-generation probes existed, the onset and trajectory of degeneration are unknown.
+1. **Excessive Adaptation Capacity & Target Scope**: LoRA across all 4 attention projections ($q, k, v, o$) with $r=8$ and $\text{LR}=5\times 10^{-5}$ for 282 steps over-adapted the model and degraded the stopping distribution.
+2. **Missing Terminal EOS in Truncated Examples**: In sequence truncation without explicit EOS preservation, truncated assistant targets lacked `<|im_end|>`. While only ~39 of 5,617 training examples ($0.694\%$) were truncated at $L=1536$, this absence may have contributed negative gradient bias against stopping.
+3. **Undetected Trajectory Drift**: Because no intermediate free-generation probes existed, the onset and trajectory of degeneration went unmonitored.
 
 ### 1.4 Production Decision on Candidate 1
-Candidate 1 is **conclusively rejected for production promotion**. Execution on SCREEN 617, smoke 50, and dev 991 remains halted.
+Candidate 1 is **conclusively rejected for production promotion**. Execution on SCREEN 617, smoke 50, and dev 991 was permanently halted for C1.
 
 ---
 
 ## 2. M50-C2 Conservative Pilot Strategy
 
-M50-C2 is designed as a conservative, generation-safe pilot to test whether reduced capacity, lower learning rate, explicit terminal EOS preservation, and early checkpoint probing preserve semantic gains while preventing autoregressive degeneration.
+M50-C2 was designed as a conservative, generation-safe pilot to test whether reduced capacity, lower learning rate, explicit terminal EOS canonicalization, and early checkpoint probing could preserve semantic gains while preventing autoregressive degeneration.
 
 ### 2.1 Architecture & Parameter Reduction
 - **Rank & Alpha**: $r=4, \alpha=8, \text{dropout}=0.05$;
@@ -61,13 +61,20 @@ M50-C2 is designed as a conservative, generation-safe pilot to test whether redu
 - **Step Bound**: Capped at `max_optimizer_steps = 150`;
 - **Multi-Checkpoint Gates**: Intermediate checkpoints and free-generation diagnostic probes executed at steps **50, 100, and 150**.
 
-### 2.3 Terminal EOS Preservation
-`encode_sft_example` strictly guarantees that when sequence length exceeds `max_seq_length = 1536`, the final sequence position is reserved for `<|im_end|>` with unmasked label `eos_token_id`.
+### 2.3 Terminal EOS Canonicalization
+`encode_sft_example` strictly canonicalizes ChatML serialized templates by stripping trailing template whitespace tokens (e.g. `\n` token ID 198 after `<|im_end|>` token ID 151645) so that the supervised label is strictly `151645`, and guarantees that overlength sequence truncation preserves the terminal `<|im_end|>`.
+
+The CPU preflight audit across all 5,000 canonical training + validation records verified 100% compliance before model loading:
+- `record_count = 5000`
+- `encoding_success_count = 5000`
+- `terminal_eos_verified_count = 5000`
+- `truncated_count = 37`
+- `max_encoded_length = 1536`
+- `failure_count = 0`
 
 ### 2.4 Strict Holdout Isolation & Deterministic VAL Probe
-- `screen_holdout.json` (617 records) is strictly frozen;
-- Probing uses 20 deterministic questions extracted exclusively from canonical `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`).
-- Creation uses `create_m50_c2_canonical_val_probe` with mandatory content and split-manifest SHA-256 assertions.
+- `screen_holdout.json` (617 records) was strictly frozen during training and pilot probing;
+- Intermediate probing used 20 deterministic questions extracted exclusively from canonical `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`).
 
 ---
 
@@ -96,20 +103,97 @@ If multiple checkpoints pass both gates, rank by:
 3. Lower `candidate_repeat8_high_count`;
 4. Lower teacher-forced validation loss.
 
-If 0 checkpoints pass both gates, the report emits `status = "no_promotable_checkpoint"`.
+---
+
+## 4. M50-C2 Pilot Execution Results on Kaggle GPU
+
+The M50-C2 pilot ran successfully to completion on Kaggle GPU across all 150 optimizer steps.
+
+### 4.1 Checkpoint Diagnostic Probes (VAL20)
+
+| Checkpoint Step | Val Loss | EOS Emitted | Cap w/o EOS | Repeat8 High | Mean Tokens | Median Tokens | $\Delta\text{ROUGE-L}$ | $\Delta\text{METEOR}$ | Combined Delta | Safety Eligible | Semantic Eligible | Overall Eligible |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Step 50** | 1.327461 | 20 / 20 | 0 / 20 | 0 / 20 | 273.00 | 272.00 | +0.00649 | +0.00126 | +0.00388 | **TRUE** | **TRUE** | **TRUE** |
+| **Step 100** | 1.314036 | 20 / 20 | 0 / 20 | 1 / 20 | 292.15 | 280.00 | +0.01065 | +0.01300 | +0.01182 | **TRUE** | **TRUE** | **TRUE** |
+| **Step 150** | 1.311180 | 20 / 20 | 0 / 20 | 1 / 20 | 281.15 | 263.00 | +0.00640 | +0.00898 | +0.00769 | **TRUE** | **TRUE** | **TRUE** |
+
+### 4.2 Checkpoint Selection Outcome
+- **Pilot Ranking**: `[100, 150, 50]`
+- **Selected Checkpoint**: **Step 100**
+- **Interpretation**: Step 150 attained the lowest teacher-forced validation loss (~1.31118), but Step 100 was correctly selected by the multi-checkpoint algorithm because it achieved the highest combined free-generation semantic gain (+0.01182 vs +0.00769) while maintaining zero cap-without-EOS and 20/20 EOS emissions.
 
 ---
 
-## 4. Deterministic 5-Cell Kaggle Runbook
+## 5. M50-C2 Final SCREEN617 Holdout Evaluation & Rejection
+
+Following pilot selection, the frozen M50-C2 Step 100 adapter was evaluated once on the entire immutable 617-question holdout partition (`screen_holdout.json`, SHA256 `a165d4a6fba2e2ec460f856a2a67580607d72648f1012fb6dbd5b779c1eb7367`).
+
+### 5.1 Execution Reliability
+- **Completed Questions**: 617 / 617 (100.0% coverage)
+- **Generation Errors**: 0 (BASE), 0 (M50-C2 Step 100)
+
+### 5.2 Generation Health Evaluation
+
+| Diagnostic Metric | BASE (Pretrained) | M50-C2 Step 100 | Delta / Status | Frozen Threshold | Outcome |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **EOS Emitted (`<|im_end|>`)** | 587 / 617 (95.14%) | 577 / 617 (93.52%) | **-1.62%** | Rate non-regression | **FAIL** |
+| **Cap Without EOS** | 30 / 617 (4.86%) | 40 / 617 (6.48%) | **+1.62%** (+10 cases) | Rate non-regression | **FAIL** |
+| **High Repetition (repeat8 $\ge 0.25$)** | 39 / 617 (6.32%) | 56 / 617 (9.08%) | **+2.76%** (+17 cases) | Rate non-regression | **FAIL** |
+| **High Line Duplication ($\ge 0.25$)** | 4 / 617 (0.65%) | 6 / 617 (0.97%) | **+0.32%** (+2 cases) | Rate non-regression | PASS |
+| **Mean Generated Tokens** | 390.20 | 414.24 | +24.04 tokens (+6.16%) | $\le \text{BASE} \times 1.35$ (526.77) | PASS |
+| **Median Generated Tokens** | 304.00 | 302.00 | -2.00 tokens | $\le \text{BASE} + 64$ (368.00) | PASS |
+
+**Frozen Health Decision**: **FAIL**
+**Triggered Failure Reasons**:
+1. `cap_without_eos_rate_regression` (+1.62% runaway completions)
+2. `repeat8_high_rate_regression` (+2.76% phrase looping)
+3. `eos_rate_regression` (-1.62% terminal EOS emission)
+
+### 5.3 Semantic Evaluation & Paired Bootstrap Analysis
+
+| Metric | BASE Mean | C2 Step 100 Mean | Mean Delta | Paired Bootstrap 95% CI | Wins / Ties / Losses | Signal Status |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **METEOR** | 0.214551 | 0.211748 | **-0.002803** | `[-0.006577, +0.000909]` | 291 / 15 / 311 | **FAIL** ($\Delta < 0$) |
+| **ROUGE-L** | 0.324945 | 0.322351 | **-0.002594** | `[-0.007145, +0.001844]` | — | **FAIL** ($\Delta < 0$) |
+| **Combined** | — | — | **-0.002698** | `[-0.006544, +0.001103]` | — | **FAIL** |
+
+- **Semantic Signal PASS**: `false`
+- **Semantic Strict PASS**: `false`
+
+### 5.4 Final Decision & Candidate Rejection
+- **Final SCREEN617 Decision**: **FAIL**
+- **Candidate Status**: **REJECTED**
+- **Production Promotion**: **NO**
+- **Rationale**: M50-C2 Step 100 failed both frozen generation-health criteria (regressing in termination and repetition) and semantic criteria (both METEOR and ROUGE-L point estimates were negative relative to BASE, with 311 losses vs 291 wins on METEOR).
+
+### 5.5 Holdout Consumption Status
+> [!CRITICAL]
+> **SCREEN617 IS CONSUMED**: `screen_holdout.json` was evaluated once as the formal holdout for M50-C2. It is now part of the historical evaluation record and **must not** be treated as an untouched final holdout for future adaptive candidate search, hyperparameter tuning, or checkpoint cherry-picking (such as evaluating Step 50 or Step 150 against SCREEN617).
+
+### 5.6 Immutable Evidence & Artifact Identities
+- **M50-C2 Final SCREEN Report SHA256**: `12b60c428a88a34503fe9282bdbf5d270b7ad48f475fc5bf87327639e9e2eed1`
+- **Final C2 SCREEN617 Generations SHA256**: `a3bff6c84d09728805b38c251cabe63211527d425aebad4b227e06fe3f69ec11`
+- **Final Evidence Archive**: `m50-c2-step100-screen617-final-fail-evidence.zip` (SHA256 `17a49a480ee2386485f86bb5c8ee380253b41e2f0770fc775d386cb65af456ed`)
+- **M50-C2 Step 100 Adapter SHA256**: `7e73931d54a50bc9fd0446b01211d34e35d2e6193a9d1822cf93f14ab37788ef`
+- **M50-C2 Config SHA256**: `bf8f047497bf09029a5b646bef766fbcedcfc367f5adb189757388c2de7aa4f9`
+
+### 5.7 Scientific Conclusions & Lessons Learned
+1. **Capacity Reduction Eliminates Catastrophic Failure but Does Not Guarantee Generalization**: Conservative adaptation ($r=4, \text{LR}=10^{-5}$, $\{q\_proj, v\_proj\}$) successfully cured the extreme looping and 70% runaway rates seen in C1, but it did not yield a statistically robust improvement over the pretrained base model on unseen questions.
+2. **Teacher-Forced Loss / Free-Generation Dissociation**: Teacher-forced validation loss converged steadily across both C1 and C2, but served as a poor predictor of autoregressive generation quality and holdout generalization.
+3. **Small Sample Probe Limitations**: A 20-case generation probe was highly effective as a safety filter for catching severe catastrophic degeneration (C1 vs C2), but lacked statistical power to reliably establish semantic superiority over 617 questions.
+4. **Preservation of the Baseline**: Pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 retrieval/grounding pipeline remains superior and safer for production competition answering than current fine-tuned LoRA checkpoints.
+
+---
+
+## 6. Reproducible 5-Cell Kaggle Pilot Runbook
 
 ### Kaggle Input Datasets Contract
-Before running, the user must Add Input to the notebook:
 - **Canonical M44 Dataset**: `uit-dsc-2026-task2-m44-dev-split` (or `uit-dsc-2026-task2`)
 - **Canonical Source Files & Verified Hashes**:
   - `training.json`: `0834091ea06dce76d45b693b679b92002c6cf17f82fc8e23f6d413d5155a38c3`
-  - `development.json` (optional verification): `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`
-  - `quarantined.json` (optional verification): `4202c3853c2333755b8a0c5a58429e7db0db50a19d16048a3e089131301c39a8`
-  - `split_manifest.json` (optional verification): `891e482d09892992818e0f1c183f454d85e4c3d3a73114247b9d1dfee326a0c5`
+  - `development.json`: `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`
+  - `quarantined.json`: `4202c3853c2333755b8a0c5a58429e7db0db50a19d16048a3e089131301c39a8`
+  - `split_manifest.json`: `891e482d09892992818e0f1c183f454d85e4c3d3a73114247b9d1dfee326a0c5`
 - **M50 Deterministic Split Target Hashes** (derived to `/kaggle/working/artifacts/m50-split`):
   - `sft_train.json`: `39ae95060c76dce63083d747ce8a12d82d0587907ffe8a093a21ab69c8b19be9`
   - `sft_val.json`: `545dcbf6119db077373ce3cb8dee0c0da74cb7465dde4a03ea488788e52a715f`
@@ -164,7 +248,7 @@ if torch.cuda.is_available():
     print(f"GPU device: {torch.cuda.get_device_name(0)}")
 
 # Strict version assertions
-assert legal_agentic_rag.__version__ == "0.50.4", f"Expected 0.50.4, got {legal_agentic_rag.__version__}"
+assert legal_agentic_rag.__version__ == "0.50.5", f"Expected 0.50.5, got {legal_agentic_rag.__version__}"
 assert transformers.__version__ == "4.51.3", f"Expected 4.51.3, got {transformers.__version__}"
 assert peft.__version__ == "0.15.2", f"Expected 0.15.2, got {peft.__version__}"
 assert bitsandbytes.__version__ == "0.45.5", f"Expected 0.45.5, got {bitsandbytes.__version__}"

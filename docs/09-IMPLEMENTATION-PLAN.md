@@ -2372,17 +2372,21 @@ reports are reviewed.
 - implement cached BASE direct-QA generator and paired METEOR / ROUGE-L comparison with 95% bootstrap confidence intervals on `screen_holdout.json`;
 - validate locally with unit test suite; do not run full 991 development benchmark until Candidate 1 passes direct screening and immutable 50-smoke.
 
-## 65. Milestone 50.2 — M50-C2 Conservative QLoRA Pilot with Multi-Checkpoint Health Gates
+## 65. Milestone 50.2 — M50-C2 Conservative QLoRA Pilot, SCREEN617 Holdout Evaluation, and Milestone Closure
 
-**Status:** Implemented locally; Kaggle GPU pilot execution ready
+**Status:** Completed & Closed (M50-C2 Rejected on SCREEN617; No Fine-Tuned Model Promoted)
 
 - post-mortem of M50-C1: teacher-forced validation converged (1.09828) with positive lexical ROUGE-L signal (+0.04153), but free-generation collapsed into repetition loops (18/20 high repetition, 14/20 cap reached, 6/20 EOS);
 - implement Candidate 2 conservative pilot recipe: rank $r=4, \alpha=8$, dropout $0.05$, target modules $\{q\_proj, v\_proj\}$ yielding exactly 921,600 trainable parameters;
 - configure $\text{LR}=10^{-5}$ (5x lower than C1), cosine scheduler, warmup ratio 0.05, microbatch 2, accumulation 8, `paged_adamw_8bit`;
 - bound pilot to `max_optimizer_steps=150` with evaluation and checkpoint gates executed at steps [50, 100, 150];
 - implement EOS-preserving SFT encoding & ChatML suffix canonicalization: `encode_sft_example` strips post-EOS template whitespace tokens (e.g. `\n` token ID 198 after `<|im_end|>` token ID 151645) so the final supervised label is strictly `151645`, while sequence truncation preserves terminal `<|im_end|>`; `validate_sft_dataset_encoding` performs sub-second CPU preflight validation across all 5,000 records before GPU model loading;
-- preserve strict holdout isolation: `screen_holdout.json` is strictly frozen; intermediate probing uses 20 deterministic questions extracted from `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`) with content-level lineage checks;
+- preserve strict holdout isolation: `screen_holdout.json` is strictly frozen during training and pilot probing; intermediate probing uses 20 deterministic questions extracted from `sft_val.json` via salted SHA-256 (`m50-c2-val-probe-v1:{question_id}`) with content-level lineage checks;
 - implement checkpoint safety gate (0 errors, `cap_without_eos` $\le \text{BASE}+1$, `repeat8_high` $\le \text{BASE}+1$, `duplicate_line_high` $\le \text{BASE}+1$, `eos_emitted` $\ge \text{BASE}-1$, mean length $\le \text{BASE}\times 1.35$, median length $\le \max(\text{BASE}\times 1.35, \text{BASE}+64.0)$);
 - implement semantic preservation gate ($\Delta\text{ROUGE-L} \ge -0.01$, $\Delta\text{METEOR} \ge -0.01$ if available, and at least one $> 0$);
-- implement multi-checkpoint ranking & selection report (`checkpoint-selection-report.json`); returns `no_promotable_checkpoint` if 0 checkpoints qualify;
-- implement atomic `progress.json` updates, arbitrary-hour `format_duration`, durable JSONL history, checkpoint recovery from steps 50 and 100, and complete archive packaging (`m50-c2-pilot-complete.zip`) with SHA-256 checksum manifest.
+- pilot execution on Kaggle GPU: all checkpoints [50, 100, 150] passed VAL20 gates; step 100 selected as pilot winner (combined delta $+0.01182$);
+- formal holdout evaluation on SCREEN617: step 100 generated 617/617 cases (0 errors) but failed health gates (cap-no-EOS 6.48% vs 4.86%, repeat8-high 9.08% vs 6.32%, EOS rate 93.52% vs 95.14%) and semantic gates (METEOR delta -0.002803 with 95% CI `[-0.006577, +0.000909]`, ROUGE-L delta -0.002594);
+- final decision: M50-C2 is **REJECTED**; no fine-tuned model promoted to production;
+- holdout consumption: `screen_holdout.json` is **CONSUMED** and must not be used for future adaptive candidate search;
+- baseline preservation: frozen M49.6 reliability pipeline (pretrained `Qwen/Qwen2.5-3B-Instruct`) remains active;
+- Milestone 50 is officially **CLOSED**; next technical direction requires a separate explicit decision.

@@ -145,7 +145,7 @@ def test_base_cache_validation_and_tampering(tmp_path: Path) -> None:
     base_manifest_payload = {
         "schema_version": "1.0",
         "created_at": datetime.now(UTC).isoformat(),
-        "code_version": "0.50.4",
+        "code_version": "0.50.5",
         "val_probe_sha256": manifest.probe_sha256,
         "base_model_id": "Qwen/Qwen2.5-3B-Instruct",
         "base_model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8",
@@ -330,7 +330,7 @@ def test_create_m50_c2_canonical_val_probe_mandatory_checks(tmp_path: Path) -> N
     wrong_manifest_payload = {
         "schema_version": "1.0",
         "created_at": "2026-08-18T00:00:00Z",
-        "code_version": "0.50.4",
+        "code_version": "0.50.5",
         "clean_training_source": {
             "filename": "train.json",
             "question_count": 5617,
@@ -379,7 +379,7 @@ def test_create_m50_c2_canonical_val_probe_mandatory_checks(tmp_path: Path) -> N
     correct_manifest_payload = {
         "schema_version": "1.0",
         "created_at": "2026-08-18T00:00:00Z",
-        "code_version": "0.50.4",
+        "code_version": "0.50.5",
         "clean_training_source": {
             "filename": "train.json",
             "question_count": 5617,

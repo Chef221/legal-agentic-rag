@@ -215,18 +215,16 @@ A completed run is not an accepted result until its report has been reviewed.
 ## 12. Baseline and Frontier Guardrail
 
 The frozen validated reliability baseline is **M49.6** (commit
-`9b0cd0b1d40fb01bb62d4841f7728af2264f3957`, version `0.49.6`), which completed
-both targeted and immutable 50-smoke gates with zero model errors.
+`9b0cd0b1d40fb01bb62d4841f7728af2264f3957`, using pretrained
+`Qwen/Qwen2.5-3B-Instruct` with bounded missing-field recovery), which
+completed both targeted 2-ID and immutable 50-smoke gates with zero model errors.
 
-The active experimental frontier is **M50 — Official-Data LegalQA Generator
-Fine-Tuning**.
-
-Candidate 1 (`M50-C1`) infrastructure is implemented locally; GPU training and
-direct-QA semantic screening on `screen_holdout.json` are pending. `M50-C1` has
-**not** yet been trained or proven successful.
-
-Do not start the 991-question historical development benchmark until Candidate 1
-passes both direct screening and the immutable 50-smoke.
+Milestone 50 (Official-Data LegalQA Generator Fine-Tuning) is **closed**:
+- `M50-C1` (aggressive LoRA) was rejected due to catastrophic free-generation looping.
+- `M50-C2` (conservative LoRA) selected Step 100 on VAL20, but failed both generation-health and semantic gates on `screen_holdout.json` (SCREEN617).
+- No fine-tuned generator model has been promoted to production.
+- `screen_holdout.json` (617 cases) has been **consumed** and must not be used as an untouched final holdout for future adaptive candidates or checkpoint cherry-picking.
+- Do not assume M50 fine-tuning is currently active, and do not rerun SCREEN617 for adaptive candidate searches.
 
 
 ## 13. Documentation Responsibilities

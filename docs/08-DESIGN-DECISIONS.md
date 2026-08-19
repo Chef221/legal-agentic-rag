@@ -2658,3 +2658,39 @@ multi-checkpoint health gates:
    elapsed/ETA formatting (`format_duration`), atomic `progress.json` updates,
    durable JSONL history, recovery from steps 50 and 100, and complete archive
    bundling (`m50-c2-pilot-complete.zip`) with SHA-256 checksum manifests.
+
+---
+
+## D110 — M50-C2 Holdout Rejection, SCREEN617 Consumption, and Milestone 50 Closure
+
+**Status:** Accepted
+
+**Context:**
+M50-C2 conservative QLoRA pilot was executed on Kaggle GPU across 150 optimizer steps.
+All three checkpoints (50, 100, 150) passed the 20-case VAL probe safety gate (20/20 EOS emissions,
+0 cap without EOS) and semantic gate. Step 100 was selected as the pilot winner due to highest
+combined free-generation semantic delta (+0.01182).
+
+Following pilot selection, the frozen M50-C2 Step 100 adapter was evaluated once on the entire
+immutable 617-question holdout partition (`screen_holdout.json`, SHA256 `a165d4a6fba2e2ec460f856a2a67580607d72648f1012fb6dbd5b779c1eb7367`).
+Both BASE and C2 Step 100 completed 617/617 generations with 0 errors.
+
+**Authoritative Findings:**
+1. **Generation Health Regressed**:
+   - Cap without EOS rose from 4.86% (30/617) under BASE to 6.48% (40/617) under C2 (+1.62% regression);
+   - High 8-gram repetition ($\ge 0.25$) rose from 6.32% (39/617) under BASE to 9.08% (56/617) under C2 (+2.76% regression);
+   - Terminal EOS emission rate dropped from 95.14% (587/617) under BASE to 93.52% (577/617) under C2 (-1.62% regression).
+   - The frozen health gate yielded **FAIL**.
+2. **Semantic Signal Reversed Negative**:
+   - METEOR mean delta: **-0.002803** (95% paired bootstrap CI `[-0.006577, +0.000909]`, 291 wins / 15 ties / 311 losses);
+   - ROUGE-L mean delta: **-0.002594** (95% paired bootstrap CI `[-0.007145, +0.001844]`);
+   - Combined mean delta: **-0.002698** (95% paired bootstrap CI `[-0.006544, +0.001103]`);
+   - The semantic gate yielded **FAIL** ($\Delta < 0$).
+
+**Decisions & Invariants:**
+1. **Candidate Rejection**: M50-C2 is conclusively **REJECTED**. No fine-tuned model from Milestone 50 is promoted to production.
+2. **Holdout Consumption**: `screen_holdout.json` (617 questions) has been **CONSUMED** by the formal evaluation of M50-C2. It is now part of the historical evaluation record and **must not** be treated as an untouched final holdout for future adaptive candidate search, hyperparameter tuning, or checkpoint cherry-picking.
+3. **No Unwarranted Adaptive Cherry-Picking**: Evaluating Step 50 or Step 150 against SCREEN617 is explicitly forbidden, as SCREEN617 was reserved solely for the pre-registered pilot winner.
+4. **Methodological Invariant**: Teacher-forced validation loss and small generation probes (20 cases) are insufficient proxies for holdout generalization. Free-generation health and untouched holdout evaluation remain mandatory criteria for generator promotion.
+5. **Frozen Baseline Preserved**: M49.6 (pretrained `Qwen/Qwen2.5-3B-Instruct` with bounded missing-field recovery) remains the active, frozen reliability baseline for competition answering.
+6. **Milestone Closure**: Milestone 50 is officially **CLOSED**. No M50-C3 candidate or M51 milestone is opened without an explicit user decision.

@@ -38,13 +38,13 @@ Repository:
 
 Current remote `main` snapshot:
 
-- HEAD: `690c35215160cc11319d5ada5701de4fec8fb82f`
-- commit message: `Fix M50 candidate config integration`
-- commit date: 2026-08-16 UTC
+- HEAD: `4444825178e07f5acff3b7a5b2296e06729f0816`
+- commit message: `Fix Qwen EOS canonicalization for M50 SFT`
+- commit date: 2026-08-18 UTC
 
 Current source/package version:
 
-- `0.50.4` (M50-C2 QLoRA Pilot SFT EOS Canonicalization Patch)
+- `0.50.5` (M50 Official-Data Fine-Tuning Closure & Holdout Rejection)
 
 ---
 
@@ -100,9 +100,9 @@ Before any competition-facing change, read:
 
 The quality-control comparison baseline remains:
 
-- baseline: **M43.1**
+- baseline: **M43.1** (public batch reference)
 - baseline commit: `96e6d5a5c77ff19761d234a933e8684a44efb3bd`
-- generator: `Qwen/Qwen2.5-3B-Instruct`
+- generator: `Qwen/Qwen2.5-3B-Instruct` (pretrained)
 - public batch: 1,000 / 1,000 IDs completed
 - public METEOR: `0.07862292376534387`
 - public ROUGE-L: `0.16735433212043324`
@@ -110,14 +110,20 @@ The quality-control comparison baseline remains:
 - 384 citation-verification failures
 - 33 generator model errors
 
+The frozen operational reliability baseline remains:
+
+- baseline: **M49.6** (commit `9b0cd0b1d40fb01bb62d4841f7728af2264f3957`)
+- generator: `Qwen/Qwen2.5-3B-Instruct` (pretrained) with bounded missing-field recovery
+- targeted 2-ID gate: 0 errors, 2/2 missing-field corrections succeeded
+- immutable 50-question smoke: 0 model errors, 46/50 verified answers, 4 abstentions
+
 Do **not** confuse:
 
-- the stable comparison baseline (`M43.1`);
-- the current repository/package version (`0.49.5`);
-- the current experiment frontier (`M49.5` at this handoff).
+- the stable comparison baseline (`M43.1` / `M49.6`);
+- the current repository/package version (`0.50.5`);
+- experimental candidate models (e.g. M50-C1, M50-C2).
 
-A newer implementation is not automatically a better baseline. Promotion
-requires evidence through the documented evaluation protocol.
+No fine-tuned generator model has been promoted to production.
 
 ---
 
@@ -155,18 +161,38 @@ Before modifying a module, follow the module-specific reading path in
 
 ---
 
-## 7. Current Development Frontier: M50 (Official-Data QLoRA Fine-Tuning)
+## 7. Completed Milestone: M50 Official-Data Fine-Tuning (CLOSED)
 
-The active development frontier is **M50 — Official-Data LegalQA Generator Fine-Tuning**.
+Milestone 50 was the official-data LegalQA generator fine-tuning experiment.
+The experiment has been completed and **officially closed with all fine-tuned candidates rejected**.
 
-Background and status:
+### 7.1 M50-C1 Execution & Rejection
+- **Recipe**: Aggressive QLoRA ($r=8, \alpha=16, \text{LR}=5\times 10^{-5}$, targets $\{q, k, v, o\}$, 3.68M params, 282 steps);
+- **Outcome**: Teacher-forced validation loss converged (1.09828), but free autoregressive generation suffered catastrophic collapse (14/20 cap without EOS, 18/20 high repetition loops);
+- **Status**: **REJECTED** before SCREEN.
 
-- M49.6 completed both targeted 2-ID and immutable 50-smoke gates with zero errors, establishing the frozen reliability baseline;
-- M50 Phase 0 & 0.5 established competition compliance, three-way split design (`sft_train.json` ~4,500, `sft_val.json` ~500, `screen_holdout.json` ~617), and sequence length $L=1536$ truncation ceiling;
-- `development.json` (991 records) is preserved as the frozen historical development benchmark (strictly excluded from gradient updates and intermediate selection);
-- `quarantined.json` (392 records) remains permanently excluded;
-- M50 Phase 1 infrastructure is implemented locally: deterministic splitter, answer-only dataset with `-100` prompt loss masking, dynamic collator, QLoRA Candidate-1 trainer with parameter preflight, cached BASE direct-QA screening runner, and paired bootstrap scoring;
-- Local unit tests (513 passed) and pre-commit checks verified; Kaggle GPU training execution is pending.
+### 7.2 M50-C2 Pilot Execution & Step 100 Selection
+- **Recipe**: Conservative QLoRA ($r=4, \alpha=8, \text{LR}=10^{-5}$, targets $\{q, v\}$, 921,600 params, 150 steps, Qwen ChatML EOS canonicalization);
+- **Pilot Gates (VAL20)**: Steps 50, 100, and 150 all passed safety (20/20 EOS, 0 cap-no-EOS) and semantic gates;
+- **Ranking**: `[100, 150, 50]`;
+- **Selected Checkpoint**: **Step 100** (combined delta $+0.01182$).
+
+### 7.3 M50-C2 Step 100 Final SCREEN617 Evaluation & Rejection
+- **Evaluation**: 617/617 holdout questions generated (0 errors);
+- **Generation Health**: Regressed across all 3 key safety indicators relative to BASE:
+  - Cap without EOS: 40/617 (6.48%) vs BASE 30/617 (4.86%) — **FAIL**
+  - High Repetition (repeat8 $\ge 0.25$): 56/617 (9.08%) vs BASE 39/617 (6.32%) — **FAIL**
+  - Terminal EOS rate: 577/617 (93.52%) vs BASE 587/617 (95.14%) — **FAIL**
+- **Semantic Point Estimates**:
+  - METEOR mean delta: **-0.002803** (95% CI `[-0.006577, +0.000909]`, W/T/L 291/15/311) — **FAIL**
+  - ROUGE-L mean delta: **-0.002594** (95% CI `[-0.007145, +0.001844]`) — **FAIL**
+  - Combined mean delta: **-0.002698** (95% CI `[-0.006544, +0.001103]`) — **FAIL**
+- **Final Decision**: **FAIL**
+- **Candidate Status**: **REJECTED**
+- **Production Promotion**: **NO**
+
+### 7.4 Holdout Consumption Status
+- **`screen_holdout.json` IS CONSUMED**: Evaluated once as the formal holdout for M50-C2. It must not be treated as an untouched holdout for future adaptive tuning, cherry-picking, or candidate iterations.
 
 ---
 
@@ -190,37 +216,27 @@ The M49.6 reliability candidate (`9b0cd0b1d40fb01bb62d4841f7728af2264f3957`, ver
    - `missing_field_correction: attempted = 2, succeeded = 2, failed = 0`
    - `numeric_salvage = 2/2`, `supported_claim_salvage = 1/1`
 
-M49.6 is the frozen fallback baseline. It must not be redesigned or weakened.
+M49.6 remains the frozen fallback baseline for production answering. It was not replaced or superseded by M50.
 
 ---
 
-## 9. Immediate Predecessors: M49.5 and M49.6
+## 9. Immediate Predecessors
 
-- **M49.5**: bounded local structural terminal schema recovery (shape normalization, single claim wrapping, duplicate stripping, excess complete claim dropping);
-- **M49.6**: bounded terminal model-correction attempt specifically for unrecoverable missing-required-field failures;
-- **M50.1**: official-data QLoRA fine-tuning infrastructure and staged direct-QA semantic screening ladder.
-
-Each experiment remains independently measurable with its own closed telemetry.
-
-Recent commits show the work progressed through:
-
-- bounded structured-generation recovery;
-- claim-linked model output for citations;
-- numeric-only grounded repair;
-- deterministic numeric-claim salvage;
-- structured claim-salvage diagnostics;
-- bounded terminal schema recovery.
-
-Do not reimplement these ideas from scratch before inspecting the current code
-and tests.
+- **M49.5**: bounded local structural terminal schema recovery;
+- **M49.6**: bounded terminal model-correction attempt for missing-required-field failures;
+- **M50**: official-data QLoRA fine-tuning infrastructure, pilot gates, and holdout evaluation (closed; candidates rejected).
 
 ---
 
 ## 10. Recent Remote History Relevant to the Handoff
 
-Recent `main` commits at the time this file was prepared:
-
 ```text
+4444825 Fix Qwen EOS canonicalization for M50 SFT
+dcf47f5 Add generation-safe M50-C2 pilot infrastructure
+690c352 Fix M50 candidate config integration
+dc4f427 Fix M50 training runtime correctness
+aa4d110 Add official-data QLoRA experiment infrastructure
+9b0cd0b Add bounded missing-field model correction
 be190a5 Add bounded terminal schema recovery
 4b4d8eb Add structured claim salvage diagnostics
 0f4ed75 Add deterministic numeric claim salvage
@@ -231,17 +247,7 @@ d64bf34 Use claim-linked model output for citations
 8cdec61 Improve citation coverage diagnostics
 189e125 Fix Kaggle batch command variable expansion
 0b4000a Stream durable competition batch progress
-efbc544 Pin low-memory startup runbook commit
-edc5a35 Stabilize low-memory Qwen startup
-f217ceb Prepare end-to-end reranker answer ablation
-7383376 m44.3
-f8d1f68 Add leakage-safe evaluation and reranker diagnostics
-7466388 Document M43 baseline and team improvement plan
-96e6d5a Handle generator abstention in agent workflow
 ```
-
-When taking over an active task, inspect the full diff of the relevant recent
-commits instead of relying only on these commit titles.
 
 ---
 
@@ -257,12 +263,8 @@ Known/important failure themes include:
 - generator model/structured-output failure;
 - retrieval/context selection not always matching the answer form rewarded by
   the references/metrics;
-- the risk of improving one local symptom while regressing another subsystem;
-- the risk of treating implemented optional components as proven improvements;
-- documentation/status drift during rapid milestone iteration.
-
-Any proposed change must identify which failure mode it is intended to affect
-and how the effect will be measured.
+- LoRA fine-tuning on QA pairs did not outperform the pretrained base model on unseen questions;
+- the risk of treating intermediate validation loss or small-sample probes as proof of holdout generalization.
 
 ---
 
@@ -311,9 +313,6 @@ After implementation:
 Documentation is authoritative for contracts and accepted decisions, but rapid
 experimentation can create stale status text.
 
-At this handoff, one known example is the source/package version being `0.49.5`
-while some overview text still reports `0.49.3`.
-
 Therefore:
 
 - never assume every status/version sentence in docs is current;
@@ -325,20 +324,9 @@ Therefore:
   - current implementation state;
 - reconcile important discrepancies explicitly.
 
-Do not perform broad documentation cleanup during an unrelated experiment.
-Fix only verified inconsistencies, preferably in a dedicated change unless the
-documentation update is required by the code change.
-
 ---
+
 ## 14. Local-State Safety
-
-This handoff file describes the repository state after resolving the Codex session handoff:
-
-- Codex previously started M49.6 but reached its usage limit;
-- partial M49.6 source edits were intentionally undone by the user;
-- the working tree content matches clean M49.5 (`be190a5`);
-- the 12 files shown as modified in `git status` are stat-cache / CRLF artifacts from the edit/undo cycle (their normalized hashes match HEAD);
-- no uncommitted substantive M49.6 changes exist in the workspace.
 
 Before modifying anything:
 
@@ -363,24 +351,17 @@ Do not commit:
 
 The immediate next action is:
 
-1. **Review M50-C2 local infrastructure**:
-   - EOS-preserving SFT encoding with ChatML loss masking (`-100`);
-   - 20-case deterministic VAL probe extractor from `sft_val.json` (salted SHA-256) with strict holdout isolation;
-   - Baseline cache generation and validation with SHA256 verification;
-   - Candidate 2 pilot recipe ($r=4, \alpha=8, \text{LR}=10^{-5}$, target $\{q\_proj, v\_proj\}$, 921,600 trainable parameters);
-   - Checkpoint safety and semantic preservation gates at steps [50, 100, 150];
-   - Multi-checkpoint selection ranking;
-   - Complete pilot archive packaging (`m50-c2-pilot-complete.zip`) with checksum manifest.
-2. **Execute M50-C2 Pilot on Kaggle GPU**: Run 5-cell deterministic runbook per `docs/20-M50-C1-POSTMORTEM-AND-C2-PILOT.md`.
-3. **Inspect Pilot Output**: Check `checkpoint-selection-report.json` and diagnostic metrics before considering any stage 2/3 promotion.
+1. **Review M50 Closure & Holdout Rejection Documentation**: Ensure all team members and future agents understand the empirical findings from C1 and C2.
+2. **Post-M50 Strategic Alignment**: Do not start M51 or C3 without an explicit user decision. Formulate new hypotheses for retrieval, context selection, or prompt optimization based on established competition data.
+3. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
 
 ---
 
 ## 16. Status of Historical Questions
 
-- **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed positive ROUGE-L lexical gain (+0.04153), but collapsed in free-generation health (70% cap reached, 90% repetition loops). Rejected for production.
-- **Why is Candidate 2 bounded to 150 steps?** Resolved: To test intermediate checkpoints at steps 50, 100, and 150, evaluate whether conservative rank ($r=4$) and lower LR ($10^{-5}$) prevent degeneration earlier in training.
-- **Why is `screen_holdout.json` untouched?** Resolved: Strict holdout rule guarantees `screen_holdout.json` is never contaminated by intermediate probing or checkpoint selection.
+- **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed lexical gain on ROUGE-L, but collapsed in free-generation health (70% cap reached, 90% repetition loops). Conclusively rejected.
+- **What happened in M50-C2?** Resolved: C2 reduced capacity ($r=4$, LR $10^{-5}$, targets $\{q, v\}$, 921K params) and canonicalized EOS. All checkpoints (50, 100, 150) passed VAL20 gates. Step 100 was selected, but on full SCREEN617 evaluation, it regressed in generation health (6.48% cap-no-EOS, 9.08% repetition) and achieved negative point estimates on METEOR (-0.002803) and ROUGE-L (-0.002594). Conclusively rejected.
+- **Is `screen_holdout.json` still untouched?** Resolved: `screen_holdout.json` has been consumed by the one-shot M50-C2 evaluation and is no longer an untouched holdout for future adaptive candidates.
 
 ---
 
@@ -406,14 +387,14 @@ keep this file focused on the current frontier.
 
 ```text
 Stable comparison baseline:
-    M49.6 production RAG pipeline
+    M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.4 (M50-C2 conservative QLoRA pilot SFT EOS canonicalization patch implemented and verified on 5000 canonical records)
+    0.50.5 (M50 official-data fine-tuning closed; C1 and C2 rejected; SCREEN617 consumed; M49.6 frozen fallback preserved)
 
 Active development frontier:
-    M50-C2 conservative QLoRA pilot execution on Kaggle GPU
+    Post-M50 strategic review and milestone planning
 
 Next action:
-    review M50-C2 local infrastructure & EOS canonicalization -> run Kaggle pilot (Cells 1-5) -> review checkpoint selection report
+    review M50 closure documentation -> align on next hypothesis/direction
 ```
