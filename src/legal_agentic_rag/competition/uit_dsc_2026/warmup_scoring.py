@@ -16,7 +16,7 @@ from legal_agentic_rag.competition.uit_dsc_2026.loader import UitDsc2026DataLoad
 from legal_agentic_rag.competition.uit_dsc_2026.submission import (
     load_submission_archive,
 )
-from legal_agentic_rag.evaluation import score_text_answer
+from legal_agentic_rag.evaluation.metrics import score_text_answer
 from legal_agentic_rag.competition.uit_dsc_2026.official_scoring import (
     OFFICIAL_NLTK_VERSION,
     OFFICIAL_SCORER_SHA256,

@@ -2390,3 +2390,25 @@ reports are reviewed.
 - holdout consumption: `screen_holdout.json` is **CONSUMED** and must not be used for future adaptive candidate search;
 - baseline preservation: frozen M49.6 reliability pipeline (pretrained `Qwen/Qwen2.5-3B-Instruct`) remains active;
 - Milestone 50 is officially **CLOSED**; next technical direction requires a separate explicit decision.
+
+## 66. Milestone 51.1 — Phase-A Current-System Census Execution and Baseline Characterization
+
+**Status:** Completed & Closed (Authoritative report: `docs/22-PHASE-A-CLOSURE.md`)
+
+- executed full M49.6-style competition pipeline against 991-question `development.json` benchmark on dual T4 GPUs with Qwen generator placed on GPU1 (`cuda:1`) to prevent illegal memory access;
+- established Phase-A quality baseline under official competition scoring: METEOR `0.0980790959` (display rounded `0.098079`), ROUGE-L `0.1871225729` (display rounded `0.187123`), Exact Match `0.0`;
+- established Phase-A reliability baseline: 991 records, 806 `answer_verified` (81.33%), 177 `generation_failed` (17.86%), 7 `citation_verification_failed` (0.71%), 1 `max_retry_reached` (0.10%), 185 `insufficient_evidence` (18.67%), 10 generator model errors;
+- resolved batch failure blocker: hardened `ToolError` validator in `src/legal_agentic_rag/schemas/tools.py` to allow earlier schema issue diagnostics when accompanied by an attempted missing-field correction chain (`generation_missing_field_correction_attempted = True`); added permanent regression coverage in `tests/unit/schemas/test_tools.py`;
+- conducted forensic static audit and empirical census of Graph Retrieval & Adaptive Routing: confirmed competition graph contains 0 edges by design, while `GRAPH_SEARCH` is unconditionally registered; confirmed `QueryIntent.RELATIONSHIP` keyword heuristic has top priority and triggers adaptive routing prepending `[GRAPH, HYBRID_RERANK, HYBRID]`; confirmed zero-edge graph retrieval evaluates only 20 seed candidates instead of configured 40; confirmed 22/22 relationship queries routed to `GRAPH_SEARCH` and terminated on Attempt 1 without fallback;
+- architecture verdict: generic graph components retained (`KEEP_GENERIC_ONLY`), UIT competition graph integration designated candidate for removal (`REMOVE_COMPETITION_PATH`) pending Phase B1A paired ablation;
+- package version bumped to `0.50.6`; Milestone 51.1 / Phase A formally **CLOSED**.
+
+## 67. Milestone 51.2 — Phase B1A: Paired Graph-Routing Behavioral Ablation
+
+**Status:** Planned / Next Authorized Step (NOT YET IMPLEMENTED)
+
+- **Objective**: Establish the exact empirical, counterfactual quality and reliability delta of executing `hybrid_rerank` directly at `candidate_k = 40` versus the current zero-edge `graph_search` route on the exact 22 relationship-matching questions identified in the Phase-A census;
+- **Scope**: Run paired evaluation on the 22 cases holding all other parameters fixed (BM25, Multilingual-E5-Small, RRF constant 60, cross-encoder reranker, pretrained `Qwen/Qwen2.5-3B-Instruct`, claim verification, generation limits);
+- **Primary Metric**: Paired $\Delta\text{METEOR}$ (mean, median, 95% bootstrap confidence interval);
+- **Secondary Metrics**: Paired $\Delta\text{ROUGE-L}$, win/tie/loss distribution, `answer_verified` vs `generation_failed` rates, execution latency;
+- **Pre-condition**: No graph code deletion, router redesign, or pipeline changes in Phase A; Phase B1A implementation to be executed as an independent controlled milestone.

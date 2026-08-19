@@ -1,5 +1,9 @@
 # Phase A — Current-System Census
 
+> [!NOTE]
+> **Status: COMPLETED & CLOSED.**
+> The authoritative execution results, scoring benchmarks, component diagnostics, and static architecture audit findings are recorded in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
+
 ## 1. Mục tiêu
 
 Phase A đo **hệ thống hiện tại trước khi đơn giản hóa kiến trúc**. Không thay đổi

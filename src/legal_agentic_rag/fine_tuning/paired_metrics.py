@@ -12,7 +12,7 @@ from legal_agentic_rag import __version__
 from legal_agentic_rag.competition.uit_dsc_2026.official_scoring import (
     score_official_compatible_answer,
 )
-from legal_agentic_rag.evaluation import score_text_answer
+from legal_agentic_rag.evaluation.metrics import score_text_answer
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.schemas import (
     CompetitionQuestion,

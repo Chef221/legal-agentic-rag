@@ -38,13 +38,13 @@ Repository:
 
 Current remote `main` snapshot:
 
-- HEAD: `560d059661055e65f8eb203e06921ad7cbb0daae`
-- commit message: `Close M50 after C2 holdout rejection`
+- HEAD: `923557c3a01654aca979ec917a32993af01ad0d0`
+- commit message: `Add Phase A current-system census runbook`
 - commit date: 2026-08-19 UTC
 
 Current source/package version:
 
-- `0.50.5` (M50 Official-Data Fine-Tuning Closure & Holdout Rejection)
+- `0.50.6` (Phase-A Census Closure & ToolError Contract Hardening)
 
 ---
 
@@ -353,16 +353,18 @@ Do not commit:
 
 The immediate next action is:
 
-1. **Review M50 Closure & Holdout Rejection Documentation**: Ensure all team members and future agents understand the empirical findings from C1 and C2.
-2. **Post-M50 Strategic Alignment**: Do not start M51 or C3 without an explicit user decision. Formulate new hypotheses for retrieval, context selection, or prompt optimization based on established competition data.
-3. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
+1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md). Baseline score: METEOR `0.0980790959`, ROUGE-L `0.1871225729` on historical engineering benchmark `development.json`.
+2. **Phase B Entry**: Phase B is NOT YET IMPLEMENTED.
+3. **Execute Phase B1A Paired Graph-Routing Ablation**: Run a controlled counterfactual evaluation on the 22 relationship-matching questions comparing zero-edge `graph_search` against direct `hybrid_rerank` at `candidate_k = 40` under strictly identical model and generation parameters.
+4. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase-A Census?** Resolved: 991/991 benchmark questions completed. 806 answer_verified (81.33%), 177 generation_failed, 7 citation_verification_failed, 10 generator model errors. All 22 relationship queries routed to GRAPH_SEARCH and terminated on Attempt 1.
 - **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed lexical gain on ROUGE-L, but collapsed in free-generation health (70% cap reached, 90% repetition loops). Conclusively rejected.
-- **What happened in M50-C2?** Resolved: C2 reduced capacity ($r=4$, LR $10^{-5}$, targets $\{q, v\}$, 921K params) and canonicalized EOS. All checkpoints (50, 100, 150) passed VAL20 gates. Step 100 was selected, but on full SCREEN617 evaluation, it regressed in generation health (6.48% cap-no-EOS, 9.08% repetition) and achieved negative point estimates on METEOR (-0.002803) and ROUGE-L (-0.002594). Conclusively rejected.
+- **What happened in M50-C2?** Resolved: C2 reduced capacity ($r=4$, LR $10^{-5}$, targets $\{q, v\}$, 921K params) and canonicalized EOS. Step 100 failed SCREEN617 holdout evaluation across generation health and semantic criteria. Conclusively rejected.
 - **Is `screen_holdout.json` still untouched?** Resolved: `screen_holdout.json` has been consumed by the one-shot M50-C2 evaluation and is no longer an untouched holdout for future adaptive candidates.
 
 ---
@@ -392,11 +394,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.5 (M50 official-data fine-tuning closed; C1 and C2 rejected; SCREEN617 consumed; M49.6 frozen fallback preserved)
+    0.50.6 (Phase A closed; ToolError contract hardened; M49.6 fallback preserved)
 
 Active development frontier:
-    Post-M50 strategic review and milestone planning
+    Phase B1A paired graph-routing ablation preparation
 
 Next action:
-    review M50 closure documentation -> align on next hypothesis/direction
+    Prepare and execute Phase B1A paired counterfactual ablation on 22 graph cases
 ```

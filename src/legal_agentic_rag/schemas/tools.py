@@ -238,20 +238,42 @@ class ToolError(BaseModel):
             raise ValueError(
                 "generation failure code is valid only for model errors"
             )
-        details_present = bool(
+        schema_details_present = bool(
             self.generation_schema_issue_codes
             or self.generation_schema_repair_codes
             or self.generation_schema_recovery_outcome is not None
-            or self.generation_missing_field_correction_attempted
+        )
+        correction_details_present = bool(
+            self.generation_missing_field_correction_attempted
             or self.generation_missing_field_correction_outcome is not None
         )
-        if details_present and (
-            self.error_type is not ToolErrorType.MODEL_ERROR
-            or self.generation_failure_code
-            is not StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR
+        details_present = bool(
+            schema_details_present
+            or correction_details_present
+        )
+        if (
+            details_present
+            and self.error_type is not ToolErrorType.MODEL_ERROR
         ):
             raise ValueError(
-                "generation schema detail is valid only for schema model errors"
+                "generation schema detail is valid only for model errors"
+            )
+        if (
+            schema_details_present
+            and self.generation_failure_code
+            is not StructuredGenerationFailureCode.SCHEMA_VALIDATION_ERROR
+            and not self.generation_missing_field_correction_attempted
+        ):
+            raise ValueError(
+                "generation schema detail requires a schema model error "
+                "or an attempted missing-field correction chain"
+            )
+        if (
+            self.generation_missing_field_correction_outcome is not None
+            and not self.generation_missing_field_correction_attempted
+        ):
+            raise ValueError(
+                "missing-field correction outcome requires an attempted correction"
             )
         for values in (
             self.generation_schema_issue_codes,

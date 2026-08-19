@@ -2694,3 +2694,71 @@ Both BASE and C2 Step 100 completed 617/617 generations with 0 errors.
 4. **Methodological Invariant**: Teacher-forced validation loss and small generation probes (20 cases) are insufficient proxies for holdout generalization. Free-generation health and untouched holdout evaluation remain mandatory criteria for generator promotion.
 5. **Frozen Baseline Preserved**: M49.6 (pretrained `Qwen/Qwen2.5-3B-Instruct` with bounded missing-field recovery) remains the active, frozen reliability baseline for competition answering.
 6. **Milestone Closure**: Milestone 50 is officially **CLOSED**. No M50-C3 candidate or M51 milestone is opened without an explicit user decision.
+
+---
+
+## D111 — Phase-A Current-System Census Baseline for Phase B
+
+**Status:** Accepted
+
+**Context:**
+The Phase-A Current-System Census executed the full M49.6-style competition pipeline against the canonical 991-question `development.json` engineering benchmark using the official competition scoring contract.
+
+**Decisions & Invariants:**
+1. **Benchmark Nature**: The 991-question development set (`development.json`, SHA256 `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`) is a historical engineering benchmark, not an untouched generalization holdout.
+2. **Current-System Quality Baseline**:
+   - Exact Match: `0.0`
+   - METEOR: `0.0980790959`
+   - ROUGE-L: `0.1871225729`
+3. **Current-System Operational Baseline**:
+   - 991 records evaluated; 806 `answer_verified` (81.33%), 177 `generation_failed` (17.86%), 7 `citation_verification_failed` (0.71%), 1 `max_retry_reached` (0.10%), 185 `insufficient_evidence` (18.67%), 10 generator model errors.
+4. **Phase B Reference**: These metrics serve as the primary current-system reference point for Phase-B improvements.
+
+---
+
+## D112 — ToolError Correction-Chain Diagnostic Envelope Contract
+
+**Status:** Accepted
+
+**Context:**
+During batch execution, when an initial structured generation draft failed with missing fields and an attempted missing-field correction subsequently failed with a terminal non-schema error (such as `JSON_DECODE_ERROR`), preserving earlier schema diagnostics caused the `ToolError` model validator to reject the error envelope, terminating the entire batch.
+
+**Decisions & Invariants:**
+1. **Separation of Schema and Correction Detail**: `ToolError` distinguishes schema details (`generation_schema_issue_codes`, `generation_schema_repair_codes`, `generation_schema_recovery_outcome`) from correction details (`generation_missing_field_correction_attempted`, `generation_missing_field_correction_outcome`).
+2. **Correction-Chain Preservation**: A terminal non-schema generation failure is permitted to carry earlier schema issue codes if and only if `generation_missing_field_correction_attempted = True`.
+3. **Rejection of Free-Floating Schema Detail**: Free-floating schema diagnostics attached to a non-schema terminal failure without an attempted correction chain remain strictly forbidden.
+4. **Reliability Invariant**: Individual question generation failures must yield durable `generation_failed` records within the batch without crashing the overall evaluation process.
+
+---
+
+## D113 — UIT Competition Graph Integration Architectural Assessment
+
+**Status:** Accepted
+
+**Context:**
+Static architecture auditing and empirical census analysis on the 991-question benchmark revealed:
+1. The official UIT DSC 2026 data contract lacks relationship annotations; `relationships.jsonl` has `record_count = 0` by design.
+2. The competition graph artifact contains 8,532 nodes and 0 edges, and build validation strictly asserts `record_count == 0`.
+3. `QueryUnderstandingService` assigns `QueryIntent.RELATIONSHIP` top priority on any query matching 8 substring cues (`"sửa đổi"`, `"bổ sung"`, `"thay thế"`, `"bãi bỏ"`, `"hướng dẫn"`, `"dẫn chiếu"`, `"còn hiệu lực"`, `"hết hiệu lực"`).
+4. `DeterministicStrategyRouter` prepends `[GRAPH, HYBRID_RERANK, HYBRID]` when `adaptive_routing_enabled = True`.
+5. On zero-edge graphs, `graph_search` requests hybrid seeds capped by `min(graph_seed_chunk_k, candidate_k - 1) = 20`. Traversal finds 0 edges, so the cross-encoder evaluates only 20 candidates instead of the configured 40 in `hybrid_rerank`.
+6. Empirical census showed 22/22 relationship-matching questions executed `GRAPH_SEARCH` and terminated on Attempt 1 without falling back to `hybrid_rerank`.
+
+**Decisions & Invariants:**
+1. **Generic Graph Library Retained**: `GraphBackend`, `AdjacencyGraphBackend`, and `GraphExpandedRetriever` remain part of the generic library codebase (`KEEP_GENERIC_ONLY`).
+2. **Competition Path Deletion Candidate**: The UIT competition-specific graph integration is designated as a candidate for removal (`REMOVE_COMPETITION_PATH`), but will NOT be removed during Phase A.
+3. **Mandatory Paired Ablation**: Structural modification or deletion of the graph path is deferred until the Phase B1A paired counterfactual ablation explicitly measures the causal delta on the 22 affected cases.
+
+---
+
+## D114 — Non-Causal Interpretation of Observational Subgroup Metrics
+
+**Status:** Accepted
+
+**Context:**
+In the 991-question census, the graph-routed subgroup achieved an 81.82% `answer_verified` rate (18/22) compared to 81.32% (788/969) for the non-graph group.
+
+**Decisions & Invariants:**
+1. **Observational vs Causal**: The graph and non-graph subgroups evaluated entirely distinct legal questions with different complexities, references, and vocabularies.
+2. **Prohibition of Causal Quality Inferences**: The repository strictly forbids claiming that graph retrieval is superior or inferior based on observational subgroup averages.
+3. **Controlled Counterfactual Standard**: All future routing and retrieval architectural evaluations must use paired counterfactual comparisons where the exact same questions are evaluated under candidate versus control pipelines.
