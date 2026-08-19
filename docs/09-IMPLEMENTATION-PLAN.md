@@ -2405,7 +2405,7 @@ reports are reviewed.
 
 ## 67. Milestone 51.2 — Phase B1A: Paired Graph-Routing Behavioral Ablation
 
-**Status:** Planned / Next Authorized Step (NOT YET IMPLEMENTED)
+**Status:** Infrastructure Ready / Kaggle Execution Pending (Runbook: `docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md`)
 
 - **Objective**: Establish the exact empirical, counterfactual quality and reliability delta of executing `hybrid_rerank` directly at `candidate_k = 40` versus the current zero-edge `graph_search` route on the exact 22 relationship-matching questions identified in the Phase-A census;
 - **Scope**: Run paired evaluation on the 22 cases holding all other parameters fixed (BM25, Multilingual-E5-Small, RRF constant 60, cross-encoder reranker, pretrained `Qwen/Qwen2.5-3B-Instruct`, claim verification, generation limits);

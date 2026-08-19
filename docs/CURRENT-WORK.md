@@ -354,9 +354,10 @@ Do not commit:
 The immediate next action is:
 
 1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md). Baseline score: METEOR `0.0980790959`, ROUGE-L `0.1871225729` on historical engineering benchmark `development.json`.
-2. **Phase B Entry**: Phase B is NOT YET IMPLEMENTED.
-3. **Execute Phase B1A Paired Graph-Routing Ablation**: Run a controlled counterfactual evaluation on the 22 relationship-matching questions comparing zero-edge `graph_search` against direct `hybrid_rerank` at `candidate_k = 40` under strictly identical model and generation parameters.
-4. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
+2. **Phase B1A Infrastructure Ready / Kaggle Execution Pending**: All B1A case manifests (`configs/phase-b1a-graph-routing-cases.json`), candidate configs (`configs/phase-b1a-graph-routing-ablation-kaggle.example.json`), automated tooling (`scripts/phase_b1a_graph_routing_ablation.py`), unit tests (`tests/unit/evaluation/test_phase_b1a_ablation.py`), and runbook (`docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md`) are complete and verified.
+3. **Execute Phase B1A Paired Graph-Routing Ablation**: Run the controlled counterfactual ablation on Kaggle dual T4 following the K1-K10 runbook cells, evaluating BASE vs CANDIDATE on the exact 22 relationship-matching questions.
+4. **Phase B1B (Structural Graph Deletion)**: STRICTLY NOT AUTHORIZED until B1A results pass the pre-registered decision gate. Production graph behavior remains unchanged.
+5. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
 
 ---
 
@@ -397,8 +398,8 @@ Current repository state:
     0.50.6 (Phase A closed; ToolError contract hardened; M49.6 fallback preserved)
 
 Active development frontier:
-    Phase B1A paired graph-routing ablation preparation
+    Phase B1A: INFRASTRUCTURE READY / EXPERIMENT PENDING (Runbook: docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md)
 
 Next action:
-    Prepare and execute Phase B1A paired counterfactual ablation on 22 graph cases
+    Execute Phase B1A paired counterfactual ablation on Kaggle dual T4
 ```
