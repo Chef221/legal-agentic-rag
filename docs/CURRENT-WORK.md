@@ -38,9 +38,9 @@ Repository:
 
 Current remote `main` snapshot:
 
-- HEAD: `4444825178e07f5acff3b7a5b2296e06729f0816`
-- commit message: `Fix Qwen EOS canonicalization for M50 SFT`
-- commit date: 2026-08-18 UTC
+- HEAD: `560d059661055e65f8eb203e06921ad7cbb0daae`
+- commit message: `Close M50 after C2 holdout rejection`
+- commit date: 2026-08-19 UTC
 
 Current source/package version:
 
@@ -184,9 +184,10 @@ The experiment has been completed and **officially closed with all fine-tuned ca
   - High Repetition (repeat8 $\ge 0.25$): 56/617 (9.08%) vs BASE 39/617 (6.32%) — **FAIL**
   - Terminal EOS rate: 577/617 (93.52%) vs BASE 587/617 (95.14%) — **FAIL**
 - **Semantic Point Estimates**:
-  - METEOR mean delta: **-0.002803** (95% CI `[-0.006577, +0.000909]`, W/T/L 291/15/311) — **FAIL**
-  - ROUGE-L mean delta: **-0.002594** (95% CI `[-0.007145, +0.001844]`) — **FAIL**
-  - Combined mean delta: **-0.002698** (95% CI `[-0.006544, +0.001103]`) — **FAIL**
+  - METEOR mean delta: **-0.002803** (95% CI `[-0.006577, +0.000909]`, W/T/L 291/15/311) — **FAIL** ($\le 0$)
+  - ROUGE-L mean delta: **-0.002594** (95% CI `[-0.007145, +0.001844]`) — within tolerance ($\ge -0.01$) but directionally negative
+  - Combined mean delta: **-0.002698** (95% CI `[-0.006544, +0.001103]`) — **FAIL** ($\le 0$)
+- **Semantic Gate Decision**: `semantic_signal_pass = false`, `semantic_strict_pass = false` (failed primary METEOR and combined delta criteria)
 - **Final Decision**: **FAIL**
 - **Candidate Status**: **REJECTED**
 - **Production Promotion**: **NO**
@@ -231,6 +232,7 @@ M49.6 remains the frozen fallback baseline for production answering. It was not 
 ## 10. Recent Remote History Relevant to the Handoff
 
 ```text
+560d059 Close M50 after C2 holdout rejection
 4444825 Fix Qwen EOS canonicalization for M50 SFT
 dcf47f5 Add generation-safe M50-C2 pilot infrastructure
 690c352 Fix M50 candidate config integration

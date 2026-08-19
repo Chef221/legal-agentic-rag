@@ -2385,7 +2385,7 @@ reports are reviewed.
 - implement checkpoint safety gate (0 errors, `cap_without_eos` $\le \text{BASE}+1$, `repeat8_high` $\le \text{BASE}+1$, `duplicate_line_high` $\le \text{BASE}+1$, `eos_emitted` $\ge \text{BASE}-1$, mean length $\le \text{BASE}\times 1.35$, median length $\le \max(\text{BASE}\times 1.35, \text{BASE}+64.0)$);
 - implement semantic preservation gate ($\Delta\text{ROUGE-L} \ge -0.01$, $\Delta\text{METEOR} \ge -0.01$ if available, and at least one $> 0$);
 - pilot execution on Kaggle GPU: all checkpoints [50, 100, 150] passed VAL20 gates; step 100 selected as pilot winner (combined delta $+0.01182$);
-- formal holdout evaluation on SCREEN617: step 100 generated 617/617 cases (0 errors) but failed health gates (cap-no-EOS 6.48% vs 4.86%, repeat8-high 9.08% vs 6.32%, EOS rate 93.52% vs 95.14%) and semantic gates (METEOR delta -0.002803 with 95% CI `[-0.006577, +0.000909]`, ROUGE-L delta -0.002594);
+- formal holdout evaluation on SCREEN617: step 100 generated 617/617 cases (0 errors) but failed health gates (cap-no-EOS 6.48% vs 4.86%, repeat8-high 9.08% vs 6.32%, EOS rate 93.52% vs 95.14%) and semantic gates (METEOR delta -0.002803 with 95% CI `[-0.006577, +0.000909]`, Combined delta -0.002698; ROUGE-L delta -0.002594 was within -0.01 tolerance but directionally negative);
 - final decision: M50-C2 is **REJECTED**; no fine-tuned model promoted to production;
 - holdout consumption: `screen_holdout.json` is **CONSUMED** and must not be used for future adaptive candidate search;
 - baseline preservation: frozen M49.6 reliability pipeline (pretrained `Qwen/Qwen2.5-3B-Instruct`) remains active;

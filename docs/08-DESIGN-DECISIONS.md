@@ -2683,9 +2683,9 @@ Both BASE and C2 Step 100 completed 617/617 generations with 0 errors.
    - The frozen health gate yielded **FAIL**.
 2. **Semantic Signal Reversed Negative**:
    - METEOR mean delta: **-0.002803** (95% paired bootstrap CI `[-0.006577, +0.000909]`, 291 wins / 15 ties / 311 losses);
-   - ROUGE-L mean delta: **-0.002594** (95% paired bootstrap CI `[-0.007145, +0.001844]`);
+   - ROUGE-L mean delta: **-0.002594** (95% paired bootstrap CI `[-0.007145, +0.001844]`, within frozen $\ge -0.01$ non-regression tolerance but directionally negative);
    - Combined mean delta: **-0.002698** (95% paired bootstrap CI `[-0.006544, +0.001103]`);
-   - The semantic gate yielded **FAIL** ($\Delta < 0$).
+   - The semantic gate yielded **FAIL** because METEOR and Combined mean deltas were $\le 0$.
 
 **Decisions & Invariants:**
 1. **Candidate Rejection**: M50-C2 is conclusively **REJECTED**. No fine-tuned model from Milestone 50 is promoted to production.

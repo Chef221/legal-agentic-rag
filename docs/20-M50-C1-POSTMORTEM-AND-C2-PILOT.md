@@ -33,9 +33,9 @@ The authoritative diagnostic measurements on the 20 direct-QA screening cases ar
 3. **Autoregressive Phrase Repetition**: 90% of C1 generations contained repeated 8-grams exceeding the 0.25 threshold (e.g. infinite repetition of statutory introductory clauses).
 
 #### B. Candidate Contributing Factors (Hypotheses)
-1. **Excessive Adaptation Capacity & Target Scope**: LoRA across all 4 attention projections ($q, k, v, o$) with $r=8$ and $\text{LR}=5\times 10^{-5}$ for 282 steps over-adapted the model and degraded the stopping distribution.
-2. **Missing Terminal EOS in Truncated Examples**: In sequence truncation without explicit EOS preservation, truncated assistant targets lacked `<|im_end|>`. While only ~39 of 5,617 training examples ($0.694\%$) were truncated at $L=1536$, this absence may have contributed negative gradient bias against stopping.
-3. **Undetected Trajectory Drift**: Because no intermediate free-generation probes existed, the onset and trajectory of degeneration went unmonitored.
+1. **Excessive Adaptation Capacity & Target Scope**: LoRA across all 4 attention projections ($q, k, v, o$) with $r=8$ and $\text{LR}=5\times 10^{-5}$ for 282 steps may have over-adapted the model and is a candidate contributor to the observed stopping-distribution regression.
+2. **Missing Terminal EOS in Truncated Examples**: In sequence truncation without explicit EOS preservation, truncated assistant targets lacked `<|im_end|>`. While only ~39 of 5,617 training examples ($0.694\%$) were truncated at $L=1536$, this absence is hypothesized as a potential source of negative gradient bias against stopping, though unproven as an isolated cause.
+3. **Undetected Trajectory Drift**: Because no intermediate free-generation probes existed, the onset and trajectory of degeneration went unmonitored during training.
 
 ### 1.4 Production Decision on Candidate 1
 Candidate 1 is **conclusively rejected for production promotion**. Execution on SCREEN 617, smoke 50, and dev 991 was permanently halted for C1.
@@ -132,39 +132,53 @@ Following pilot selection, the frozen M50-C2 Step 100 adapter was evaluated once
 - **Completed Questions**: 617 / 617 (100.0% coverage)
 - **Generation Errors**: 0 (BASE), 0 (M50-C2 Step 100)
 
-### 5.2 Generation Health Evaluation
+### 5.2 Pre-Registered SCREEN617 Health Gate & Evaluation
 
-| Diagnostic Metric | BASE (Pretrained) | M50-C2 Step 100 | Delta / Status | Frozen Threshold | Outcome |
+The final SCREEN617 protocol was frozen before evaluating the holdout set. Unlike the earlier VAL20 pilot checkpoint gate (which operated on 20 cases with relative count bounds $\le \text{BASE}+1$ and $1.35\times$ length multipliers), the pre-registered SCREEN617 holdout health contract required:
+- `generation_errors == 0`
+- `treatment_cap_without_eos_rate <= base_cap_without_eos_rate + 0.01` (+1.0 percentage point slack)
+- `treatment_repeat8_high_rate <= base_repeat8_high_rate + 0.01` (+1.0 percentage point slack)
+- `treatment_duplicate_line_high_rate <= base_duplicate_line_high_rate + 0.01` (+1.0 percentage point slack)
+- `treatment_eos_rate >= base_eos_rate - 0.01` (-1.0 percentage point slack)
+- `treatment_mean_generated_tokens <= base_mean_generated_tokens * 1.15`
+- `treatment_median_generated_tokens <= max(base_median_generated_tokens * 1.15, base_median_generated_tokens + 64)`
+
+| Diagnostic Metric | BASE (Pretrained) | M50-C2 Step 100 | Delta / Empirical Status | Frozen SCREEN617 Threshold | Gate Outcome |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **EOS Emitted (`<|im_end|>`)** | 587 / 617 (95.14%) | 577 / 617 (93.52%) | **-1.62%** | Rate non-regression | **FAIL** |
-| **Cap Without EOS** | 30 / 617 (4.86%) | 40 / 617 (6.48%) | **+1.62%** (+10 cases) | Rate non-regression | **FAIL** |
-| **High Repetition (repeat8 $\ge 0.25$)** | 39 / 617 (6.32%) | 56 / 617 (9.08%) | **+2.76%** (+17 cases) | Rate non-regression | **FAIL** |
-| **High Line Duplication ($\ge 0.25$)** | 4 / 617 (0.65%) | 6 / 617 (0.97%) | **+0.32%** (+2 cases) | Rate non-regression | PASS |
-| **Mean Generated Tokens** | 390.20 | 414.24 | +24.04 tokens (+6.16%) | $\le \text{BASE} \times 1.35$ (526.77) | PASS |
-| **Median Generated Tokens** | 304.00 | 302.00 | -2.00 tokens | $\le \text{BASE} + 64$ (368.00) | PASS |
+| **EOS Emitted (`<|im_end|>`)** | 587 / 617 (95.14%) | 577 / 617 (93.52%) | **-1.62%** (-10 cases) | $\ge 94.14\%$ ($\ge \text{BASE} - 1.0\%$) | **FAIL** |
+| **Cap Without EOS** | 30 / 617 (4.86%) | 40 / 617 (6.48%) | **+1.62%** (+10 cases) | $\le 5.86\%$ ($\le \text{BASE} + 1.0\%$) | **FAIL** |
+| **High Repetition (repeat8 $\ge 0.25$)** | 39 / 617 (6.32%) | 56 / 617 (9.08%) | **+2.76%** (+17 cases) | $\le 7.32\%$ ($\le \text{BASE} + 1.0\%$) | **FAIL** |
+| **High Line Duplication ($\ge 0.25$)** | 4 / 617 (0.65%) | 6 / 617 (0.97%) | **+0.32%** (+2 cases) | $\le 1.65\%$ ($\le \text{BASE} + 1.0\%$) | PASS |
+| **Mean Generated Tokens** | 390.20 | 414.24 | +24.04 tokens (+6.16%) | $\le 448.73$ ($\le \text{BASE} \times 1.15$) | PASS |
+| **Median Generated Tokens** | 304.00 | 302.00 | -2.00 tokens | $\le 368.00$ ($\le \max(\text{BASE}\times 1.15, \text{BASE}+64)$) | PASS |
 
 **Frozen Health Decision**: **FAIL**
 **Triggered Failure Reasons**:
-1. `cap_without_eos_rate_regression` (+1.62% runaway completions)
-2. `repeat8_high_rate_regression` (+2.76% phrase looping)
-3. `eos_rate_regression` (-1.62% terminal EOS emission)
+1. `cap_without_eos_rate_regression` (+1.62% runaway completions, exceeding +1.0% tolerance)
+2. `repeat8_high_rate_regression` (+2.76% phrase looping, exceeding +1.0% tolerance)
+3. `eos_rate_regression` (-1.62% terminal EOS emission, exceeding -1.0% tolerance)
 
-### 5.3 Semantic Evaluation & Paired Bootstrap Analysis
+### 5.3 Pre-Registered SCREEN617 Semantic Evaluation & Paired Bootstrap Analysis
+
+The pre-registered SCREEN617 semantic contract required:
+- Primary metric: $\Delta\text{METEOR} > 0$ (and paired bootstrap 95% CI lower bound $> 0$ for strict pass);
+- Secondary metric tolerance: $\Delta\text{ROUGE-L} \ge -0.01$ (non-regression bound);
+- Combined signal: $\Delta\text{Combined} > 0$.
 
 | Metric | BASE Mean | C2 Step 100 Mean | Mean Delta | Paired Bootstrap 95% CI | Wins / Ties / Losses | Signal Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **METEOR** | 0.214551 | 0.211748 | **-0.002803** | `[-0.006577, +0.000909]` | 291 / 15 / 311 | **FAIL** ($\Delta < 0$) |
-| **ROUGE-L** | 0.324945 | 0.322351 | **-0.002594** | `[-0.007145, +0.001844]` | — | **FAIL** ($\Delta < 0$) |
-| **Combined** | — | — | **-0.002698** | `[-0.006544, +0.001103]` | — | **FAIL** |
+| **METEOR** | 0.214551 | 0.211748 | **-0.002803** | `[-0.006577, +0.000909]` | 291 / 15 / 311 | **FAIL** ($\Delta \le 0$) |
+| **ROUGE-L** | 0.324945 | 0.322351 | **-0.002594** | `[-0.007145, +0.001844]` | — | **TOLERATED** ($\ge -0.01$, but directionally negative) |
+| **Combined** | — | — | **-0.002698** | `[-0.006544, +0.001103]` | — | **FAIL** ($\Delta \le 0$) |
 
-- **Semantic Signal PASS**: `false`
-- **Semantic Strict PASS**: `false`
+- **Semantic Signal PASS**: `false` ($\Delta\text{METEOR} \le 0$ and $\Delta\text{Combined} \le 0$)
+- **Semantic Strict PASS**: `false` (bootstrap CI lower bound $\le 0$)
 
 ### 5.4 Final Decision & Candidate Rejection
 - **Final SCREEN617 Decision**: **FAIL**
 - **Candidate Status**: **REJECTED**
 - **Production Promotion**: **NO**
-- **Rationale**: M50-C2 Step 100 failed both frozen generation-health criteria (regressing in termination and repetition) and semantic criteria (both METEOR and ROUGE-L point estimates were negative relative to BASE, with 311 losses vs 291 wins on METEOR).
+- **Rationale**: M50-C2 Step 100 failed both pre-registered generation-health criteria (regressing in termination and repetition beyond the $\pm 1.0\%$ slack) and semantic criteria (primary METEOR delta of -0.002803 and Combined delta of -0.002698 were both $\le 0$, with 311 losses vs 291 wins on METEOR). Although ROUGE-L remained within its -0.01 non-regression tolerance (-0.002594), it was directionally negative and provided no evidence of semantic improvement.
 
 ### 5.5 Holdout Consumption Status
 > [!CRITICAL]
