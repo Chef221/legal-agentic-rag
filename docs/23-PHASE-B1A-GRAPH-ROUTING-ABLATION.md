@@ -119,9 +119,10 @@ git clone https://github.com/Chef221/legal-agentic-rag.git
 cd legal-agentic-rag
 
 git checkout "$REVIEWED_COMMIT_SHA"
-echo "Verified Execution Commit:"
-git rev-parse HEAD
-assert [ "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT_SHA" ]
+ACTUAL_COMMIT_SHA="$(git rev-parse HEAD)"
+echo "Verified Execution Commit: $ACTUAL_COMMIT_SHA"
+
+test "$ACTUAL_COMMIT_SHA" = "$REVIEWED_COMMIT_SHA"
 
 # Uninstall conflicting torchao if present
 pip uninstall -y torchao || true
@@ -184,13 +185,12 @@ for val_file in val_candidates:
         report = json.loads(val_file.read_text(encoding="utf-8"))
     except Exception:
         continue
+    dataset_manifest = report.get("dataset_manifest")
     if (
         report.get("is_valid") is True
         and report.get("is_full_corpus") is True
-        and report.get("dataset_name") in {
-            "uit-dsc-2026-task2-selected-contexts",
-            "uit-dsc-2026-task2-serving-v0430",
-        }
+        and isinstance(dataset_manifest, dict)
+        and dataset_manifest.get("dataset_name") == "uit-dsc-2026-task2-selected-contexts"
     ):
         valid_serving_roots.append(root)
 
