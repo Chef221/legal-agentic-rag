@@ -23,15 +23,15 @@ This document formally records the complete results, diagnostics, scoring benchm
 
 ### 2.2 Actual Kaggle Hardware Placement
 During initial Kaggle diagnostics on dual T4 GPUs, running Qwen structured generation on GPU0 alongside vector search and the cross-encoder reranker produced a CUDA illegal memory access. Isolated diagnostic tests confirmed:
-- GPU0 + SDPA / eager: FAIL (CUDA illegal memory access under shared memory pressure)
+- GPU0 + SDPA / eager: FAIL with CUDA illegal memory access
 - GPU1 + SDPA / eager: PASS (clean execution)
 
-Consequently, hardware placement was partitioned:
+The exact low-level cause of the GPU0 failure was not established. Phase A therefore used a hardware-placement-only mitigation by placing Qwen on GPU1:
 - **GPU0 (`cuda:0`)**: Dense vector search, Multilingual-E5-Small embedding provider, cross-encoder reranker (`mmarco-mMiniLMv2-L12-H384-v1`).
 - **GPU1 (`cuda:1`)**: Qwen/Qwen2.5-3B-Instruct generator.
 
 > [!NOTE]
-> This was a hardware-placement-only configuration change (`online.generation.device: "cuda:1"`). No algorithms, prompt structures, model revisions, or pipeline parameters were modified.
+> This was a hardware-placement-only configuration change (`online.generation.device: "cuda:1"`). No model weights, prompt templates, decoding behavior, retrieval behavior, or algorithmic behaviors were changed.
 
 ### 2.3 Evidence Archive and Config Hashes
 - **Evidence Archive Filename**: `phase-a-current-system-census-final-evidence.zip`
@@ -58,6 +58,9 @@ The validator in `src/legal_agentic_rag/schemas/tools.py` was hardened to explic
 - **Original `tools.py` LF SHA-256**: `c4788daee3438a51973dde76138a2372fb53ba551b82ffa6b88cc60a2067b666`
 - **Patched `tools.py` LF SHA-256**: `c67025e0d6f9a4643adc6ea153ac402176f186e3e76de0045babba004045cdaf`
 - **Permanent Regression Coverage**: `tests/unit/schemas/test_tools.py` covers valid correction chains, free-floating schema error rejection, non-model error validation, and outcome consistency.
+
+### 3.3 Evaluation Metric Import-Path Decoupling Note
+During Phase-A closure, imports in `src/legal_agentic_rag/competition/uit_dsc_2026/warmup_scoring.py` and `src/legal_agentic_rag/fine_tuning/paired_metrics.py` were adjusted from `from legal_agentic_rag.evaluation import score_text_answer` to `from legal_agentic_rag.evaluation.metrics import score_text_answer`. This was an import-path/coupling change only to prevent circular package imports and did not modify metric implementations, calculation logic, or scoring semantics.
 
 ---
 
