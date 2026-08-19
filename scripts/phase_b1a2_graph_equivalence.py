@@ -17,6 +17,7 @@ import json
 import logging
 from pathlib import Path
 from statistics import fmean
+import subprocess
 import unicodedata
 import zipfile
 
@@ -95,6 +96,27 @@ def normalize_question_text(question: str) -> str:
     stripped = question.strip()
     nfc = unicodedata.normalize("NFC", stripped)
     return " ".join(nfc.split())
+
+
+def resolve_execution_git_commit(script_path: Path) -> str:
+    """Resolve immutable git commit SHA for the repository containing the script."""
+    repo_dir = script_path.resolve().parents[1]
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        commit = result.stdout.strip()
+        if len(commit) != 40 or not all(c in "0123456789abcdefABCDEF" for c in commit):
+            raise ValueError(f"Invalid git commit output: '{commit}'")
+        return commit
+    except Exception as exc:
+        raise DataValidationError(
+            f"Failed to resolve execution git commit SHA: {exc}"
+        ) from exc
 
 
 # ----------------------------------------------------------------------
@@ -272,6 +294,8 @@ class RetrievalPipelineSuite:
         skip_lineage_validation: bool = False,
     ) -> None:
         self.config = config
+        self.startup_validation_mode = config.online.startup_validation.mode
+        self.artifact_lineage_validation_passed = False
         deep_validation = config.online.startup_validation.mode == "full"
 
         if chunk_manifest is None:
@@ -341,6 +365,7 @@ class RetrievalPipelineSuite:
 
         if not skip_lineage_validation:
             self._validate_embedding_provider_identity()
+            self.artifact_lineage_validation_passed = True
 
         if reranker is None:
             reranker = CrossEncoderReranker(config.online.reranker)
@@ -489,10 +514,18 @@ def run_b1a2_case(
     # ------------------------------------------------------------------
     # ARM H40 — DIAGNOSTIC NORMAL HYBRID_RERANK PATH
     # ------------------------------------------------------------------
-    h40_query = enriched_query.model_copy(
-        update={"requested_strategy": RetrievalStrategy.HYBRID_RERANK}
+    h40_candidate_query = enriched_query.model_copy(
+        update={
+            "top_k": enriched_query.candidate_k,
+            "candidate_k": enriched_query.candidate_k,
+            "requested_strategy": RetrievalStrategy.HYBRID,
+        }
     )
-    h40_final_response = pipeline.reranking.search(h40_query)
+    h40_candidate_response = pipeline.hybrid.search(h40_candidate_query)
+    h40_final_response = pipeline.reranking.rerank_candidates(
+        enriched_query.model_copy(update={"requested_strategy": RetrievalStrategy.HYBRID_RERANK}),
+        h40_candidate_response,
+    )
 
     # Projections
     g_seed_proj = _project_hits(g_captured_seed_resp.hits if g_captured_seed_resp else [])
@@ -559,6 +592,7 @@ def run_b1a2_case(
             "latency_ms": g_response.latency_ms,
         },
         "s20_arm": {
+            "candidate_count": len(s20_seed_response.hits),
             "branch_candidate_depth": S20_BRANCH_CANDIDATE_DEPTH,
             "seed_requested_strategy": (
                 s20_seed_query.requested_strategy.value
@@ -573,7 +607,7 @@ def run_b1a2_case(
             "latency_ms": s20_final_response.latency_ms,
         },
         "h40_arm": {
-            "candidate_count": S20_BRANCH_CANDIDATE_DEPTH,
+            "candidate_count": len(h40_candidate_response.hits),
             "final_hits": h40_final_proj,
             "latency_ms": h40_final_response.latency_ms,
         },
@@ -589,6 +623,7 @@ def run_b1a2_case(
                 and final_docs_match
                 and scores_match
                 and g_hybrid_calls == 1
+                and recording_graph.traverse_call_count == 1
                 and len(recording_graph.recorded_steps) == 0
             ),
         },
@@ -625,6 +660,9 @@ def run_b1a2_experiment(
         )
 
     pipeline = RetrievalPipelineSuite(app_config)
+
+    if not pipeline.artifact_lineage_validation_passed:
+        raise ArtifactCompatibilityError("Artifact lineage validation did not pass.")
 
     # Graph edge invariant check
     if pipeline.graph.manifest.record_count != 0:
@@ -665,6 +703,9 @@ def run_b1a2_experiment(
         1 for r in results if r["g_arm"]["graph_manifest_edge_count"] in (None, 0)
     )
     zero_step_cases = sum(1 for r in results if r["g_arm"]["graph_step_count"] == 0)
+    single_traverse_cases = sum(
+        1 for r in results if r["g_arm"]["graph_traverse_call_count"] == 1
+    )
     single_seed_cases = sum(1 for r in results if r["g_arm"]["hybrid_calls"] == 1)
     g_inv_passes = sum(
         1
@@ -692,12 +733,16 @@ def run_b1a2_experiment(
     summary = {
         "experiment_id": "PHASE-B1A.2",
         "package_version": __version__,
+        "execution_git_commit": resolve_execution_git_commit(Path(__file__)),
+        "tool_script_sha256": sha256_file(Path(__file__).resolve()),
         "created_at": datetime.now(UTC).isoformat(),
         "case_count": len(results),
         "ordered_question_ids": ordered_qids,
         "results_sha256": results_sha,
         "config_sha256": sha256_file(config_path),
         "materialized_questions_sha256": sha256_file(questions_path),
+        "artifact_lineage_validation_passed": pipeline.artifact_lineage_validation_passed,
+        "startup_validation_mode": pipeline.startup_validation_mode,
         "resolved_invariants": {
             "top_k": FINAL_TOP_K,
             "candidate_k": S20_BRANCH_CANDIDATE_DEPTH,
@@ -709,6 +754,7 @@ def run_b1a2_experiment(
             "graph_zero_record_cases": zero_record_cases,
             "graph_zero_edge_cases": zero_edge_cases,
             "graph_zero_step_cases": zero_step_cases,
+            "graph_single_traverse_call_cases": single_traverse_cases,
             "graph_single_seed_call_cases": single_seed_cases,
             "g_seed_invariant_pass_count": g_inv_passes,
             "s20_invariant_pass_count": s20_inv_passes,
@@ -753,6 +799,9 @@ def evaluate_b1a2_verdict_gate(
             hard_fail = True
         if g_arm.get("graph_manifest_edge_count") not in (None, 0):
             reasons.append(f"Hard protocol failure ({qid}): graph edge_count ({g_arm.get('graph_manifest_edge_count')}) != 0")
+            hard_fail = True
+        if g_arm.get("graph_traverse_call_count") != 1:
+            reasons.append(f"Hard protocol failure ({qid}): graph traverse call count ({g_arm.get('graph_traverse_call_count')}) != 1")
             hard_fail = True
         if g_arm.get("graph_step_count", 0) != 0:
             reasons.append(f"Hard protocol failure ({qid}): graph step count ({g_arm.get('graph_step_count')}) != 0")
@@ -812,7 +861,7 @@ def evaluate_b1a2_verdict_gate(
     reasons.append(
         f"All {len(case_results)} cases match exactly in seed sequences, final top-8 chunk sequences, "
         f"final document sequences, and reranker scores (tolerance <= {SCORE_ABS_TOLERANCE}) "
-        "with exactly 0 graph records, 0 graph steps, and a single seed candidate call."
+        "with exactly 0 graph records, 0 graph steps, 1 graph traverse call, and a single seed candidate call."
     )
     return "GRAPH_REDUNDANCY_PROVEN", reasons
 

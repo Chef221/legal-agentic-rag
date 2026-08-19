@@ -46,6 +46,7 @@ from scripts.phase_b1a2_graph_equivalence import (
     evaluate_b1a2_verdict_gate,
     package_b1a2_evidence,
     prepare_b1a2_dataset,
+    resolve_execution_git_commit,
     run_b1a2_case,
 )
 
@@ -171,6 +172,7 @@ def _build_mock_case_result(
     max_score_diff: float = 0.0,
     g_hybrid_calls: int = 1,
     g_warnings: list[str] | None = None,
+    graph_traverse_call_count: int = 1,
     graph_step_count: int = 0,
     graph_manifest_record_count: int = 0,
     graph_manifest_edge_count: int | None = 0,
@@ -181,6 +183,8 @@ def _build_mock_case_result(
     s20_seed_strategy: str = "hybrid",
     s20_seed_top_k: int = 20,
     s20_seed_cand_k: int = 40,
+    s20_cand_count: int = 20,
+    h40_cand_count: int = 40,
     top8_identical: bool = True,
 ) -> dict[str, object]:
     warnings = g_warnings if g_warnings is not None else ["no_graph_expansion"]
@@ -189,7 +193,7 @@ def _build_mock_case_result(
         "g_arm": {
             "graph_manifest_record_count": graph_manifest_record_count,
             "graph_manifest_edge_count": graph_manifest_edge_count,
-            "graph_traverse_call_count": 1 if graph_manifest_record_count == 0 else 0,
+            "graph_traverse_call_count": graph_traverse_call_count,
             "graph_step_count": graph_step_count,
             "hybrid_calls": g_hybrid_calls,
             "seed_requested_strategy": g_seed_strategy,
@@ -198,10 +202,14 @@ def _build_mock_case_result(
             "warnings": warnings,
         },
         "s20_arm": {
+            "candidate_count": s20_cand_count,
             "branch_candidate_depth": s20_branch_depth,
             "seed_requested_strategy": s20_seed_strategy,
             "seed_top_k": s20_seed_top_k,
             "seed_candidate_k": s20_seed_cand_k,
+        },
+        "h40_arm": {
+            "candidate_count": h40_cand_count,
         },
         "g_vs_s20": {
             "seed_chunks_match": seed_chunks_match,
@@ -215,6 +223,7 @@ def _build_mock_case_result(
                 and final_docs_match
                 and scores_match
                 and g_hybrid_calls == 1
+                and graph_traverse_call_count == 1
                 and graph_step_count == 0
             ),
         },
@@ -759,3 +768,142 @@ def test_26_validated_report_mode_invokes_startup_validation() -> None:
             embedding_provider=FakeEmbeddingProvider(),  # type: ignore[arg-type]
             reranker=FakeReranker(),
         )
+
+
+class BoundedFakeHybridRetriever:
+    """Fake hybrid retriever returning explicit candidate count based on query top_k."""
+    def __init__(self, limit_s20: int = 12, limit_h40: int = 15) -> None:
+        self.limit_s20 = limit_s20
+        self.limit_h40 = limit_h40
+        self.call_count = 0
+        self.called_queries: list[RetrievalQuery] = []
+
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        return ("legal_chunks", "v1", "chunk_hash_123")
+
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        self.call_count += 1
+        self.called_queries.append(query.model_copy(deep=True))
+        count = self.limit_s20 if query.top_k <= 20 else self.limit_h40
+        hits = [_make_dummy_hit(i, RetrievalStrategy.HYBRID) for i in range(count)]
+        return RetrievalResponse(
+            query=query,
+            strategy=RetrievalStrategy.HYBRID,
+            hits=hits,
+            latency_ms=10.0,
+            warnings=[],
+        )
+
+
+def test_27_actual_h40_and_s20_candidate_counts_observed() -> None:
+    """TEST 27: Real observed candidate counts (not hardcoded 40/20) are persisted in S20 and H40 arms."""
+    raw_cfg = json.loads(BASE_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw_cfg["online"]["startup_validation"]["mode"] = "full"
+    cfg = ApplicationConfig.model_validate(raw_cfg)
+    c_m, b_m, v_m, g_m = _create_valid_test_manifests()
+
+    fake_hybrid = BoundedFakeHybridRetriever(limit_s20=12, limit_h40=15)
+    suite = RetrievalPipelineSuite(
+        config=cfg,
+        chunk_manifest=c_m,
+        bm25_manifest=b_m,
+        vector_manifest=v_m,
+        graph_manifest=g_m,
+        bm25_backend=object(),  # type: ignore[arg-type]
+        vector_backend=object(),  # type: ignore[arg-type]
+        graph_backend=FakeGraphBackend(record_count=0),
+        embedding_provider=FakeEmbeddingProvider(),  # type: ignore[arg-type]
+        reranker=FakeReranker(),
+    )
+    suite.hybrid = fake_hybrid  # type: ignore[assignment]
+    suite.reranking.candidate_retriever = fake_hybrid  # type: ignore[assignment]
+
+    res = run_b1a2_case(suite, "test_q", "Văn bản sửa đổi")
+    assert res["s20_arm"]["candidate_count"] == 12
+    assert res["h40_arm"]["candidate_count"] == 15
+
+
+def test_28_h40_candidate_response_reused_not_retrieved_twice() -> None:
+    """TEST 28: H40 candidate response is passed to rerank_candidates directly, not retrieved twice."""
+    raw_cfg = json.loads(BASE_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw_cfg["online"]["startup_validation"]["mode"] = "full"
+    cfg = ApplicationConfig.model_validate(raw_cfg)
+    c_m, b_m, v_m, g_m = _create_valid_test_manifests()
+
+    fake_hybrid = BoundedFakeHybridRetriever()
+    suite = RetrievalPipelineSuite(
+        config=cfg,
+        chunk_manifest=c_m,
+        bm25_manifest=b_m,
+        vector_manifest=v_m,
+        graph_manifest=g_m,
+        bm25_backend=object(),  # type: ignore[arg-type]
+        vector_backend=object(),  # type: ignore[arg-type]
+        graph_backend=FakeGraphBackend(record_count=0),
+        embedding_provider=FakeEmbeddingProvider(),  # type: ignore[arg-type]
+        reranker=FakeReranker(),
+    )
+    suite.hybrid = fake_hybrid  # type: ignore[assignment]
+    suite.reranking.candidate_retriever = fake_hybrid  # type: ignore[assignment]
+
+    run_b1a2_case(suite, "test_q", "Văn bản sửa đổi")
+    # Total hybrid calls: 1 for G seed (via recording_hybrid), 1 for S20 seed, 1 for H40 candidates = 3
+    assert fake_hybrid.call_count == 3
+    # Check H40 candidate query top_k was 40
+    h40_call_query = fake_hybrid.called_queries[-1]
+    assert h40_call_query.top_k == 40
+    assert h40_call_query.candidate_k == 40
+    assert h40_call_query.requested_strategy == RetrievalStrategy.HYBRID
+
+
+def test_29_graph_traverse_call_count_validation() -> None:
+    """TEST 29: Exactly 1 graph traverse call required; 0 or 2 calls return INVALID_EXPERIMENT."""
+    # 1 call: valid
+    cases_1 = [_build_mock_case_result(qid, graph_traverse_call_count=1) for qid in EXPECTED_22_IDS]
+    verdict, reasons = evaluate_b1a2_verdict_gate(cases_1, 22)
+    assert verdict == "GRAPH_REDUNDANCY_PROVEN"
+
+    # 0 calls: invalid
+    cases_0 = [_build_mock_case_result(qid, graph_traverse_call_count=0) for qid in EXPECTED_22_IDS]
+    verdict0, reasons0 = evaluate_b1a2_verdict_gate(cases_0, 22)
+    assert verdict0 == "INVALID_EXPERIMENT"
+    assert any("graph traverse call count (0) != 1" in r for r in reasons0)
+
+    # 2 calls: invalid
+    cases_2 = [_build_mock_case_result(qid, graph_traverse_call_count=2) for qid in EXPECTED_22_IDS]
+    verdict2, reasons2 = evaluate_b1a2_verdict_gate(cases_2, 22)
+    assert verdict2 == "INVALID_EXPERIMENT"
+    assert any("graph traverse call count (2) != 1" in r for r in reasons2)
+
+
+def test_30_run_summary_provenance_and_lineage_fields() -> None:
+    """TEST 30: Run summary contains git commit, script SHA, and explicit lineage validation status."""
+    commit = resolve_execution_git_commit(Path(__file__))
+    assert len(commit) == 40
+    assert all(c in "0123456789abcdefABCDEF" for c in commit)
+
+    script_path = ROOT_DIR / "scripts" / "phase_b1a2_graph_equivalence.py"
+    script_sha = sha256(script_path.read_bytes()).hexdigest()
+    assert len(script_sha) == 64
+
+    # Test that RetrievalPipelineSuite sets artifact_lineage_validation_passed = True
+    raw_cfg = json.loads(BASE_CONFIG_PATH.read_text(encoding="utf-8"))
+    raw_cfg["online"]["startup_validation"]["mode"] = "full"
+    cfg = ApplicationConfig.model_validate(raw_cfg)
+    c_m, b_m, v_m, g_m = _create_valid_test_manifests()
+
+    suite = RetrievalPipelineSuite(
+        config=cfg,
+        chunk_manifest=c_m,
+        bm25_manifest=b_m,
+        vector_manifest=v_m,
+        graph_manifest=g_m,
+        bm25_backend=object(),  # type: ignore[arg-type]
+        vector_backend=object(),  # type: ignore[arg-type]
+        graph_backend=FakeGraphBackend(record_count=0),
+        embedding_provider=FakeEmbeddingProvider(),  # type: ignore[arg-type]
+        reranker=FakeReranker(),
+    )
+    assert suite.artifact_lineage_validation_passed is True
+    assert suite.startup_validation_mode == "full"

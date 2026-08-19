@@ -267,21 +267,26 @@ counts = summary["aggregate_protocol_counts"]
 print("\n" + "=" * 60)
 print("PHASE B1A.2 EXECUTION SUMMARY")
 print("=" * 60)
+print(f"Execution Commit:             {summary['execution_git_commit']}")
+print(f"Tool Script SHA256:           {summary['tool_script_sha256']}")
 print(f"Total Cases Completed:        {summary['case_count']} / 22")
 print(f"Graph Zero-Record Cases:      {counts['graph_zero_record_cases']} / 22")
 print(f"Graph Zero-Step Cases:        {counts['graph_zero_step_cases']} / 22")
+print(f"Graph Single-Traverse Calls:  {counts['graph_single_traverse_call_cases']} / 22")
 print(f"Graph Single-Seed Calls:      {counts['graph_single_seed_call_cases']} / 22")
 print(f"G Seed Invariant Passes:      {counts['g_seed_invariant_pass_count']} / 22")
 print(f"S20 Seed Invariant Passes:    {counts['s20_invariant_pass_count']} / 22")
-print(f"Artifact Lineage Status:      PASS (startup validated)")
+print(f"Artifact Lineage Status:      PASS (mode: {summary['startup_validation_mode']}, validated: {summary['artifact_lineage_validation_passed']})")
 print(f"LLM Generation Path:          NOT LOADED / NOT CALLED (retrieval-only)")
 print("=" * 60)
 
 assert summary["case_count"] == 22
 assert counts["graph_zero_step_cases"] == 22
+assert counts["graph_single_traverse_call_cases"] == 22
 assert counts["graph_single_seed_call_cases"] == 22
 assert counts["g_seed_invariant_pass_count"] == 22
 assert counts["s20_invariant_pass_count"] == 22
+assert summary["artifact_lineage_validation_passed"] is True
 ```
 
 ---
