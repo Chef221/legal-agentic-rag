@@ -25,37 +25,37 @@ However, Phase A was an observational census, not a causal experiment. Phase B1A
 
 B1A operates exclusively on the exact 22 graph-affected questions identified during Phase A, in their exact historical `development.json` order:
 
-| Index | Question ID | Historical Ordinal (991) | Substring Cue | Phase-A Outcome |
-|---|---|---|---|---|
-| 01 | `102047` | 11 | "bổ sung" | answer_verified |
-| 02 | `107487` | 53 | "bổ sung" | answer_verified |
-| 03 | `110287` | 61 | "bổ sung" | generation_failed |
-| 04 | `111905` | 75 | "bổ sung" | answer_verified |
-| 05 | `113537` | 91 | "bổ sung" | answer_verified |
-| 06 | `122659` | 148 | "hướng dẫn" | answer_verified |
-| 07 | `125393` | 168 | "sửa đổi" | answer_verified |
-| 08 | `133075` | 218 | "sửa đổi" | answer_verified |
-| 09 | `134605` | 229 | "thay thế" | answer_verified |
-| 10 | `147239` | 316 | "bổ sung" | answer_verified |
-| 11 | `147869` | 320 | "sửa đổi" | answer_verified |
-| 12 | `150051` | 339 | "bổ sung" | answer_verified |
-| 13 | `26541` | 528 | "hướng dẫn" | answer_verified |
-| 14 | `29491` | 542 | "sửa đổi" | answer_verified |
-| 15 | `29877` | 545 | "bổ sung" | answer_verified |
-| 16 | `39671` | 608 | "bổ sung" | answer_verified |
-| 17 | `45219` | 647 | "hướng dẫn" | answer_verified |
-| 18 | `47537` | 664 | "sửa đổi" | answer_verified |
-| 19 | `48905` | 670 | "hướng dẫn" | generation_failed |
-| 20 | `64035` | 760 | "thay thế" | generation_failed |
-| 21 | `95861` | 954 | "hướng dẫn" | generation_failed |
-| 22 | `99639` | 985 | "hướng dẫn" | answer_verified |
+| Index | Question ID | Historical Ordinal (991) |
+|---|---|---|
+| 01 | `102047` | 11 |
+| 02 | `107487` | 53 |
+| 03 | `110287` | 61 |
+| 04 | `111905` | 75 |
+| 05 | `113537` | 91 |
+| 06 | `122659` | 148 |
+| 07 | `125393` | 168 |
+| 08 | `133075` | 218 |
+| 09 | `134605` | 229 |
+| 10 | `147239` | 316 |
+| 11 | `147869` | 320 |
+| 12 | `150051` | 339 |
+| 13 | `26541` | 528 |
+| 14 | `29491` | 542 |
+| 15 | `29877` | 545 |
+| 16 | `39671` | 608 |
+| 17 | `45219` | 647 |
+| 18 | `47537` | 664 |
+| 19 | `48905` | 670 |
+| 20 | `64035` | 760 |
+| 21 | `95861` | 954 |
+| 22 | `99639` | 985 |
 
 - **Source Question Count**: 991
 - **Source Question SHA-256**: `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8`
 - **Case Manifest**: `configs/phase-b1a-graph-routing-cases.json`
 
 > [!IMPORTANT]
-> The 991-question development set is a historical engineering benchmark, not an untouched holdout. B1A results must not be cited as generalizable unseen-data claims.
+> The 991-question development set is a historical engineering benchmark, not an untouched holdout. B1A results must not be cited as generalizable unseen-data claims. The actual BASE rerun provides the experiment's observed outcomes.
 
 ---
 
@@ -65,10 +65,11 @@ The evaluation decision must be applied mechanically without post-hoc threshold 
 
 ### 3.1 Hard Protocol Gate
 All conditions must hold:
-- 22/22 exact question identity matching the canonical case manifest.
+- 22/22 exact question identity matching the canonical case manifest in exact order.
 - BASE: `graph_search_attempt_count == 22` and `graph_terminal_count == 22`.
 - CANDIDATE: `graph_search_attempt_count == 0` and `rerank_search_primary_count == 22`.
-- No retrieval model errors, no CUDA illegal memory access, and no unhandled process crashes.
+- `retrieval:model_error` count == 0 for both BASE and CANDIDATE.
+- No CUDA illegal memory access and no unhandled process crashes.
 - If ANY hard condition fails $\to$ **`INVALID_EXPERIMENT`**.
 
 ### 3.2 Reliability Non-Regression Gate
@@ -100,6 +101,9 @@ Candidate must satisfy (evaluated against observed BASE rerun counts):
 
 ### Kaggle Cell K1 — Environment & Dependency Pinning
 
+> [!IMPORTANT]
+> The operator must set `REVIEWED_COMMIT_SHA` to the specific reviewed commit hash before running. Do not run against an arbitrary unpinned main branch.
+
 ```bash
 %%bash
 set -euo pipefail
@@ -107,13 +111,17 @@ export PYTHONUNBUFFERED=1
 
 nvidia-smi
 
-# Clone exact B1A infrastructure commit
+# Set reviewed execution commit SHA
+REVIEWED_COMMIT_SHA="REPLACE_WITH_REVIEWED_COMMIT_SHA"
+
 rm -rf legal-agentic-rag
 git clone https://github.com/Chef221/legal-agentic-rag.git
 cd legal-agentic-rag
 
-echo "Current Git Commit:"
+git checkout "$REVIEWED_COMMIT_SHA"
+echo "Verified Execution Commit:"
 git rev-parse HEAD
+assert [ "$(git rev-parse HEAD)" = "$REVIEWED_COMMIT_SHA" ]
 
 # Uninstall conflicting torchao if present
 pip uninstall -y torchao || true
@@ -140,7 +148,7 @@ assert torch.cuda.device_count() >= 2, f'Expected at least 2 GPUs, got {torch.cu
 
 ---
 
-### Kaggle Cell K2 — Input & Artifact Discovery
+### Kaggle Cell K2 — Identity-Based Input & Serving Discovery
 
 ```python
 import hashlib
@@ -149,27 +157,49 @@ from pathlib import Path
 
 CANONICAL_DEV_SHA = "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
 
-# 1. Discover development.json
+# 1. Discover canonical development.json uniquely
 dev_candidates = list(Path("/kaggle/input").rglob("development.json"))
-dev_path = None
+matching_devs = []
 for cand in dev_candidates:
-    digest = hashlib.sha256(cand.read_bytes()).hexdigest()
-    if digest == CANONICAL_DEV_SHA:
-        dev_path = cand
-        break
+    if cand.is_file() and hashlib.sha256(cand.read_bytes()).hexdigest() == CANONICAL_DEV_SHA:
+        matching_devs.append(cand)
 
-assert dev_path is not None, "Could not find canonical development.json with matching SHA"
-print(f"Found canonical development.json at: {dev_path}")
+assert len(matching_devs) == 1, (
+    f"Expected exactly 1 canonical development.json matching SHA {CANONICAL_DEV_SHA}, "
+    f"found {len(matching_devs)}: {matching_devs}"
+)
+dev_path = matching_devs[0]
+print(f"Found unique canonical development.json at: {dev_path}")
 
-# 2. Discover serving artifact root
-serving_dirs = [p for p in Path("/kaggle/input").rglob("build_validation_full_corpus.json")]
-assert len(serving_dirs) > 0, "Could not find build_validation_full_corpus.json in serving dataset"
-serving_root = serving_dirs[0].parent
-print(f"Found serving artifact root at: {serving_root}")
+# 2. Discover serving artifact root uniquely satisfying Phase-A contract
+val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
+valid_serving_roots = []
 
-# Verify startup report exists
-assert (serving_root / "build_validation_full_corpus.json").exists()
-print("Validated persisted startup report discovered successfully.")
+for val_file in val_candidates:
+    root = val_file.parent
+    # Verify required subdirectories exist
+    if not all((root / sub).is_dir() for sub in ["legal_chunks", "bm25", "vector", "graph"]):
+        continue
+    try:
+        report = json.loads(val_file.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    if (
+        report.get("is_valid") is True
+        and report.get("is_full_corpus") is True
+        and report.get("dataset_name") in {
+            "uit-dsc-2026-task2-selected-contexts",
+            "uit-dsc-2026-task2-serving-v0430",
+        }
+    ):
+        valid_serving_roots.append(root)
+
+assert len(valid_serving_roots) == 1, (
+    f"Expected exactly 1 valid serving artifact root under /kaggle/input, "
+    f"found {len(valid_serving_roots)}: {valid_serving_roots}"
+)
+serving_root = valid_serving_roots[0]
+print(f"Found unique validated serving artifact root at: {serving_root}")
 ```
 
 ---
@@ -210,7 +240,7 @@ import json
 base_example = json.loads(Path("legal-agentic-rag/configs/phase-a-current-system-census-kaggle.example.json").read_text())
 cand_example = json.loads(Path("legal-agentic-rag/configs/phase-b1a-graph-routing-ablation-kaggle.example.json").read_text())
 
-# Apply identical runtime overrides
+# Apply identical runtime overrides to both configs
 for cfg in [base_example, cand_example]:
     cfg["artifacts"]["root_path"] = str(serving_root)
     cfg["online"]["generation"]["device"] = "cuda:1"
@@ -224,7 +254,7 @@ cand_runtime_path = work_dir / "candidate_runtime_config.json"
 base_runtime_path.write_text(json.dumps(base_example, indent=2))
 cand_runtime_path.write_text(json.dumps(cand_example, indent=2))
 
-# Verify config diff using B1A tooling
+# Verify config diff using B1A tooling (fails closed if anything besides adaptive_routing_enabled differs)
 subprocess.run([
     "python", "legal-agentic-rag/scripts/phase_b1a_graph_routing_ablation.py", "verify-configs",
     "--base-config", str(base_runtime_path),
@@ -283,13 +313,18 @@ print("Routing preflight check passed.")
 set -euo pipefail
 
 BASE_OUT="/kaggle/working/base_batch"
-mkdir -p "$BASE_OUT"
 
-python -m legal_agentic_rag.serving.cli batch \
+python -c "
+from pathlib import Path
+out = Path('$BASE_OUT')
+assert not (out / 'batch_state.json').exists(), 'BASE output directory already contains batch state'
+"
+
+legal-rag-batch \
   --config /kaggle/working/base_runtime_config.json \
   --questions /kaggle/working/phase_b1a_cases_22.json \
-  --output-dir "$BASE_OUT" \
-  --device-override "cuda"
+  --output "$BASE_OUT" \
+  --progress-interval 1
 
 echo "BASE batch completed."
 ```
@@ -303,13 +338,18 @@ echo "BASE batch completed."
 set -euo pipefail
 
 CAND_OUT="/kaggle/working/candidate_batch"
-mkdir -p "$CAND_OUT"
 
-python -m legal_agentic_rag.serving.cli batch \
+python -c "
+from pathlib import Path
+out = Path('$CAND_OUT')
+assert not (out / 'batch_state.json').exists(), 'CANDIDATE output directory already contains batch state'
+"
+
+legal-rag-batch \
   --config /kaggle/working/candidate_runtime_config.json \
   --questions /kaggle/working/phase_b1a_cases_22.json \
-  --output-dir "$CAND_OUT" \
-  --device-override "cuda"
+  --output "$CAND_OUT" \
+  --progress-interval 1
 
 echo "CANDIDATE batch completed."
 ```
@@ -362,6 +402,13 @@ print(decision_rep["verdict"])
 print("==================================================")
 for reason in decision_rep["reasons"]:
     print(f"- {reason}")
+
+print("==================================================")
+print("KEY DELTAS & CONFIDENCE INTERVALS:")
+print(f"METEOR Mean Delta: {decision_rep['meteor_mean_delta']:+.6f} (95% CI: {decision_rep['meteor_ci_95']})")
+print(f"ROUGE-L Mean Delta: {decision_rep['rouge_l_mean_delta']:+.6f} (95% CI: {decision_rep['rouge_l_ci_95']})")
+print(f"METEOR W/T/L: {decision_rep['meteor_wtl']}")
+print(f"ROUGE-L W/T/L: {decision_rep['rouge_l_wtl']}")
 ```
 
 ---
