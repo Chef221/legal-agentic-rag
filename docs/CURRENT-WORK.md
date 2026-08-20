@@ -367,12 +367,14 @@ The immediate next action is:
 5. **Active Research Frontier — Priority B (Verification-Correctness Audit)**:
    - **Task B-FORENSIC-0 COMPLETE — FORENSIC_SOURCE_READY**: Four-question paired forensic source packets (`102047`, `147239`, `26541`, `95861`) materialized from frozen B1A historical evidence (`phase-b1a-graph-routing-ablation-evidence.zip` SHA-256 `b88ccce928b4cecfc9239d490c59f91405834c5a3199f917d757c5735b1d6631`). Verified 100% chunk lookup pass from canonical `uit-dsc-2026-task2-v0400/legal_chunks` (330,768 records), 100% citation cross-check pass, and 100% (6/6) verifier replay pass across all applicable arms. See [`docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md`](file:///c:/legal-agentic-rag/docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md).
    - **Task B-FORENSIC-1A COMPLETE — HUMAN_FORENSIC_LABELS_FROZEN**: Human-approved claim entailment and granular error mode labels frozen into immutable overlay artifact `verification-human-forensic-labels-v1.json` (SHA-256 `bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733`) and `verification-human-forensic-labels-v1.zip` (SHA-256 `25c23b80fb94a59976ccd821944355ff80aa60c7360e32a3dd8dea19dae12cbb`). Verified 4 questions, 8 historical arms, 11 labeled claims (2 SUPPORTED, 5 CONTRADICTED, 4 INSUFFICIENT), 2 generation-failed unlabeled arms. Scope is strictly internal evaluation-only.
-   - **Next Action in Priority B**: Positive-Control Selection / Materialization (to assemble a balanced benchmark before evaluating semantic verification candidates).
+   - **Task B-FORENSIC-1B COMPLETE — POSITIVE_CONTROL_SOURCE_READY**: 16 PRIMARY (4 per stratum) and 8 RESERVE (2 per stratum) positive-control candidates deterministically sampled from 788 eligible Phase-A `answer_verified` records across 4 pre-registered strata (`D_NEGATION_MODALITY`, `C_NUMERIC`, `B_MULTI_CLAIM_CLEAN`, `A_SINGLE_CLAIM_CLEAN`). All 16 PRIMARY evidence packets materialized with 100% chunk lookups, 100% selection trace cross-checks, and 100% (16/16) rule verifier replay matches. Human labels strictly initialized as `unreviewed` with null values. Zero model/retrieval/generation executions. Packaged review archive: `verification-positive-control-review-packets-v1.zip` (SHA-256 `cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4`, size 110,095 bytes). See [`docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md`](file:///c:/legal-agentic-rag/docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md).
+   - **Next Action in Priority B**: Human Review & Freeze of Positive-Control Labels (to complete the balanced evaluation benchmark before evaluating semantic verifiers).
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Task B-FORENSIC-1B?** Resolved: Deterministically sampled 16 PRIMARY and 8 RESERVE positive-control candidates from 788 eligible Phase-A `answer_verified` outputs across 4 strata with 100% chunk lookups, 100% trace mapping, and 16/16 rule verifier replay match. External review package `verification-positive-control-review-packets-v1.zip` created with status `unreviewed`. Verdict: `POSITIVE_CONTROL_SOURCE_READY`.
 - **What happened in Task B-FORENSIC-1A?** Resolved: Human-approved forensic labels frozen into immutable content-bound overlay artifact `verification-human-forensic-labels-v1.json` (11 claims: 2 SUPPORTED, 5 CONTRADICTED, 4 INSUFFICIENT, 2 generation-failed unlabeled arms). Verdict: `HUMAN_FORENSIC_LABELS_FROZEN`.
 - **What happened in Task B-FORENSIC-0?** Resolved: Materialized 4 paired forensic packets (`102047`, `147239`, `26541`, `95861`) across 8 historical arms from canonical B1A frozen evidence with 0 retrieval reruns, 0 generation reruns, 0 auto-labeled semantic truth, and 100% rule verifier replay match. Verdict: `FORENSIC_SOURCE_READY`.
 - **What happened in Stage R1?** Resolved: Stage R1 candidate-pool audit passed cleanly with `CANDIDATE_POOL_AUDIT_PASS`. Proved candidate-pool depth is behaviorally material (35 tail entrants, 20 document-level churn events across 17/22 relationship cases). H40 remains unpromoted in Attempt 2.
@@ -410,11 +412,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Task B-FORENSIC-1A Complete — HUMAN_FORENSIC_LABELS_FROZEN; H40 Unpromoted; Model-backed Verifier Disabled)
+    0.50.7 (Task B-FORENSIC-1B Complete — POSITIVE_CONTROL_SOURCE_READY; H40 Unpromoted; Model-backed Verifier Disabled)
 
 Active development frontier:
     Priority B — Verification-correctness audit
 
 Next action:
-    Positive-Control Selection / Materialization
+    Human Review & Freeze of Positive-Control Labels (B-FORENSIC-1C)
 ```

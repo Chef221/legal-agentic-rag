@@ -222,3 +222,102 @@ The human label artifact overlay is formatted as follows:
 - [x] 35/35 materializer unit tests passing (`tests/unit/evaluation/test_verification_forensic_packets.py`)
 - [x] Full pytest test suite passing
 - [x] Real human label artifacts written outside tracked repository content
+
+---
+
+## 7. Task B-FORENSIC-1B — Positive-Control Candidate Selection
+
+### 7.1 Objective & Pre-Registration Rationale
+
+The initial human forensic set (B-FORENSIC-0 / B-FORENSIC-1A) was deliberately drawn from known failure and divergence cases. Benchmarking a candidate semantic verifier solely on negative/suspicious cases would introduce severe selection bias (a trivial verifier that unconditionally rejects every claim would appear 100% accurate).
+
+To establish an unbiased evaluation benchmark, a balanced set of **positive-control candidates** was sampled and pre-registered from historical Phase-A `answer_verified` outputs prior to running any semantic verifier.
+
+> [!IMPORTANT]
+> **Candidate Status**: These cases are designated as **positive-control candidates**, not confirmed positives. Human review has not yet been performed on them. If any candidate receives a negative human label (`CONTRADICTED` or `INSUFFICIENT`), it will be retained in the evaluation set as an additional negative case and will not be filtered or replaced.
+
+### 7.2 Source Authority & Pre-Filter
+
+- **Phase-A Evidence Archive**: `phase-a-current-system-census-final-evidence.zip` (SHA-256: `df05a401599c43a28e39136d72b225841b242d10a40dc5bc475b9be6ed86be8b`, 1,036,904 bytes)
+- **Phase-A Results Source**: `phase-a-current-system-census-batch/results.jsonl` (SHA-256: `7b1bf802c752e37cee7386c0b24f6e0ee5ea2f65056b22eaa9488d73161aaee6`, 991 records)
+- **Historical Stop-Reason Invariants**:
+  - `answer_verified`: 806
+  - `generation_failed`: 177
+  - `citation_verification_failed`: 7
+  - `max_retry_reached`: 1
+- **Exclusions**:
+  - All 22 historical relationship-case IDs (including the 4 forensic target questions `102047`, `147239`, `26541`, `95861`) were excluded to broaden legal domain coverage.
+- **Eligible Pool**: Exactly 788 records passed all eligibility gates (`stop_reason == "answer_verified"`, `is_valid == true`, non-empty `selected_evidence`, non-empty `selection_trace`, non-empty `claim_verifications`).
+
+### 7.3 Deterministic Stratification & Precedence
+
+Each eligible record was assigned to exactly one stratum based on deterministic pre-review telemetry:
+
+```text
+Precedence: D_NEGATION_MODALITY -> C_NUMERIC -> B_MULTI_CLAIM_CLEAN -> A_SINGLE_CLAIM_CLEAN
+```
+
+1. **`D_NEGATION_MODALITY`** (Count: 168): At least one verified claim containing negation terms (`bãi`, `cấm`, `chưa`, `hủy`, `không`, `ngoại`, `trừ`) with historical `negation_match == true`.
+2. **`C_NUMERIC`** (Count: 181): At least one verified claim containing numeric tokens with historical `numeric_match == true`.
+3. **`B_MULTI_CLAIM_CLEAN`** (Count: 121): $\ge 2$ verified claims with no numeric or negation mismatch.
+4. **`A_SINGLE_CLAIM_CLEAN`** (Count: 318): Exactly 1 verified claim with no numeric or negation mismatch.
+
+### 7.4 Deterministic Sampling Formula
+
+For each eligible record, a deterministic selection key was computed:
+
+$$\text{selection\_key} = \text{SHA256}(\text{"verification-positive-control-v1|"} + \text{question\_id})$$
+
+Within each stratum, records were sorted by `(selection_key, question_id)` ascending:
+- **PRIMARY**: First 4 candidates per stratum (Total: 16 PRIMARY)
+- **RESERVE**: Next 2 candidates per stratum (Total: 8 RESERVE)
+
+### 7.5 Pre-Registered Candidate Matrix
+
+#### PRIMARY Candidates (16 IDs)
+
+| Stratum | Question ID | Claim Count | Selection Key Prefix | Replay Status |
+| :--- | :--- | :--- | :--- | :--- |
+| `D_NEGATION_MODALITY` | `108497` | 1 | `030097439e919c2b...` | `PASS` |
+| `D_NEGATION_MODALITY` | `4031` | 1 | `03bcff91673a52ba...` | `PASS` |
+| `D_NEGATION_MODALITY` | `103983` | 3 | `0401c1d1b2c2e970...` | `PASS` |
+| `D_NEGATION_MODALITY` | `140693` | 1 | `043f73fc2caf6419...` | `PASS` |
+| `C_NUMERIC` | `34351` | 2 | `00e5cbf63c58c267...` | `PASS` |
+| `C_NUMERIC` | `31883` | 1 | `03773ca0b205ddf0...` | `PASS` |
+| `C_NUMERIC` | `40489` | 1 | `0660a3cf6117f804...` | `PASS` |
+| `C_NUMERIC` | `155139` | 1 | `09fbe8a9cada128c...` | `PASS` |
+| `B_MULTI_CLAIM_CLEAN` | `116877` | 3 | `00c726d5ced2a42c...` | `PASS` |
+| `B_MULTI_CLAIM_CLEAN` | `15181` | 3 | `00d8453fe03dad72...` | `PASS` |
+| `B_MULTI_CLAIM_CLEAN` | `5967` | 3 | `03060247ca025fd0...` | `PASS` |
+| `B_MULTI_CLAIM_CLEAN` | `139413` | 3 | `0375feb861d1b3b4...` | `PASS` |
+| `A_SINGLE_CLAIM_CLEAN` | `75171` | 1 | `00006bf26e15dd26...` | `PASS` |
+| `A_SINGLE_CLAIM_CLEAN` | `150131` | 1 | `000b97c303c42041...` | `PASS` |
+| `A_SINGLE_CLAIM_CLEAN` | `30405` | 1 | `01962a615eadc572...` | `PASS` |
+| `A_SINGLE_CLAIM_CLEAN` | `36801` | 1 | `03c6989e359db4b8...` | `PASS` |
+
+#### RESERVE Candidates (8 IDs)
+
+| Stratum | Question ID | Claim Count | Selection Key Prefix |
+| :--- | :--- | :--- | :--- |
+| `D_NEGATION_MODALITY` | `79625` | 1 | `063267e3207870f7...` |
+| `D_NEGATION_MODALITY` | `70663` | 3 | `08fd19a44a611fd3...` |
+| `C_NUMERIC` | `88089` | 3 | `0dac44ce4e35c0c9...` |
+| `C_NUMERIC` | `12991` | 1 | `0ea810cba8b525bd...` |
+| `B_MULTI_CLAIM_CLEAN` | `76335` | 3 | `0d95e047f1e793c6...` |
+| `B_MULTI_CLAIM_CLEAN` | `154189` | 3 | `11f721bf5a3526cd...` |
+| `A_SINGLE_CLAIM_CLEAN` | `166539` | 1 | `04127c06fa69d08d...` |
+| `A_SINGLE_CLAIM_CLEAN` | `82009` | 1 | `050b01628decc1ca...` |
+
+### 7.6 Review Package Artifact
+
+- **External Review Package ZIP**: `verification-positive-control-review-packets-v1.zip`
+- **SHA-256**: `cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4`
+- **Size**: `110,095 bytes`
+- **Contents**:
+  - `execution/control_source_identity.json`
+  - `results/control_selection_report.json`
+  - `results/primary_control_ids.json`
+  - `results/reserve_control_ids.json`
+  - `positive_control_packets/<16 primary QIDs>.json` (human review status: `unreviewed`, null labels)
+- **Mechanical Verdict**: `POSITIVE_CONTROL_SOURCE_READY`
+
