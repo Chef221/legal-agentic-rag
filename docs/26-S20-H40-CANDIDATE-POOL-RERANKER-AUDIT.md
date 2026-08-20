@@ -227,40 +227,64 @@ def sha256_file(p: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-# 1. Discover canonical development.json
+# 1. Discover canonical development.json uniquely
 dev_candidates = list(Path("/kaggle/input").rglob("development.json"))
-found_dev = None
-for p in dev_candidates:
-    if sha256_file(p) == CANONICAL_DEV_SHA:
-        found_dev = p
-        break
+matching_devs = [
+    p for p in dev_candidates
+    if p.is_file() and sha256_file(p) == CANONICAL_DEV_SHA
+]
 
-assert found_dev is not None, f"FATAL: Canonical development.json ({CANONICAL_DEV_SHA}) not found under /kaggle/input"
-print(f"Discovered development.json: {found_dev}")
+assert len(matching_devs) == 1, (
+    f"Expected exactly 1 canonical development.json matching SHA {CANONICAL_DEV_SHA}, "
+    f"found {len(matching_devs)}: {matching_devs}"
+)
+found_dev = matching_devs[0]
+print(f"Found unique canonical development.json at: {found_dev}")
 
-# 2. Discover canonical B1A.2 evidence ZIP
+# 2. Discover canonical B1A.2 baseline evidence ZIP uniquely
 zip_candidates = list(Path("/kaggle/input").rglob("*.zip"))
-found_b1a2_zip = None
-for p in zip_candidates:
-    if sha256_file(p) == CANONICAL_B1A2_ZIP_SHA:
-        found_b1a2_zip = p
-        break
+matching_b1a2_zips = [
+    p for p in zip_candidates
+    if p.is_file() and sha256_file(p) == CANONICAL_B1A2_ZIP_SHA
+]
 
-assert found_b1a2_zip is not None, f"FATAL: Canonical B1A.2 ZIP ({CANONICAL_B1A2_ZIP_SHA}) not found under /kaggle/input"
-print(f"Discovered B1A.2 evidence ZIP: {found_b1a2_zip}")
+assert len(matching_b1a2_zips) == 1, (
+    f"Expected exactly 1 canonical B1A.2 baseline ZIP matching SHA {CANONICAL_B1A2_ZIP_SHA}, "
+    f"found {len(matching_b1a2_zips)}: {matching_b1a2_zips}"
+)
+found_b1a2_zip = matching_b1a2_zips[0]
+print(f"Found unique verified B1A.2 baseline ZIP at: {found_b1a2_zip}")
 
-# 3. Discover validated serving artifacts root
-serving_roots = []
-for p in Path("/kaggle/input").rglob("legal_chunks/manifest.json"):
-    root = p.parent.parent
-    if (root / "bm25/manifest.json").exists() and (root / "vector/manifest.json").exists():
-        manifest = json.loads(p.read_text(encoding="utf-8"))
-        if manifest.get("dataset_name") == EXPECTED_CORPUS_DATASET:
-            serving_roots.append(root)
+# 3. Discover serving artifact root uniquely satisfying full corpus validation contract
+val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
+if not val_candidates:
+    val_candidates = list(Path("/kaggle/input").rglob("build_validation.json"))
 
-assert len(serving_roots) == 1, f"FATAL: Expected exactly 1 serving root, found {len(serving_roots)}: {serving_roots}"
-found_serving_root = serving_roots[0]
-print(f"Discovered serving root: {found_serving_root}")
+valid_serving_roots = []
+for val_file in val_candidates:
+    root = val_file.parent
+    if not all((root / sub).is_dir() for sub in ["legal_chunks", "bm25", "vector"]):
+        continue
+    try:
+        report = json.loads(val_file.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    dataset_manifest = report.get("dataset_manifest", {})
+    if (
+        report.get("is_valid") is True
+        and report.get("is_full_corpus") is True
+        and isinstance(dataset_manifest, dict)
+        and dataset_manifest.get("dataset_name") == EXPECTED_CORPUS_DATASET
+    ):
+        valid_serving_roots.append(root)
+
+valid_serving_roots = list(dict.fromkeys(valid_serving_roots))
+assert len(valid_serving_roots) == 1, (
+    f"Expected exactly 1 valid serving artifact root matching full corpus validation contract, "
+    f"found {len(valid_serving_roots)}: {valid_serving_roots}"
+)
+found_serving_root = valid_serving_roots[0]
+print(f"Found unique validated serving artifact root at: {found_serving_root}")
 
 # Persist discovered paths for subsequent cells
 discovery_info = {
