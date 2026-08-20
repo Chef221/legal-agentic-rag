@@ -850,3 +850,123 @@ STEP F: Execute One-Shot Final V2 Promotion Benchmark on Fresh Holdout
 
 - Under no circumstances may STEP D (unsealing for human review) occur before STEP C (freezing the candidate V2 system).
 - The 38-claim composite benchmark remains the sole authorized development evaluation dataset.
+
+---
+
+## 12. V2 Structured Semantic Verifier Development Candidate (V2-D1)
+
+### 12.1 Motivation & V1 Observed Weaknesses
+
+The V1 benchmark (`ModelBackedCitationVerifier`) asked the model to directly produce a single final semantic label (`supported`, `contradicted`, `insufficient`). While V1 achieved 60.53% claim accuracy and caught 7/15 invalid answers, diagnostic analysis revealed critical failure modes:
+1. **0% Catch on Condition Inversions & Omissions (0/3)**: When evidence stated a conditional rule ($X \implies Y$), V1 falsely validated unconditional assertions ($Y$).
+2. **0% Catch on Wrong Statutory Articles (0/2)**: V1 accepted claims citing the wrong article if the text was topically related.
+3. **0% Catch on Quantity & Date Mismatches (0/3)**: V1 validated numeric tokens even when used in conflicting semantic roles (e.g. deadline vs fine amount).
+4. **12.5% Catch on Scope Overgeneralizations (1/8)**: V1 struggled to detect narrow procedural scopes being generalized to universal mandates.
+5. **Low 3-Way Negative Recall**: `CONTRADICTED` recall was 14.29% (1/7) and `INSUFFICIENT` recall was 15.38% (2/13).
+
+---
+
+### 12.2 V2 Design: Multi-Dimensional Semantic Audit & Deterministic Derivation
+
+The central hypothesis of V2 is:
+> **A language model should NOT directly assign a final entailment verdict. Instead, it must execute a multi-dimensional categorical semantic audit across bounded legal dimensions, while deterministic code derives the trusted final label.**
+
+```mermaid
+flowchart TD
+    Claim["Answer Claim + Cited Evidence"] --> ModelAudit["Model Multi-Dimensional Audit\n(Qwen2.5-3B-Instruct, Temp 0.0)"]
+    ModelAudit --> D1["ACTOR_ROLE (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D2["ACTION_OBJECT (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D3["CONDITION_EXCEPTION (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D4["QUANTITY_TEMPORAL (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D5["NEGATION_MODALITY (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D6["SOURCE_ARTICLE_SCOPE (MATCH / CONFLICT / INSUFFICIENT / NA)"]
+    ModelAudit --> D7["EVIDENCE_COVERAGE (COMPLETE / PARTIAL / NONE)"]
+
+    D1 & D2 & D3 & D4 & D5 & D6 & D7 --> DetRule{"Deterministic Derivation Code"}
+
+    DetRule -->|"Any Dimension == CONFLICT"| Contradicted["CONTRADICTED"]
+    DetRule -->|"Coverage != COMPLETE or Any Dimension == INSUFFICIENT"| Insufficient["INSUFFICIENT"]
+    DetRule -->|"All Dimensions MATCH/NA and Coverage == COMPLETE"| Supported["SUPPORTED"]
+```
+
+#### Pinned Model Identity (Exact to V1):
+- **Backend:** `transformers`
+- **Model Name:** `Qwen/Qwen2.5-3B-Instruct`
+- **Model Revision:** `a1d308dfcc03e09da285d49d912439a655a571e8`
+- **Device / Dtype:** `cuda` / `float16`
+- **Temperature:** `0.0`
+- **Max Input / Output Tokens:** `8192` / `512`
+- **Max Structured Retries:** `1`
+
+#### Deterministic Derivation Algorithm:
+```python
+def derive_claim_semantic_label(assessment: StructuredClaimAssessmentDraft) -> SemanticSupportLabel:
+    dimensions = (
+        assessment.actor_role,
+        assessment.action_object,
+        assessment.condition_exception,
+        assessment.quantity_temporal,
+        assessment.negation_modality,
+        assessment.source_article_scope,
+    )
+    if any(dim == SemanticDimensionStatus.CONFLICT for dim in dimensions):
+        return SemanticSupportLabel.CONTRADICTED
+    if assessment.evidence_coverage != EvidenceCoverageStatus.COMPLETE:
+        return SemanticSupportLabel.INSUFFICIENT
+    if any(dim == SemanticDimensionStatus.INSUFFICIENT for dim in dimensions):
+        return SemanticSupportLabel.INSUFFICIENT
+    return SemanticSupportLabel.SUPPORTED
+```
+
+---
+
+### 12.3 Implementation & Candidate Governance
+
+- **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier.py) (`StructuredSemanticCitationVerifier`).
+- **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_development.py).
+- **Candidate Status:** **`V2-D1 IMPLEMENTED — REAL DEVELOPMENT MODEL EXECUTION PENDING EXTERNAL REVIEW`**.
+- **Dataset Role:** The 38 claims are permanently designated `verification_benchmark_v1_role = "development_after_first_evaluation"`.
+- **Holdout Status:** The fresh V2 promotion holdout remains strictly sealed in `verification-v2-holdout-review-packets-v1.zip` and MUST NOT be accessed during development.
+- **Production Status:** `RuleBasedCitationVerifier` (V0) remains active in production. `semantic_verifier_promotion_authorized = false` remains in effect.
+
+---
+
+### 12.4 Kaggle Development Runbook (For Future V2-D1 Execution)
+
+```bash
+# ==============================================================================
+# CELL 1: Environment Setup & Verify Git Authority
+# ==============================================================================
+!git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
+%cd /kaggle/working/legal-agentic-rag
+!git checkout <COMMITTED_V2_SHA>
+!pip install -e .
+!pip install transformers torch accelerate
+
+# ==============================================================================
+# CELL 2: Preflight Verification (Validates All 5 Canonical Checksums & V0 Replay)
+# ==============================================================================
+!python scripts/evaluate_verification_v2_development.py \
+  --forensic-packets "/kaggle/input/verification-sources/verification-forensic-review-packets.zip" \
+  --forensic-labels "/kaggle/input/verification-sources/verification-human-forensic-labels-v1.json" \
+  --control-packets "/kaggle/input/verification-sources/verification-positive-control-review-packets-v1.zip" \
+  --control-labels "/kaggle/input/verification-sources/verification-positive-control-human-labels-v1.json" \
+  --v1-evidence "/kaggle/input/verification-sources/verification-semantic-benchmark-evidence.zip" \
+  --output-dir "/kaggle/working/v2_development_preflight" \
+  --preflight-only
+
+# ==============================================================================
+# CELL 3: Full V2-D1 Development Execution (2-Pass Stability & Multi-Dimensional Metrics)
+# ==============================================================================
+!python scripts/evaluate_verification_v2_development.py \
+  --forensic-packets "/kaggle/input/verification-sources/verification-forensic-review-packets.zip" \
+  --forensic-labels "/kaggle/input/verification-sources/verification-human-forensic-labels-v1.json" \
+  --control-packets "/kaggle/input/verification-sources/verification-positive-control-review-packets-v1.zip" \
+  --control-labels "/kaggle/input/verification-sources/verification-positive-control-human-labels-v1.json" \
+  --v1-evidence "/kaggle/input/verification-sources/verification-semantic-benchmark-evidence.zip" \
+  --output-dir "/kaggle/working/v2_development_output" \
+  --package-zip "/kaggle/working/verification-v2-d1-development-evidence.zip" \
+  --candidate-id "V2-D1" \
+  --device "cuda" \
+  --repeat-count 2
+```

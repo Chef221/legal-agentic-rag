@@ -387,12 +387,22 @@ The immediate next action is:
      - Selection commitment artifact: `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, size `16,788` bytes).
      - Sealed review package: `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`, size `108,532` bytes).
      - Invariants: Holdout blindness strictly enforced (zero selected QIDs exposed in tracked docs or console summary); review packets remain sealed until candidate V2 system is frozen.
-   - **Next Action in Priority B**: Develop V2 verifier hypotheses using ONLY the 38-claim development benchmark while the fresh holdout remains sealed.
+   - **Task B-V2-IMPLEMENTATION COMPLETE — V2-D1 IMPLEMENTED**:
+     - Implemented `StructuredSemanticCitationVerifier` in `src/legal_agentic_rag/generation/structured_semantic_verifier.py`.
+     - Multi-dimensional structured audit across 6 material legal dimensions (`ACTOR_ROLE`, `ACTION_OBJECT`, `CONDITION_EXCEPTION`, `QUANTITY_TEMPORAL`, `NEGATION_MODALITY`, `SOURCE_ARTICLE_SCOPE`) + `EVIDENCE_COVERAGE`.
+     - Deterministic code derivation: `CONFLICT` -> `CONTRADICTED`, incomplete coverage / `INSUFFICIENT` -> `INSUFFICIENT`, all-match -> `SUPPORTED`.
+     - Pinned exact Qwen2.5-3B-Instruct model identity (`a1d308dfcc03e09da285d49d912439a655a571e8`, `cuda`, `float16`, `temp=0.0`).
+     - Development benchmark harness built in `scripts/evaluate_verification_v2_development.py` with fail-closed SHA verification across all 5 sources and baseline V1 comparison.
+     - Preflight verification passed on canonical development sources (`V2_DEVELOPMENT_BENCHMARK_READY`).
+     - 33 comprehensive unit tests passing across verifier and harness.
+     - Production isolation preserved: `RuleBasedCitationVerifier` active in production; semantic verifier disabled. Fresh holdout remains strictly sealed.
+   - **Next Action in Priority B**: External review of V2-D1 implementation before running first Kaggle development benchmark.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Task B-V2-IMPLEMENTATION?** Resolved: Implemented experimental candidate `StructuredSemanticCitationVerifier` (multi-dimensional audit + deterministic derivation) and offline development benchmark harness `scripts/evaluate_verification_v2_development.py`. Preflight validation passed on canonical sources (`V2_DEVELOPMENT_BENCHMARK_READY`). 33 unit tests pass. Status: `V2-D1 IMPLEMENTED — REAL DEVELOPMENT MODEL EXECUTION PENDING EXTERNAL REVIEW`.
 - **What happened in Task B-HOLDOUT-SEALED?** Resolved: Pre-registered fresh holdout from frozen Phase-A census with 46-QID contamination exclusion set (772 eligible records). Selected 16 PRIMARY (4/4/4/4) + 8 FRESH RESERVE (2/2/2/2) under salt `verification-v2-holdout-gen-v1:`. All 16 primary packets materialized with 100% chunk lookups, 100% trace mapping, and 16/16 V0 verifier replay match. Review status: `sealed_unreviewed` (claim labels null). Artifacts: `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`) and `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`). Verdict: `V2_HOLDOUT_PRE_REGISTERED`.
 - **What happened in the V0 vs V1 Semantic Verifier Benchmark Execution?** Resolved: Executed controlled offline benchmark on Kaggle Tesla T4 (`d3aac626400cbe31ed0ed5ad109762fcb78d737d`). Evidence archived in `verification-semantic-benchmark-evidence.zip` (SHA-256 `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`). Mechanical verdict: `VERIFIER_BENCHMARK_PASS`. V1 improved net correctness by +5 claims and caught 7/15 invalid answers, but failed on 13/20 negative claims and regressed on 2 supported claims. Formal decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`. 38 claims burned as development data; fresh holdout required before future V2 promotion.
 - **What happened in the Benchmark Harness Implementation?** Resolved: Built `scripts/evaluate_verification_semantic_benchmark.py` and `tests/unit/evaluation/test_verification_semantic_benchmark.py` covering fail-closed source verification, exact V0 replay on 22 historical arms, 2-pass deterministic stability evaluation, paired delta analysis, false accept/reject rates, and error tag diagnostics. Pre-flight verification passed cleanly on canonical external files. Verdict: `VERIFIER_BENCHMARK_READY`.
@@ -435,11 +445,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Fresh V2 Holdout Pre-Registered & Sealed — V2_HOLDOUT_PRE_REGISTERED; 38 Claims = Development Data; Model-backed Verifier Disabled)
+    0.50.7 (Structured Semantic Verifier V2-D1 Implemented — V2_DEVELOPMENT_BENCHMARK_READY; 38 Claims = Development Data; Fresh Holdout Sealed; Production Verifier Disabled)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (V2 Verifier Hypothesis Development)
+    Priority B — Verification-correctness audit (External Review of V2-D1 Candidate before Execution)
 
 Next action:
-    Develop V2 verifier hypotheses using ONLY the 38-claim development benchmark while the fresh holdout remains sealed
+    Review V2-D1 candidate implementation and execute first Kaggle development run on the 38-claim benchmark
 ```
