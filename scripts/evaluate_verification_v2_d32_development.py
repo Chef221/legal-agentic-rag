@@ -103,6 +103,14 @@ CANONICAL_D31_EVIDENCE_ZIP_SHA256 = (
     "e14f9656a13a04b8e545d88a5dca13653fa317166ff530f45e4b13124f864041"
 )
 
+# Canonical System Instruction Checksums
+CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256 = (
+    "546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b"
+)
+CANONICAL_D32_CONFLICT_SYSTEM_INSTRUCTION_SHA256 = (
+    "de032266a5700a5459c21e65c5cb383e97f17bf92aabb43e6153b64faccf0312"
+)
+
 # Canonical Pinned V2-D3.2 Model & Execution Parameters
 CANONICAL_PACKAGE_VERSION = "0.50.7"
 CANONICAL_CANDIDATE_ID = "V2-D3.2"
@@ -387,6 +395,20 @@ class V2D32DevelopmentBenchmarkEvaluator:
             pass_index=2,
         )
 
+        # 9.5. Live D3 Base Fidelity Verification (Pass 1 and Pass 2 vs Canonical D3)
+        pass1_base_d3_fidelity = self._evaluate_base_d3_fidelity(
+            claim_targets=claim_targets,
+            pass_preds=pass1_claim_preds,
+            canonical_d3_preds=d3_claim_preds,
+            pass_index=1,
+        )
+        pass2_base_d3_fidelity = self._evaluate_base_d3_fidelity(
+            claim_targets=claim_targets,
+            pass_preds=pass2_claim_preds,
+            canonical_d3_preds=d3_claim_preds,
+            pass_index=2,
+        )
+
         # 10. Stability Analysis
         stability_info = self._evaluate_stability(
             claim_targets=claim_targets,
@@ -445,6 +467,8 @@ class V2D32DevelopmentBenchmarkEvaluator:
             forensic_groups_diag=forensic_groups_diag,
             pass1_telemetry=pass1_telemetry,
             pass2_telemetry=pass2_telemetry,
+            pass1_base_d3_fidelity=pass1_base_d3_fidelity,
+            pass2_base_d3_fidelity=pass2_base_d3_fidelity,
             total_duration=total_duration,
         )
 
@@ -535,9 +559,20 @@ class V2D32DevelopmentBenchmarkEvaluator:
         d3_sys_sha = sha256(
             STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION.encode("utf-8")
         ).hexdigest()
+        if d3_sys_sha != CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Current D3 system instruction SHA mismatch: "
+                f"expected '{CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256}', got '{d3_sys_sha}'"
+            )
+
         d32_conflict_sys_sha = sha256(
             STRUCTURED_SEMANTIC_D32_CONFLICT_SYSTEM_INSTRUCTION.encode("utf-8")
         ).hexdigest()
+        if d32_conflict_sys_sha != CANONICAL_D32_CONFLICT_SYSTEM_INSTRUCTION_SHA256:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Current D3.2 conflict system instruction SHA mismatch: "
+                f"expected '{CANONICAL_D32_CONFLICT_SYSTEM_INSTRUCTION_SHA256}', got '{d32_conflict_sys_sha}'"
+            )
 
         return {
             "schema_version": "1.0",
@@ -550,6 +585,7 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "installed_distribution_version": installed_ver,
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "sources": sources_info,
+            "frozen_d3_source_identity_verified": True,
             "provider": {
                 "backend": CANONICAL_V3_BACKEND,
                 "model_name": CANONICAL_V3_MODEL_NAME,
@@ -588,6 +624,9 @@ class V2D32DevelopmentBenchmarkEvaluator:
                 "cuda_device_count": self._get_cuda_device_count(),
             },
             "implementation_identities": {
+                "structured_semantic_verifier_d3_sha256": self._sha256_file(
+                    Path(legal_agentic_rag.generation.structured_semantic_verifier_d3.__file__)
+                ),
                 "structured_semantic_verifier_d32_sha256": self._sha256_file(
                     Path(legal_agentic_rag.generation.structured_semantic_verifier_d32.__file__)
                 ),
@@ -1103,6 +1142,74 @@ class V2D32DevelopmentBenchmarkEvaluator:
         }
         return arm_results, claim_preds, pass_telemetry
 
+    def _evaluate_base_d3_fidelity(
+        self,
+        claim_targets: list[BenchmarkClaimTarget],
+        pass_preds: list[dict[str, Any]],
+        canonical_d3_preds: list[dict[str, Any]],
+        pass_index: int,
+    ) -> dict[str, Any]:
+        """Verify that live Pass Call A outputs exactly reproduce canonical D3 predictions."""
+        canonical_map = {
+            (r["question_id"], r["arm_id"], r["claim_id"]): r["v2_d3_three_way_prediction"]
+            for r in canonical_d3_preds
+        }
+        if len(canonical_map) != len(claim_targets):
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Canonical D3 claims count mismatch: "
+                f"expected {len(claim_targets)}, got {len(canonical_map)}"
+            )
+
+        pass_map = {
+            (r["question_id"], r["arm_id"], r["claim_id"]): r
+            for r in pass_preds
+        }
+        if len(pass_map) != len(claim_targets):
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Live Pass {pass_index} claims count mismatch: "
+                f"expected {len(claim_targets)}, got {len(pass_map)}"
+            )
+
+        match_count = 0
+        mismatches: list[dict[str, Any]] = []
+
+        for t in claim_targets:
+            k = (t.question_id, t.arm_id, t.claim_id)
+            if k not in canonical_map:
+                raise DataValidationError(
+                    f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Claim key {k} missing from canonical D3 evidence"
+                )
+            if k not in pass_map:
+                raise DataValidationError(
+                    f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Claim key {k} missing from live Pass {pass_index} predictions"
+                )
+
+            live_base = pass_map[k].get("base_d3_label")
+            canonical_label = canonical_map[k]
+
+            if live_base == canonical_label:
+                match_count += 1
+            else:
+                mismatches.append({
+                    "question_id": t.question_id,
+                    "arm_id": t.arm_id,
+                    "claim_id": t.claim_id,
+                    "human_label": t.human_label.value,
+                    "live_base_d3_label": live_base,
+                    "canonical_d3_label": canonical_label,
+                })
+
+        exact_fidelity = (match_count == len(claim_targets)) and (len(mismatches) == 0)
+
+        return {
+            "pass_index": pass_index,
+            "total_claims": len(claim_targets),
+            "match_count": match_count,
+            "mismatch_count": len(mismatches),
+            "mismatches": mismatches,
+            "exact_fidelity_pass": exact_fidelity,
+        }
+
     def _evaluate_stability(
         self,
         claim_targets: list[BenchmarkClaimTarget],
@@ -1240,12 +1347,21 @@ class V2D32DevelopmentBenchmarkEvaluator:
         )
 
         # Primary Paired Metrics: D3.2 vs D3
-        paired_d32_vs_d3 = self._compute_paired_metrics(
+        paired_binary_d32_vs_d3 = self._compute_paired_binary_metrics(
+            claim_targets, d3_claim_preds, d32_claim_preds,
+            base_key="v2_d3_binary_prediction", cand_key="v2_d32_binary_prediction"
+        )
+        paired_three_way_d32_vs_d3 = self._compute_paired_three_way_metrics(
             claim_targets, d3_claim_preds, d32_claim_preds,
             base_key="v2_d3_three_way_prediction", cand_key="v2_d32_three_way_prediction"
         )
-        # Secondary Paired Metrics: D3.2 vs D3.1
-        paired_d32_vs_d31 = self._compute_paired_metrics(
+
+        # Secondary Diagnostic Paired Metrics: D3.2 vs D3.1
+        paired_binary_d32_vs_d31 = self._compute_paired_binary_metrics(
+            claim_targets, d31_claim_preds, d32_claim_preds,
+            base_key="v2_d31_binary_prediction", cand_key="v2_d32_binary_prediction"
+        )
+        paired_three_way_d32_vs_d31 = self._compute_paired_three_way_metrics(
             claim_targets, d31_claim_preds, d32_claim_preds,
             base_key="v2_d31_three_way_prediction", cand_key="v2_d32_three_way_prediction"
         )
@@ -1288,8 +1404,12 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "v2_d3_three_way": d3_three_way,
             "v2_d31_three_way": d31_three_way,
             "v2_d32_three_way": d32_three_way,
-            "paired_v2_d32_vs_v2_d3": paired_d32_vs_d3,
-            "paired_v2_d32_vs_v2_d31": paired_d32_vs_d31,
+            "paired_binary_v2_d32_vs_v2_d3": paired_binary_d32_vs_d3,
+            "paired_three_way_v2_d32_vs_v2_d3": paired_three_way_d32_vs_d3,
+            "paired_v2_d32_vs_v2_d3": paired_binary_d32_vs_d3,  # Standard compatibility alias
+            "paired_binary_v2_d32_vs_v2_d31": paired_binary_d32_vs_d31,
+            "paired_three_way_v2_d32_vs_v2_d31": paired_three_way_d32_vs_d31,
+            "paired_v2_d32_vs_v2_d31": paired_three_way_d32_vs_d31,  # Standard compatibility alias
             "contradiction_capability": contra_diag,
             "v0_answer_metrics": v0_answer,
             "v2_d3_answer_metrics": d3_answer,
@@ -1421,14 +1541,82 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "execution_errors": exec_errors,
         }
 
-    def _compute_paired_metrics(
+    def _compute_paired_binary_metrics(
         self,
         targets: list[BenchmarkClaimTarget],
         base_preds: list[dict[str, Any]],
         cand_preds: list[dict[str, Any]],
-        base_key: str,
-        cand_key: str,
+        base_key: str = "v2_d3_binary_prediction",
+        cand_key: str = "v2_d32_binary_prediction",
     ) -> dict[str, Any]:
+        """Compute paired binary metrics comparing binary predictions against binary truth."""
+        base_map = {
+            (r["question_id"], r["arm_id"], r["claim_id"]): r[base_key]
+            for r in base_preds
+        }
+        cand_map = {
+            (r["question_id"], r["arm_id"], r["claim_id"]): r[cand_key]
+            for r in cand_preds
+        }
+
+        both_corr = base_only = cand_only = both_wrg = 0
+        cand_exec_err = 0
+        semantic_regressions = 0
+        exec_error_regressions = 0
+
+        for t in targets:
+            k = (t.question_id, t.arm_id, t.claim_id)
+            b_val = base_map.get(k)
+            c_val = cand_map.get(k)
+            gold_binary = (
+                BinaryPrediction.ACCEPT.value
+                if t.human_label == HumanEntailment.SUPPORTED
+                else BinaryPrediction.REJECT.value
+            )
+
+            b_c = (b_val == gold_binary)
+            c_c = (c_val == gold_binary)
+
+            if c_val == BinaryPrediction.EXECUTION_ERROR.value:
+                cand_exec_err += 1
+
+            if b_c and c_c:
+                both_corr += 1
+            elif b_c and not c_c:
+                base_only += 1
+                if c_val == BinaryPrediction.EXECUTION_ERROR.value:
+                    exec_error_regressions += 1
+                else:
+                    semantic_regressions += 1
+            elif not b_c and c_c:
+                cand_only += 1
+            else:
+                both_wrg += 1
+
+        net_delta = cand_only - base_only
+
+        return {
+            "both_correct": both_corr,
+            "base_only_correct": base_only,
+            "candidate_only_correct": cand_only,
+            "both_wrong": both_wrg,
+            "net_correctness_delta": net_delta,
+            "candidate_fixes_count": cand_only,
+            "candidate_regressions_count": base_only,
+            "semantic_regressions_count": semantic_regressions,
+            "execution_error_regressions_count": exec_error_regressions,
+            "candidate_execution_error_count": cand_exec_err,
+        }
+
+    def _compute_paired_three_way_metrics(
+        self,
+        targets: list[BenchmarkClaimTarget],
+        base_preds: list[dict[str, Any]],
+        cand_preds: list[dict[str, Any]],
+        base_key: str = "v2_d3_three_way_prediction",
+        cand_key: str = "v2_d32_three_way_prediction",
+    ) -> dict[str, Any]:
+        """Compute paired three-way semantic metrics comparing exact semantic labels."""
         base_map = {
             (r["question_id"], r["arm_id"], r["claim_id"]): r[base_key]
             for r in base_preds
@@ -1482,6 +1670,22 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "execution_error_regressions_count": exec_error_regressions,
             "candidate_execution_error_count": cand_exec_err,
         }
+
+    def _compute_paired_metrics(
+        self,
+        targets: list[BenchmarkClaimTarget],
+        base_preds: list[dict[str, Any]],
+        cand_preds: list[dict[str, Any]],
+        base_key: str,
+        cand_key: str,
+    ) -> dict[str, Any]:
+        if "binary" in base_key or "binary" in cand_key:
+            return self._compute_paired_binary_metrics(
+                targets, base_preds, cand_preds, base_key=base_key, cand_key=cand_key
+            )
+        return self._compute_paired_three_way_metrics(
+            targets, base_preds, cand_preds, base_key=base_key, cand_key=cand_key
+        )
 
     def _compute_contradiction_diagnostics(
         self,
@@ -1949,6 +2153,8 @@ class V2D32DevelopmentBenchmarkEvaluator:
         forensic_groups_diag: dict[str, Any],
         pass1_telemetry: dict[str, Any],
         pass2_telemetry: dict[str, Any],
+        pass1_base_d3_fidelity: dict[str, Any],
+        pass2_base_d3_fidelity: dict[str, Any],
         total_duration: float,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         total_provider_calls = (
@@ -1969,12 +2175,25 @@ class V2D32DevelopmentBenchmarkEvaluator:
 
         d32_claim_binary = all_metrics["v2_d32_claim_binary"]
         d32_three_way = all_metrics["v2_d32_three_way"]
-        paired_d32_vs_d3 = all_metrics["paired_v2_d32_vs_v2_d3"]
+        paired_binary_d32_vs_d3 = all_metrics["paired_binary_v2_d32_vs_v2_d3"]
+        paired_three_way_d32_vs_d3 = all_metrics["paired_three_way_v2_d32_vs_v2_d3"]
         contra_diag = all_metrics["contradiction_capability"]
         d32_answer = all_metrics["v2_d32_answer_metrics"]
 
+        # Base Drift Detection (Fail-Closed against canonical frozen D3 base predictions)
+        base_drift = (
+            not pass1_base_d3_fidelity.get("exact_fidelity_pass", False)
+            or not pass2_base_d3_fidelity.get("exact_fidelity_pass", False)
+            or pass1_base_d3_fidelity.get("mismatch_count", 0) > 0
+            or pass2_base_d3_fidelity.get("mismatch_count", 0) > 0
+            or pass1_base_d3_fidelity.get("match_count", 0) != 38
+            or pass2_base_d3_fidelity.get("match_count", 0) != 38
+        )
+
         # Canonical Verdict Precedence
-        if (
+        if base_drift:
+            verdict = "V2_D32_DEVELOPMENT_BASE_DRIFT"
+        elif (
             total_semantic_execution_errors > 0
             or stability_info["execution_error_in_any_pass_count"] > 0
             or total_provider_invocation_errors > 0
@@ -1994,10 +2213,16 @@ class V2D32DevelopmentBenchmarkEvaluator:
             for c in ["SUPPORTED", "CONTRADICTED", "INSUFFICIENT"]
         )
         d32_correct_answers = d32_answer["valid_answers_retained"] + d32_answer["invalid_answers_caught"]
-        net_delta_vs_d3 = paired_d32_vs_d3["net_correctness_delta"]
+        paired_binary_net_delta = paired_binary_d32_vs_d3["net_correctness_delta"]
+        paired_three_way_net_delta = paired_three_way_d32_vs_d3["net_correctness_delta"]
 
         mechanical_pass = (
             verdict == "V2_D32_DEVELOPMENT_BENCHMARK_PASS"
+            and not base_drift
+            and pass1_base_d3_fidelity.get("match_count") == 38
+            and pass2_base_d3_fidelity.get("match_count") == 38
+            and pass1_base_d3_fidelity.get("mismatch_count") == 0
+            and pass2_base_d3_fidelity.get("mismatch_count") == 0
             and model_errors == 0
             and total_provider_invocation_errors == 0
             and stability_info["execution_error_in_any_pass_count"] == 0
@@ -2011,7 +2236,7 @@ class V2D32DevelopmentBenchmarkEvaluator:
             d32_correct_binary > 28
             and d32_supp_retained >= 17
             and d32_neg_caught > 11
-            and net_delta_vs_d3 > 0
+            and paired_binary_net_delta > 0
             and d32_correct_three_way > 24
             and contra_diag["d32_correctly_predicted_contradicted_count"] > 0
             and d32_correct_answers >= 14
@@ -2028,6 +2253,10 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "sources_info": sources_info,
             "total_claims": len(claim_targets),
             "model_run_executed": True,
+            "base_d3_fidelity": {
+                "pass1": pass1_base_d3_fidelity,
+                "pass2": pass2_base_d3_fidelity,
+            },
             "telemetry": {
                 "model_errors": model_errors,
                 "provider_invocation_errors": total_provider_invocation_errors,
@@ -2063,13 +2292,20 @@ class V2D32DevelopmentBenchmarkEvaluator:
             "pre_registered_gate_evaluations": {
                 "mechanical_gates_passed": mechanical_pass,
                 "verdict_is_pass": verdict == "V2_D32_DEVELOPMENT_BENCHMARK_PASS",
+                "base_drift_detected": base_drift,
+                "pass1_base_d3_fidelity_passed": pass1_base_d3_fidelity.get("exact_fidelity_pass", False),
+                "pass2_base_d3_fidelity_passed": pass2_base_d3_fidelity.get("exact_fidelity_pass", False),
+                "pass1_base_d3_match_count": pass1_base_d3_fidelity.get("match_count", 0),
+                "pass2_base_d3_match_count": pass2_base_d3_fidelity.get("match_count", 0),
+                "pass1_base_d3_mismatch_count": pass1_base_d3_fidelity.get("mismatch_count", 0),
+                "pass2_base_d3_mismatch_count": pass2_base_d3_fidelity.get("mismatch_count", 0),
                 "model_errors_zero": model_errors == 0,
                 "zero_execution_errors_in_stability_passes": stability_info["execution_error_in_any_pass_count"] == 0,
                 "zero_unstable_semantic_claims": stability_info["unstable_semantic_claim_count"] == 0,
                 "binary_correct_exceeds_d3": bool(d32_correct_binary > 28),
                 "supported_retention_preserved": bool(d32_supp_retained >= 17),
                 "negative_catch_exceeds_d3": bool(d32_neg_caught > 11),
-                "paired_net_delta_vs_d3_positive": bool(net_delta_vs_d3 > 0),
+                "paired_binary_net_delta_vs_d3_positive": bool(paired_binary_net_delta > 0),
                 "three_way_correct_exceeds_d3": bool(d32_correct_three_way > 24),
                 "contradiction_caught_gt_zero": bool(contra_diag["d32_correctly_predicted_contradicted_count"] > 0),
                 "answer_accuracy_preserved": bool(d32_correct_answers >= 14),
@@ -2080,10 +2316,13 @@ class V2D32DevelopmentBenchmarkEvaluator:
                 "d32_negative_catch": f"{d32_neg_caught}/20 (D3: 11/20, D3.1: 18/20)",
                 "d32_three_way_correct": f"{d32_correct_three_way}/38 (D3: 24/38, D3.1: 20/38)",
                 "d32_contradicted_caught": f"{contra_diag['d32_correctly_predicted_contradicted_count']}/7 (D3: 0/7, D3.1: 6/7)",
-                "d32_paired_net_delta_vs_d3": net_delta_vs_d3,
+                "paired_binary_net_delta_vs_d3": paired_binary_net_delta,
+                "paired_three_way_net_delta_vs_d3": paired_three_way_net_delta,
                 "d32_answer_correct": f"{d32_correct_answers}/22 (D3: 14/22, D3.1: 17/22)",
                 "d3_gains_preserved": f"{gain_preservation_diag['preserved_gain_count']}/7",
                 "strict_conflict_precision": f"{strict_conflict_diag['strict_conflict_precision']:.2%} ({strict_conflict_diag['true_human_contradicted_among_positives']}/{strict_conflict_diag['strict_conflict_positives_count']})",
+                "pass1_base_d3_matches": f"{pass1_base_d3_fidelity.get('match_count', 0)}/38",
+                "pass2_base_d3_matches": f"{pass2_base_d3_fidelity.get('match_count', 0)}/38",
             },
         }
 

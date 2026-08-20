@@ -482,9 +482,169 @@ def test_selection_gate_supersedes_d3(mock_sources, tmp_path):
             },
             "execution_errors": 0,
         },
+        "paired_binary_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
+        "paired_three_way_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
         "paired_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
         "contradiction_capability": {"d32_correctly_predicted_contradicted_count": 4},
         "v2_d32_answer_metrics": {"valid_answers_retained": 7, "invalid_answers_caught": 10},  # 17/22 >= 14
+    }
+    stability_info = {
+        "execution_error_in_any_pass_count": 0,
+        "unstable_semantic_claim_count": 0,
+        "claims_with_two_valid_semantic_labels": 38,
+    }
+    pass_telem = {
+        "provider_calls": 76,
+        "provider_invocation_errors": 0,
+        "total_structured_retries": 0,
+        "semantic_execution_errors": 0,
+    }
+    pass_fidelity = {
+        "total_claims": 38,
+        "match_count": 38,
+        "mismatch_count": 0,
+        "mismatches": [],
+        "exact_fidelity_pass": True,
+    }
+
+    report, decision_report = evaluator._build_reports(
+        sources_info={},
+        exec_identity={},
+        claim_targets=[MagicMock()] * 38,
+        arm_targets=[],
+        stability_info=stability_info,
+        all_metrics=all_metrics,
+        strict_conflict_diag={"strict_conflict_precision": 1.0, "true_human_contradicted_among_positives": 4, "strict_conflict_positives_count": 4},
+        d31_learning_diag={},
+        gain_preservation_diag={"preserved_gain_count": 7},
+        forensic_groups_diag={},
+        pass1_telemetry=pass_telem,
+        pass2_telemetry=pass_telem,
+        pass1_base_d3_fidelity=pass_fidelity,
+        pass2_base_d3_fidelity=pass_fidelity,
+        total_duration=1.0,
+    )
+    assert decision_report["development_evaluation_decision"] == "D32_SUPERSEDES_D3"
+    assert decision_report["d32_supersedes_d3"] is True
+    assert decision_report["promotion_authorized"] is False  # Fail-closed invariant
+    assert decision_report["pre_registered_gate_evaluations"]["paired_binary_net_delta_vs_d3_positive"] is True
+    assert decision_report["pre_registered_gate_evaluations"]["pass1_base_d3_fidelity_passed"] is True
+    assert decision_report["pre_registered_gate_evaluations"]["pass2_base_d3_fidelity_passed"] is True
+
+
+# Test 11: Selection Gate Rejection (KEEP_D3 if binary accuracy does not exceed D3)
+def test_selection_gate_keep_d3_if_no_gain(mock_sources, tmp_path):
+    evaluator = V2D32DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=mock_sources["forensic_packets"],
+        forensic_labels_path=mock_sources["forensic_labels"],
+        control_packets_path=mock_sources["control_packets"],
+        control_labels_path=mock_sources["control_labels"],
+        v1_evidence_path=mock_sources["v1_evidence"],
+        d3_evidence_path=mock_sources["d3_evidence"],
+        d31_evidence_path=mock_sources["d31_evidence"],
+        output_dir=tmp_path / "out",
+    )
+
+    all_metrics = {
+        "v2_d32_claim_binary": {"tp": 16, "tn": 10, "fp": 10, "fn": 2, "execution_errors": 0},  # 26/38 <= 28
+        "v2_d32_three_way": {
+            "confusion_matrix": {
+                "SUPPORTED": {"SUPPORTED": 16, "CONTRADICTED": 0, "INSUFFICIENT": 2},
+                "CONTRADICTED": {"SUPPORTED": 0, "CONTRADICTED": 0, "INSUFFICIENT": 7},
+                "INSUFFICIENT": {"SUPPORTED": 5, "CONTRADICTED": 0, "INSUFFICIENT": 8},
+            },
+            "execution_errors": 0,
+        },
+        "paired_binary_v2_d32_vs_v2_d3": {"net_correctness_delta": -2},
+        "paired_three_way_v2_d32_vs_v2_d3": {"net_correctness_delta": -2},
+        "paired_v2_d32_vs_v2_d3": {"net_correctness_delta": -2},
+        "contradiction_capability": {"d32_correctly_predicted_contradicted_count": 0},
+        "v2_d32_answer_metrics": {"valid_answers_retained": 5, "invalid_answers_caught": 7},
+    }
+    stability_info = {
+        "execution_error_in_any_pass_count": 0,
+        "unstable_semantic_claim_count": 0,
+        "claims_with_two_valid_semantic_labels": 38,
+    }
+    pass_telem = {
+        "provider_calls": 76,
+        "provider_invocation_errors": 0,
+        "total_structured_retries": 0,
+        "semantic_execution_errors": 0,
+    }
+    pass_fidelity = {
+        "total_claims": 38,
+        "match_count": 38,
+        "mismatch_count": 0,
+        "mismatches": [],
+        "exact_fidelity_pass": True,
+    }
+
+    report, decision_report = evaluator._build_reports(
+        sources_info={},
+        exec_identity={},
+        claim_targets=[MagicMock()] * 38,
+        arm_targets=[],
+        stability_info=stability_info,
+        all_metrics=all_metrics,
+        strict_conflict_diag={"strict_conflict_precision": 0.0, "true_human_contradicted_among_positives": 0, "strict_conflict_positives_count": 0},
+        d31_learning_diag={},
+        gain_preservation_diag={"preserved_gain_count": 5},
+        forensic_groups_diag={},
+        pass1_telemetry=pass_telem,
+        pass2_telemetry=pass_telem,
+        pass1_base_d3_fidelity=pass_fidelity,
+        pass2_base_d3_fidelity=pass_fidelity,
+        total_duration=1.0,
+    )
+    assert decision_report["development_evaluation_decision"] == "KEEP_D3"
+    assert decision_report["d32_supersedes_d3"] is False
+
+
+# Test 12: Base D3 Fidelity Verification and Drift Fail-Closed
+def test_base_d3_fidelity_drift_verdict(mock_sources, tmp_path):
+    evaluator = V2D32DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=mock_sources["forensic_packets"],
+        forensic_labels_path=mock_sources["forensic_labels"],
+        control_packets_path=mock_sources["control_packets"],
+        control_labels_path=mock_sources["control_labels"],
+        v1_evidence_path=mock_sources["v1_evidence"],
+        d3_evidence_path=mock_sources["d3_evidence"],
+        d31_evidence_path=mock_sources["d31_evidence"],
+        output_dir=tmp_path / "out",
+    )
+
+    # Simulate drift in pass 1
+    pass1_drift_fidelity = {
+        "total_claims": 38,
+        "match_count": 37,
+        "mismatch_count": 1,
+        "mismatches": [{"claim_id": "C1", "live_base_d3_label": "CONTRADICTED", "canonical_d3_label": "SUPPORTED"}],
+        "exact_fidelity_pass": False,
+    }
+    pass2_fidelity = {
+        "total_claims": 38,
+        "match_count": 38,
+        "mismatch_count": 0,
+        "mismatches": [],
+        "exact_fidelity_pass": True,
+    }
+
+    all_metrics = {
+        "v2_d32_claim_binary": {"tp": 17, "tn": 13, "fp": 7, "fn": 1, "execution_errors": 0},
+        "v2_d32_three_way": {
+            "confusion_matrix": {
+                "SUPPORTED": {"SUPPORTED": 17, "CONTRADICTED": 0, "INSUFFICIENT": 1},
+                "CONTRADICTED": {"SUPPORTED": 0, "CONTRADICTED": 4, "INSUFFICIENT": 3},
+                "INSUFFICIENT": {"SUPPORTED": 0, "CONTRADICTED": 0, "INSUFFICIENT": 13},
+            },
+            "execution_errors": 0,
+        },
+        "paired_binary_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
+        "paired_three_way_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
+        "paired_v2_d32_vs_v2_d3": {"net_correctness_delta": 4},
+        "contradiction_capability": {"d32_correctly_predicted_contradicted_count": 4},
+        "v2_d32_answer_metrics": {"valid_answers_retained": 7, "invalid_answers_caught": 10},
     }
     stability_info = {
         "execution_error_in_any_pass_count": 0,
@@ -511,15 +671,20 @@ def test_selection_gate_supersedes_d3(mock_sources, tmp_path):
         forensic_groups_diag={},
         pass1_telemetry=pass_telem,
         pass2_telemetry=pass_telem,
+        pass1_base_d3_fidelity=pass1_drift_fidelity,
+        pass2_base_d3_fidelity=pass2_fidelity,
         total_duration=1.0,
     )
-    assert decision_report["development_evaluation_decision"] == "D32_SUPERSEDES_D3"
-    assert decision_report["d32_supersedes_d3"] is True
-    assert decision_report["promotion_authorized"] is False  # Fail-closed invariant
+    assert report["verdict"] == "V2_D32_DEVELOPMENT_BASE_DRIFT"
+    assert decision_report["development_evaluation_decision"] == "KEEP_D3"
+    assert decision_report["d32_supersedes_d3"] is False
+    assert decision_report["promotion_authorized"] is False
+    assert decision_report["pre_registered_gate_evaluations"]["base_drift_detected"] is True
+    assert decision_report["pre_registered_gate_evaluations"]["mechanical_gates_passed"] is False
 
 
-# Test 11: Selection Gate Rejection (KEEP_D3 if binary accuracy does not exceed D3)
-def test_selection_gate_keep_d3_if_no_gain(mock_sources, tmp_path):
+# Test 13: Paired Binary vs Three-Way Metrics Separation Contract
+def test_paired_binary_vs_three_way_metrics_accounting(mock_sources, tmp_path):
     evaluator = V2D32DevelopmentBenchmarkEvaluator(
         forensic_packets_path=mock_sources["forensic_packets"],
         forensic_labels_path=mock_sources["forensic_labels"],
@@ -531,52 +696,45 @@ def test_selection_gate_keep_d3_if_no_gain(mock_sources, tmp_path):
         output_dir=tmp_path / "out",
     )
 
-    all_metrics = {
-        "v2_d32_claim_binary": {"tp": 16, "tn": 10, "fp": 10, "fn": 2, "execution_errors": 0},  # 26/38 <= 28
-        "v2_d32_three_way": {
-            "confusion_matrix": {
-                "SUPPORTED": {"SUPPORTED": 16, "CONTRADICTED": 0, "INSUFFICIENT": 2},
-                "CONTRADICTED": {"SUPPORTED": 0, "CONTRADICTED": 0, "INSUFFICIENT": 7},
-                "INSUFFICIENT": {"SUPPORTED": 5, "CONTRADICTED": 0, "INSUFFICIENT": 8},
-            },
-            "execution_errors": 0,
-        },
-        "paired_v2_d32_vs_v2_d3": {"net_correctness_delta": -2},
-        "contradiction_capability": {"d32_correctly_predicted_contradicted_count": 0},
-        "v2_d32_answer_metrics": {"valid_answers_retained": 5, "invalid_answers_caught": 7},
-    }
-    stability_info = {
-        "execution_error_in_any_pass_count": 0,
-        "unstable_semantic_claim_count": 0,
-        "claims_with_two_valid_semantic_labels": 38,
-    }
-    pass_telem = {
-        "provider_calls": 76,
-        "provider_invocation_errors": 0,
-        "total_structured_retries": 0,
-        "semantic_execution_errors": 0,
-    }
+    targets = [
+        BenchmarkClaimTarget(
+            slice_id="s", question_id="Q1", arm_id="A1", claim_id="C1",
+            claim_text="t", human_label=HumanEntailment.CONTRADICTED,
+            error_tags=[], diagnostic_note=None, stratum="s",
+        ),
+        BenchmarkClaimTarget(
+            slice_id="s", question_id="Q1", arm_id="A1", claim_id="C2",
+            claim_text="t", human_label=HumanEntailment.SUPPORTED,
+            error_tags=[], diagnostic_note=None, stratum="s",
+        ),
+    ]
 
-    report, decision_report = evaluator._build_reports(
-        sources_info={},
-        exec_identity={},
-        claim_targets=[MagicMock()] * 38,
-        arm_targets=[],
-        stability_info=stability_info,
-        all_metrics=all_metrics,
-        strict_conflict_diag={"strict_conflict_precision": 0.0, "true_human_contradicted_among_positives": 0, "strict_conflict_positives_count": 0},
-        d31_learning_diag={},
-        gain_preservation_diag={"preserved_gain_count": 5},
-        forensic_groups_diag={},
-        pass1_telemetry=pass_telem,
-        pass2_telemetry=pass_telem,
-        total_duration=1.0,
-    )
-    assert decision_report["development_evaluation_decision"] == "KEEP_D3"
-    assert decision_report["d32_supersedes_d3"] is False
+    # In D3: C1 was predicted INSUFFICIENT (binary REJECT -> correct, 3-way INSUFFICIENT -> wrong)
+    # In D3.2: C1 is predicted CONTRADICTED (binary REJECT -> correct, 3-way CONTRADICTED -> correct)
+    d3_preds = [
+        {"question_id": "Q1", "arm_id": "A1", "claim_id": "C1", "v2_d3_binary_prediction": "REJECT", "v2_d3_three_way_prediction": "INSUFFICIENT"},
+        {"question_id": "Q1", "arm_id": "A1", "claim_id": "C2", "v2_d3_binary_prediction": "ACCEPT", "v2_d3_three_way_prediction": "SUPPORTED"},
+    ]
+    d32_preds = [
+        {"question_id": "Q1", "arm_id": "A1", "claim_id": "C1", "v2_d32_binary_prediction": "REJECT", "v2_d32_three_way_prediction": "CONTRADICTED"},
+        {"question_id": "Q1", "arm_id": "A1", "claim_id": "C2", "v2_d32_binary_prediction": "ACCEPT", "v2_d32_three_way_prediction": "SUPPORTED"},
+    ]
+
+    paired_binary = evaluator._compute_paired_binary_metrics(targets, d3_preds, d32_preds)
+    paired_three_way = evaluator._compute_paired_three_way_metrics(targets, d3_preds, d32_preds)
+
+    # For binary: both D3 and D3.2 correctly reject C1 and accept C2 -> both_correct=2, net_delta=0
+    assert paired_binary["both_correct"] == 2
+    assert paired_binary["candidate_only_correct"] == 0
+    assert paired_binary["net_correctness_delta"] == 0
+
+    # For three-way: D3 is wrong on C1 (INSUFFICIENT vs CONTRADICTED), D3.2 is correct on C1 -> candidate_only_correct=1, net_delta=+1
+    assert paired_three_way["both_correct"] == 1
+    assert paired_three_way["candidate_only_correct"] == 1
+    assert paired_three_way["net_correctness_delta"] == 1
 
 
-# Test 12: Evidence Package Canonical Member Inventory Contract
+# Test 14: Evidence Package Canonical Member Inventory Contract
 def test_evidence_package_canonical_member_inventory(mock_sources, tmp_path):
     out_dir = tmp_path / "out"
     pkg_zip = tmp_path / "evidence_pkg.zip"
@@ -635,3 +793,58 @@ def test_evidence_package_canonical_member_inventory(mock_sources, tmp_path):
     }
     for m in expected_members:
         assert m in members, f"Expected canonical archive member '{m}' missing"
+
+
+# Test 15: Frozen D3 Source Identity Verification & Tamper Detection
+def test_frozen_d3_source_identity_verification(mock_sources, tmp_path):
+    evaluator = V2D32DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=mock_sources["forensic_packets"],
+        forensic_labels_path=mock_sources["forensic_labels"],
+        control_packets_path=mock_sources["control_packets"],
+        control_labels_path=mock_sources["control_labels"],
+        v1_evidence_path=mock_sources["v1_evidence"],
+        d3_evidence_path=mock_sources["d3_evidence"],
+        d31_evidence_path=mock_sources["d31_evidence"],
+        output_dir=tmp_path / "out",
+    )
+
+    exec_id = evaluator._build_execution_identity(sources_info={})
+    assert exec_id["frozen_d3_source_identity_verified"] is True
+    assert (
+        exec_id["prompt_identities"]["d3_base_system_instruction_sha256"]
+        == "546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b"
+    )
+    assert (
+        exec_id["prompt_identities"]["d32_conflict_system_instruction_sha256"]
+        == "de032266a5700a5459c21e65c5cb383e97f17bf92aabb43e6153b64faccf0312"
+    )
+    assert "structured_semantic_verifier_d3_sha256" in exec_id["implementation_identities"]
+
+
+# Test 16: Observational Provider Call Component Reconciliation
+def test_observational_provider_call_reconciliation():
+    mock_inner = MockCanonicalD32Provider(mode="perfect")
+    obs = ObservationalChatModelProviderWrapper(mock_inner)
+
+    d3_instruction = "System Instruction with D3 verifier rules..."
+    conflict_instruction = "System Instruction with conflict verifier and cannot_both_be_true rules..."
+
+    # 2 D3 calls and 2 conflict calls
+    obs.complete(system_instruction=d3_instruction, user_prompt="Claim ID: C1\nClaim: text 1")
+    obs.complete(system_instruction=conflict_instruction, user_prompt="Claim ID: C1\nClaim: text 1")
+    obs.complete(system_instruction=d3_instruction, user_prompt="Claim ID: C2\nClaim: text 2")
+    obs.complete(system_instruction=conflict_instruction, user_prompt="Claim ID: C2\nClaim: text 2")
+
+    assert obs.total_calls == 4
+    assert len(obs.call_history) == 4
+
+    from hashlib import sha256
+    d3_sha = sha256(d3_instruction.encode("utf-8")).hexdigest()
+    conflict_sha = sha256(conflict_instruction.encode("utf-8")).hexdigest()
+
+    d3_count = sum(1 for c in obs.call_history if c["system_instruction_sha256"] == d3_sha)
+    conflict_count = sum(1 for c in obs.call_history if c["system_instruction_sha256"] == conflict_sha)
+
+    assert d3_count == 2
+    assert conflict_count == 2
+    assert d3_count + conflict_count == obs.total_calls

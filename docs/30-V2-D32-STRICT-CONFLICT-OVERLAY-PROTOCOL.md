@@ -199,37 +199,33 @@ print(f"Verified clean checkout of reviewed commit: {REVIEWED_COMMIT_SHA}")
 
 ### Cell 2 — Pinned Model Dependencies & Environment Gate
 ```bash
-!pip install -q --no-deps transformers==4.47.1 accelerate==1.2.1
-!pip install -q -e . --no-deps
+!python -m pip install -q --upgrade \
+    transformers==4.47.1 \
+    tokenizers==0.21.4 \
+    huggingface-hub==0.27.1 \
+    accelerate==1.2.1
+!python -m pip install -q -e . --no-deps
 
-import importlib.metadata, sys, torch, transformers, accelerate, pydantic
-import legal_agentic_rag
+import subprocess, sys
 
-source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
-installed_ver = importlib.metadata.version("legal-agentic-rag")
-tf_ver = getattr(transformers, "__version__", "unknown")
-cuda_avail = torch.cuda.is_available()
-
-print("--- Runtime Environment ---")
-print(f"Package Source Version: {source_ver}")
-print(f"Installed Distribution Version: {installed_ver}")
-print(f"Transformers Version: {tf_ver}")
-print(f"CUDA Available: {cuda_avail}")
-print(f"CUDA Device: {torch.cuda.get_device_name(0) if cuda_avail else 'NONE'}")
-print(f"PyTorch Version: {torch.__version__}")
-print(f"Accelerate Version: {accelerate.__version__}")
-print(f"Pydantic Version: {pydantic.__version__}")
-
-assert source_ver == "0.50.7", f"Source package version must be 0.50.7, got {source_ver}"
-assert installed_ver == "0.50.7", f"Installed distribution version must be 0.50.7, got {installed_ver}"
-assert tf_ver == "4.47.1", f"Transformers version must be 4.47.1, got {tf_ver}"
-assert cuda_avail is True, "CUDA device required for canonical execution"
+cmd = [
+    sys.executable, "-c",
+    "import transformers, tokenizers, huggingface_hub, accelerate, torch, legal_agentic_rag; "
+    "assert transformers.__version__ == '4.47.1', f'transformers={transformers.__version__}'; "
+    "assert tokenizers.__version__ == '0.21.4', f'tokenizers={tokenizers.__version__}'; "
+    "assert huggingface_hub.__version__ == '0.27.1', f'huggingface_hub={huggingface_hub.__version__}'; "
+    "assert accelerate.__version__ == '1.2.1', f'accelerate={accelerate.__version__}'; "
+    "assert legal_agentic_rag.__version__ == '0.50.7', f'package_ver={legal_agentic_rag.__version__}'; "
+    "assert torch.cuda.is_available(), 'CUDA must be available'; "
+    "print('Subprocess environment import smoke test passed.')"
+]
+subprocess.check_call(cmd)
 print("Environment gate passed.")
 ```
 
 ### Cell 3 — Holdout / Phase-A Blindness Guard & Exact Seven Development Sources Discovery
 ```python
-import os, base64
+import os, base64, zipfile
 from pathlib import Path
 from hashlib import sha256
 
@@ -244,7 +240,15 @@ FORBIDDEN_PATTERNS = [
     "phase-a-current-system-census-final-evidence.zip",
 ]
 
-for root, _, files in os.walk("/kaggle/input"):
+for root, dirs, files in os.walk("/kaggle/input"):
+    for d in dirs:
+        d_path = os.path.join(root, d)
+        for pat in FORBIDDEN_PATTERNS:
+            if pat in d_path or pat in d:
+                raise RuntimeError(
+                    f"BLINDNESS VIOLATION: Forbidden fresh holdout or Phase-A directory detected: {d_path}. "
+                    "Halting execution immediately without opening or inspecting file."
+                )
     for f in files:
         full_path = os.path.join(root, f)
         for pat in FORBIDDEN_PATTERNS:
@@ -358,13 +362,13 @@ print("Model-free preflight passed with 100% fidelity. Ready for real execution.
   --repeat-count 2
 ```
 
-### Cell 6 — Canonical Evidence Verification, Telemetry Gates, & Scientific Decision
+### Cell 6 — Direct Evidence ZIP Inspection, Component Telemetry Reconciliation & Decision
 ```python
 import json, zipfile
 from pathlib import Path
 from hashlib import sha256
 
-# 1. VERIFY EVIDENCE ARCHIVE INVENTORY
+# 1. VERIFY EVIDENCE ARCHIVE INTEGRITY & INVENTORY DIRECTLY FROM ZIP
 zip_path = Path("/kaggle/working/verification-v2-d32-development-evidence.zip")
 assert zip_path.is_file(), "Evidence archive ZIP not found"
 
@@ -389,28 +393,42 @@ with zipfile.ZipFile(zip_path, "r") as zf:
     for req in REQUIRED_MEMBERS:
         assert req in archive_members, f"Missing required archive member: {req}"
 
-print(f"Verified {len(REQUIRED_MEMBERS)} canonical evidence archive members.")
+    # Read artifacts directly from ZIP entries
+    report = json.loads(zf.read("results/v2_d32_development_report.json").decode("utf-8"))
+    decision = json.loads(zf.read("results/v2_d32_development_decision_report.json").decode("utf-8"))
+    strict_diag = json.loads(zf.read("results/v2_d32_strict_conflict_diagnostics.json").decode("utf-8"))
+    gain_diag = report["gain_preservation_diagnostic"]
+    exec_id = json.loads(zf.read("execution/v2_d32_development_source_identity.json").decode("utf-8"))
 
-# 2. LOAD REPORTS & RECONCILE TELEMETRY
-out_dir = Path("/kaggle/working/v2_d32_development_output")
-report = json.loads((out_dir / "results/v2_d32_development_report.json").read_text())
-decision = json.loads((out_dir / "results/v2_d32_development_decision_report.json").read_text())
+    provider_calls_raw = zf.read("telemetry/provider_calls.jsonl").decode("utf-8").strip().splitlines()
+    provider_calls = [json.loads(line) for line in provider_calls_raw]
 
-# Verify provider call telemetry
-provider_calls_lines = (out_dir / "telemetry/provider_calls.jsonl").read_text().strip().splitlines()
-provider_calls = [json.loads(line) for line in provider_calls_lines]
+print(f"Verified {len(REQUIRED_MEMBERS)} canonical evidence archive members directly from ZIP.")
+
+# 2. PROVIDER CALL COMPONENT RECONCILIATION
 total_calls = report["telemetry"]["total_provider_calls"]
 assert len(provider_calls) == total_calls, f"Provider call count mismatch: {len(provider_calls)} != {total_calls}"
 
-d3_sys_sha = report["execution_identity"]["prompt_identities"]["d3_base_system_instruction_sha256"]
-conflict_sys_sha = report["execution_identity"]["prompt_identities"]["d32_conflict_system_instruction_sha256"]
-valid_sys_shas = {d3_sys_sha, conflict_sys_sha}
+d3_sys_sha = exec_id["prompt_identities"]["d3_base_system_instruction_sha256"]
+conflict_sys_sha = exec_id["prompt_identities"]["d32_conflict_system_instruction_sha256"]
 
-for i, call in enumerate(provider_calls):
-    assert call["system_instruction_sha256"] in valid_sys_shas, f"Call {i} system instruction SHA mismatch"
+d3_base_call_count = sum(1 for c in provider_calls if c["system_instruction_sha256"] == d3_sys_sha)
+conflict_call_count = sum(1 for c in provider_calls if c["system_instruction_sha256"] == conflict_sys_sha)
 
-# 3. ASSERT EXECUTION IDENTITY GATES
-exec_id = report["execution_identity"]
+assert d3_base_call_count == report["telemetry"]["pass1"]["d3_base_calls"] + report["telemetry"]["pass2"]["d3_base_calls"]
+assert conflict_call_count == report["telemetry"]["pass1"]["conflict_calls"] + report["telemetry"]["pass2"]["conflict_calls"]
+assert d3_base_call_count + conflict_call_count == total_calls
+
+print(f"Reconciled {total_calls} provider calls ({d3_base_call_count} D3 base + {conflict_call_count} strict-conflict).")
+
+# 3. BASE FIDELITY VERIFICATION
+base_fid = report["base_d3_fidelity"]
+assert base_fid["pass1"]["match_count"] == 38, f"Pass 1 base drift: {base_fid['pass1']['mismatch_count']} mismatches"
+assert base_fid["pass2"]["match_count"] == 38, f"Pass 2 base drift: {base_fid['pass2']['mismatch_count']} mismatches"
+assert base_fid["pass1"]["exact_fidelity_pass"] is True
+assert base_fid["pass2"]["exact_fidelity_pass"] is True
+
+# 4. ASSERT EXECUTION IDENTITY GATES
 assert exec_id["candidate_id"] == "V2-D3.2"
 assert exec_id["package_version"] == "0.50.7"
 assert exec_id["installed_distribution_version"] == "0.50.7"
@@ -420,7 +438,7 @@ assert exec_id["provider"]["model_name"] == "Qwen/Qwen2.5-3B-Instruct"
 assert exec_id["provider"]["model_revision"] == "a1d308dfcc03e09da285d49d912439a655a571e8"
 assert decision["promotion_authorized"] is False, "promotion_authorized must remain false"
 
-# 4. HARD BENCHMARK PASS ASSERTIONS (IF PASS)
+# 5. HARD BENCHMARK PASS ASSERTIONS (IF PASS)
 if report["verdict"] == "V2_D32_DEVELOPMENT_BENCHMARK_PASS":
     assert report["telemetry"]["model_errors"] == 0
     assert report["telemetry"]["provider_invocation_errors"] == 0
@@ -430,15 +448,14 @@ if report["verdict"] == "V2_D32_DEVELOPMENT_BENCHMARK_PASS":
     assert report["metrics"]["v2_d32_claim_binary"]["execution_errors"] == 0
     assert report["metrics"]["v2_d32_three_way"]["execution_errors"] == 0
 
-# 5. SCIENTIFIC SUMMARY DISPLAY
+# 6. SCIENTIFIC SUMMARY DISPLAY
 d3_binary = report["metrics"]["v2_d3_claim_binary"]
 d31_binary = report["metrics"]["v2_d31_claim_binary"]
 d32_binary = report["metrics"]["v2_d32_claim_binary"]
 d32_three_way = report["metrics"]["v2_d32_three_way"]
-paired_d3 = report["metrics"]["paired_v2_d32_vs_v2_d3"]
+paired_binary_d3 = report["metrics"]["paired_binary_v2_d32_vs_v2_d3"]
+paired_three_way_d3 = report["metrics"]["paired_three_way_v2_d32_vs_v2_d3"]
 contra_diag = report["metrics"]["contradiction_capability"]
-conflict_diag = report["strict_conflict_diagnostics"]
-gain_diag = report["gain_preservation_diagnostic"]
 d3_ans = report["metrics"]["v2_d3_answer_metrics"]
 d32_ans = report["metrics"]["v2_d32_answer_metrics"]
 
@@ -457,13 +474,15 @@ print(f"Three-Way Claim Accuracy: D3: {report['metrics']['v2_d3_three_way']['acc
 print(f"Contradictions Caught:    D3: 0/7 (0.00%) | D3.1: 6/7 (85.71%) | D3.2: {contra_diag['d32_correctly_predicted_contradicted_count']}/7 ({contra_diag['d32_contradicted_recall']:.2%})")
 print(f"Answer-Level Accuracy:    D3: {d3_ans['valid_answers_retained']+d3_ans['invalid_answers_caught']}/22 ({d3_ans['answer_level_accuracy']:.2%}) | D3.2: {d32_ans['valid_answers_retained']+d32_ans['invalid_answers_caught']}/22 ({d32_ans['answer_level_accuracy']:.2%})")
 print("-"*75)
-print(f"Strict Conflict Precision: {conflict_diag['strict_conflict_precision']:.2%} ({conflict_diag['true_human_contradicted_among_positives']}/{conflict_diag['strict_conflict_positives_count']})")
-print(f"False Overrides by Class:  {conflict_diag['false_overrides_by_class']}")
-print(f"Paired Metrics vs D3:      Both Correct={paired_d3['both_correct']}, D3 Only={paired_d3['base_only_correct']}, D3.2 Only={paired_d3['candidate_only_correct']}, Net Delta={paired_d3['net_correctness_delta']}")
+print(f"Base D3 Pass Fidelity:    Pass 1: {base_fid['pass1']['match_count']}/38 | Pass 2: {base_fid['pass2']['match_count']}/38")
+print(f"Strict Conflict Precision: {strict_diag['strict_conflict_precision']:.2%} ({strict_diag['true_human_contradicted_among_positives']}/{strict_diag['strict_conflict_positives_count']})")
+print(f"False Overrides by Class:  {strict_diag['false_overrides_by_class']}")
+print(f"Paired Binary vs D3:       Net Delta={paired_binary_d3['net_correctness_delta']} (Fixes={paired_binary_d3['candidate_fixes_count']}, Regressions={paired_binary_d3['candidate_regressions_count']})")
+print(f"Paired Three-Way vs D3:    Net Delta={paired_three_way_d3['net_correctness_delta']} (Fixes={paired_three_way_d3['candidate_fixes_count']}, Regressions={paired_three_way_d3['candidate_regressions_count']})")
 print(f"D3 Gains Preserved:        {gain_diag['preserved_gain_count']}/7 (Regressed: {gain_diag['regressed_gain_claim_ids']})")
 print("-"*75)
 
-# 6. ZIP SELF-IDENTITY
+# 7. ZIP SELF-IDENTITY
 zip_sha = sha256(zip_path.read_bytes()).hexdigest()
 zip_size = zip_path.stat().st_size
 print("Canonical Evidence Archive:")
