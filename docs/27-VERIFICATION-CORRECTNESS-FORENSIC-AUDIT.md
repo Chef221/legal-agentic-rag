@@ -1129,14 +1129,19 @@ def derive_claim_semantic_label_d2(
 - **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py) (`StructuredSemanticCitationVerifierD2`).
 - **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_d2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_d2_development.py).
 - **Candidate Status:** **`V2-D2 IMPLEMENTED — REAL DEVELOPMENT EXECUTION PENDING EXTERNAL REVIEW`**.
-- **Freeze Eligibility Criteria:**
-  1. Mechanical benchmark completion with `model_errors == 0`
-  2. Zero label instability (`unstable_claim_count == 0`)
-  3. Total Correct $> 23$ (Canonical V1 is 23)
-  4. Negative Catch $> 7$ (Canonical V1 is 7)
-  5. Supported Retention $\ge 16$ (Canonical V1 is 16)
-  6. Paired Net Correctness Delta $> 0$
-  7. `promotion_authorized = false` (always False during development)
+- **Freeze Eligibility Criteria (10-Condition Gate):**
+  1. `verdict == "V2_DEVELOPMENT_BENCHMARK_PASS"`
+  2. `model_error_count == 0`
+  3. `execution_error_in_any_pass_count == 0`
+  4. `unstable_semantic_claim_count == 0`
+  5. `binary.execution_errors == 0`
+  6. `three_way.execution_errors == 0`
+  7. Total Correct $> 23$ (Canonical V1 baseline is 23)
+  8. Negative Catch $> 7$ (Canonical V1 baseline is 7)
+  9. Supported Retention $\ge 16$ (Canonical V1 baseline is 16)
+  10. Paired Net Correctness Delta $> 0$
+
+  `promotion_authorized = false` (always False during development)
 
 ---
 
@@ -1383,17 +1388,20 @@ with zipfile.ZipFile(pkg_path, "r") as zf:
     # Read report and decision directly from ZIP as integrity check
     zip_report = json.loads(zf.read("results/v2_d2_development_report.json").decode("utf-8"))
     zip_decision = json.loads(zf.read("results/v2_d2_development_decision_report.json").decode("utf-8"))
+    zip_dim_diag = json.loads(zf.read("results/v2_d2_dimension_diagnostics.json").decode("utf-8"))
 
 # Read loose output reports
 decision_path = Path("/kaggle/working/v2_d2_development_output/results/v2_d2_development_decision_report.json")
 decision = json.loads(decision_path.read_text(encoding="utf-8"))
 report = json.loads(Path("/kaggle/working/v2_d2_development_output/results/v2_d2_development_report.json").read_text(encoding="utf-8"))
+dim_diag = json.loads(Path("/kaggle/working/v2_d2_development_output/results/v2_d2_dimension_diagnostics.json").read_text(encoding="utf-8"))
 
 # Verify loose vs ZIP report consistency
 assert zip_report["candidate_id"] == report["candidate_id"]
 assert zip_report["verdict"] == report["verdict"]
 assert zip_report["execution_identity"]["execution_git_commit"] == report["execution_identity"]["execution_git_commit"]
 assert zip_decision["promotion_authorized"] == decision["promotion_authorized"]
+assert zip_dim_diag["total_claims"] == dim_diag["total_claims"]
 
 # Extract canonical schema fields
 candidate = report["candidate_id"]
@@ -1402,19 +1410,19 @@ source_pkg_ver = report["execution_identity"]["source_package_version"]
 installed_pkg_ver = report["execution_identity"]["installed_distribution_version"]
 verdict = report["verdict"]
 dev_decision = decision["development_evaluation_decision"]
-stability_info = report["stability"]
+promotion_authorized = decision["promotion_authorized"]
 model_errors = report["telemetry"]["model_errors"]
 structured_retries = report["telemetry"]["structured_output_retries"]
+
+stability_info = report["stability"]
 v1_claim_metrics = report["metrics"]["v1_claim_binary"]
 v2_claim_metrics = report["metrics"]["v2_d2_claim_binary"]
-paired_metrics = report["metrics"]["paired_v1_vs_v2_d2"]
 v1_three_way = report["metrics"]["v1_three_way"]
 v2_three_way = report["metrics"]["v2_d2_three_way"]
-v0_answer_metrics = report["metrics"]["v0_answer_metrics"]
+paired_metrics = report["metrics"]["paired_v1_vs_v2_d2"]
 v1_answer_metrics = report["metrics"]["v1_answer_metrics"]
 v2_answer_metrics = report["metrics"]["v2_d2_answer_metrics"]
-answer_deltas = report["metrics"]["v2_d2_vs_v1_answer_deltas"]
-promotion_authorized = decision["promotion_authorized"]
+dimension_diagnostics = report["dimension_diagnostics"]
 
 print("\n" + "=" * 60)
 print("V2-D2 DEVELOPMENT EXECUTION SUMMARY")
@@ -1425,15 +1433,62 @@ print("Source Package Version:       ", source_pkg_ver)
 print("Installed Package Version:    ", installed_pkg_ver)
 print("Verdict:                      ", verdict)
 print("Development Decision:         ", dev_decision)
-print("Stability:                    ", f"{stability_info['label_stability_percentage']}% ({stability_info['unstable_claim_count']} unstable)")
+print("Promotion Authorized:         ", promotion_authorized)
 print("Model Errors:                 ", model_errors)
 print("Structured Retries:           ", structured_retries)
-print("Claim Accuracy (V1 -> V2):    ", f"{v1_claim_metrics['accuracy']*100:.2f}% -> {v2_claim_metrics['accuracy']*100:.2f}%")
-print("Negative Catch (V1 -> V2):    ", f"{v1_claim_metrics['negative_catch']*100:.2f}% -> {v2_claim_metrics['negative_catch']*100:.2f}%")
-print("Retention (V1 -> V2):         ", f"{v1_claim_metrics['supported_retention']*100:.2f}% -> {v2_claim_metrics['supported_retention']*100:.2f}%")
-print("Net Correctness Delta:        ", paired_metrics["net_correctness_delta"], f"(Fixes: {paired_metrics['v2_fixes_count']}, Regressions: {paired_metrics['v2_regressions_count']})")
-print("Answer Accuracy (V1 -> V2):   ", f"{v1_answer_metrics['answer_level_accuracy']*100:.2f}% -> {v2_answer_metrics['answer_level_accuracy']*100:.2f}% (delta: {answer_deltas['v2_vs_v1_answer_accuracy_delta']:+.4f})")
-print("Promotion Authorized:         ", promotion_authorized)
+
+print("\n--- TWO-PASS STABILITY ---")
+print("Total Claims:                 ", stability_info.get("total_claims", 38))
+print("Claims w/ 2 Valid Labels:     ", stability_info.get("claims_with_two_valid_semantic_labels"))
+print("Stable Semantic Claims:       ", stability_info.get("stable_semantic_claim_count"))
+print("Unstable Semantic Claims:     ", stability_info.get("unstable_semantic_claim_count"))
+print("Successful Label Stability %: ", f"{stability_info.get('successful_label_stability_percentage', 0.0)}%")
+print("Pass 1 Execution Errors:      ", stability_info.get("pass1_execution_error_count", 0))
+print("Pass 2 Execution Errors:      ", stability_info.get("pass2_execution_error_count", 0))
+print("Exec Error in Any Pass:       ", stability_info.get("execution_error_in_any_pass_count", 0))
+print("Repeated Exec Error Claims:   ", stability_info.get("repeated_execution_error_claim_count", 0))
+
+print("\n--- CLAIM-LEVEL BINARY METRICS ---")
+print("V1 Binary (TP/FP/TN/FN/Err):  ", f"{v1_claim_metrics['tp']}/{v1_claim_metrics['fp']}/{v1_claim_metrics['tn']}/{v1_claim_metrics['fn']}/{v1_claim_metrics.get('execution_errors', 0)}")
+print("V1 Accuracy / Retention / TN: ", f"{v1_claim_metrics['accuracy']*100:.2f}% / {v1_claim_metrics['supported_retention']*100:.2f}% / {v1_claim_metrics['negative_catch']*100:.2f}%")
+print("V2 Binary (TP/FP/TN/FN/Err):  ", f"{v2_claim_metrics['tp']}/{v2_claim_metrics['fp']}/{v2_claim_metrics['tn']}/{v2_claim_metrics['fn']}/{v2_claim_metrics.get('execution_errors', 0)}")
+print("V2 Accuracy / Retention / TN: ", f"{v2_claim_metrics['accuracy']*100:.2f}% / {v2_claim_metrics['supported_retention']*100:.2f}% / {v2_claim_metrics['negative_catch']*100:.2f}%")
+
+print("\n--- CLAIM-LEVEL THREE-WAY METRICS ---")
+print("V1 Three-Way Macro (Acc/P/R/F1):", f"{v1_three_way['accuracy']*100:.2f}% / {v1_three_way['macro_precision']*100:.2f}% / {v1_three_way['macro_recall']*100:.2f}% / {v1_three_way['macro_f1']*100:.2f}% (Errors: {v1_three_way.get('execution_errors', 0)})")
+print("V2 Three-Way Macro (Acc/P/R/F1):", f"{v2_three_way['accuracy']*100:.2f}% / {v2_three_way['macro_precision']*100:.2f}% / {v2_three_way['macro_recall']*100:.2f}% / {v2_three_way['macro_f1']*100:.2f}% (Errors: {v2_three_way.get('execution_errors', 0)})")
+
+print("\n--- PAIRED METRICS (V1 vs V2-D2) ---")
+print("Both Correct:                 ", paired_metrics["both_correct"])
+print("V1 Only Correct:              ", paired_metrics["v1_only_correct"])
+print("V2 Only Correct:              ", paired_metrics["v2_only_correct"])
+print("Both Wrong:                   ", paired_metrics["both_wrong"])
+print("Net Correctness Delta:        ", paired_metrics["net_correctness_delta"])
+print("V2 Fixes Count:               ", paired_metrics["v2_fixes_count"])
+print("V2 Total Regressions Count:   ", paired_metrics["v2_regressions_count"])
+print("Semantic Regressions Count:   ", paired_metrics.get("semantic_regressions_count", "N/A"))
+print("Exec Error Regressions Count: ", paired_metrics.get("execution_error_regressions_count", "N/A"))
+print("V2 Execution Error Count:     ", paired_metrics["v2_execution_error_count"])
+
+print("\n--- ANSWER-LEVEL METRICS ---")
+print("V1 Answer Metrics:            ", f"Total: {v1_answer_metrics['total_answers']}, Valid Retained: {v1_answer_metrics['valid_answers_retained']}/{v1_answer_metrics['valid_ground_truth_answers']} ({v1_answer_metrics['valid_answer_retention_rate']*100:.2f}%), Invalid Caught: {v1_answer_metrics['invalid_answers_caught']}/{v1_answer_metrics['invalid_ground_truth_answers']} ({v1_answer_metrics['invalid_answer_catch_rate']*100:.2f}%), Accuracy: {v1_answer_metrics['answer_level_accuracy']*100:.2f}%")
+print("V2 Error-Aware Answer Metrics:")
+print("  Total Answers:              ", v2_answer_metrics["total_answers"])
+print("  Evaluated Answers:          ", v2_answer_metrics.get("evaluated_answers", v2_answer_metrics["total_answers"] - v2_answer_metrics.get("execution_error_answers", 0)))
+print("  Execution Error Answers:    ", v2_answer_metrics.get("execution_error_answers", 0))
+print("  Ground Truth (Valid/Invalid):", f"{v2_answer_metrics['valid_ground_truth_answers']} / {v2_answer_metrics['invalid_ground_truth_answers']}")
+print("  Evaluated GT (Valid/Invalid):", f"{v2_answer_metrics.get('evaluated_valid_ground_truth_answers', v2_answer_metrics['valid_ground_truth_answers'])} / {v2_answer_metrics.get('evaluated_invalid_ground_truth_answers', v2_answer_metrics['invalid_ground_truth_answers'])}")
+print("  Valid Answers Retained:     ", f"{v2_answer_metrics['valid_answers_retained']} (Rate: {v2_answer_metrics.get('evaluated_valid_answer_retention_rate', v2_answer_metrics['valid_answer_retention_rate'])*100:.2f}%)")
+print("  Invalid Answers Caught:     ", f"{v2_answer_metrics['invalid_answers_caught']} (Rate: {v2_answer_metrics.get('evaluated_invalid_answer_catch_rate', v2_answer_metrics['invalid_answer_catch_rate'])*100:.2f}%)")
+print("  Evaluated Answer Accuracy:  ", f"{v2_answer_metrics.get('evaluated_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
+print("  Full Denom Answer Accuracy: ", f"{v2_answer_metrics.get('full_denominator_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
+
+print("\n--- DIMENSION DIAGNOSTICS ---")
+print("Total Claims:                 ", dimension_diagnostics.get("total_claims", 38))
+print("Successfully Structured:      ", dimension_diagnostics.get("successfully_structured_claim_count", 0))
+print("Execution Errors:             ", dimension_diagnostics.get("execution_error_claim_count", 0))
+print("Global Dimension Counts:      ", json.dumps(dimension_diagnostics.get("global_dimension_counts", {}), indent=2))
+print("Rejection Telemetry Summary:  ", json.dumps(dimension_diagnostics.get("rejection_telemetry_summary", {}), indent=2))
 print("=" * 60)
 
 # Final safety hard assertions
@@ -1447,7 +1502,12 @@ assert promotion_authorized is False, "CRITICAL: promotion_authorized must be Fa
 
 if verdict == "V2_DEVELOPMENT_BENCHMARK_PASS":
     assert model_errors == 0, f"Model errors must be 0 for PASS, got {model_errors}"
-    assert stability_info["unstable_claim_count"] == 0, f"Unstable claims must be 0 for PASS, got {stability_info['unstable_claim_count']}"
+    assert stability_info.get("execution_error_in_any_pass_count", 0) == 0, f"Execution errors in stability passes must be 0 for PASS, got {stability_info.get('execution_error_in_any_pass_count')}"
+    assert stability_info.get("unstable_semantic_claim_count", 0) == 0, f"Unstable semantic claims must be 0 for PASS, got {stability_info.get('unstable_semantic_claim_count')}"
+    assert stability_info.get("claims_with_two_valid_semantic_labels", 0) == 38, f"All 38 claims must have 2 valid semantic labels for PASS, got {stability_info.get('claims_with_two_valid_semantic_labels')}"
+    assert stability_info.get("stable_semantic_claim_count", 0) == 38, f"All 38 claims must be stable for PASS, got {stability_info.get('stable_semantic_claim_count')}"
     assert v2_claim_metrics.get("execution_errors", 0) == 0, f"Binary execution errors must be 0 for PASS, got {v2_claim_metrics.get('execution_errors')}"
     assert v2_three_way.get("execution_errors", 0) == 0, f"Three-way execution errors must be 0 for PASS, got {v2_three_way.get('execution_errors')}"
+    assert dimension_diagnostics.get("successfully_structured_claim_count", 0) == 38, f"All 38 claims must be successfully structured for PASS, got {dimension_diagnostics.get('successfully_structured_claim_count')}"
+    assert dimension_diagnostics.get("execution_error_claim_count", 0) == 0, f"Execution errors in dimension diagnostics must be 0 for PASS, got {dimension_diagnostics.get('execution_error_claim_count')}"
 ```
