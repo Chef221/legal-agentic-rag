@@ -10,20 +10,33 @@ import json
 import os
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 import zipfile
 
 import pytest
 
+from legal_agentic_rag.configuration.online import GenerationConfig
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.generation.transformers_provider import TransformersChatProvider
 from scripts.evaluate_verification_semantic_benchmark import (
     CANONICAL_CONTROL_LABELS_SHA256,
     CANONICAL_CONTROL_REVIEW_ZIP_SHA256,
     CANONICAL_FORENSIC_LABELS_SHA256,
     CANONICAL_FORENSIC_REVIEW_ZIP_SHA256,
+    CANONICAL_REPEAT_COUNT,
+    CANONICAL_V1_BACKEND,
+    CANONICAL_V1_DEVICE,
+    CANONICAL_V1_MAX_INPUT_TOKENS,
+    CANONICAL_V1_MAX_OUTPUT_TOKENS,
+    CANONICAL_V1_MAX_STRUCTURED_RETRIES,
+    CANONICAL_V1_MODEL_NAME,
+    CANONICAL_V1_MODEL_REVISION,
+    CANONICAL_V1_TIMEOUT_SECONDS,
+    CANONICAL_V1_TORCH_DTYPE,
     BinaryPrediction,
     HumanEntailment,
+    ObservationalChatModelProviderWrapper,
     SemanticVerifierBenchmarkRunner,
     sha256_file,
     sha256_text,
@@ -57,11 +70,11 @@ class FakeChatModelProvider(ChatModelProvider):
 
     @property
     def model_name(self) -> str:
-        return "fake-qwen"
+        return CANONICAL_V1_MODEL_NAME
 
     @property
     def model_revision(self) -> str:
-        return "fake-rev-123"
+        return CANONICAL_V1_MODEL_REVISION
 
     def complete(self, *, system_instruction: str, user_prompt: str) -> str:
         self._call_count += 1
@@ -121,7 +134,7 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
             "schema_version": "1.0",
             "question_id": qid,
             "question": f"Question text for forensic {qid}",
-            "historical_arms": {},
+            "arms": {},
         }
         f_labels_data["questions"][qid] = {"question_id": qid, "arms": {}}
 
@@ -148,7 +161,7 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
                     "error_tags": error_tags,
                 }
 
-            pkt["historical_arms"][arm_id] = {
+            pkt["arms"][arm_id] = {
                 "historical_response": {
                     "question": f"Question text for forensic {qid}",
                     "answer": " ".join(f"Cơ quan có thẩm quyền giải quyết theo quy định pháp luật [E1]." for _ in claims_list),
@@ -174,7 +187,10 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
                     "is_valid": True,
                     "valid_citations": [{"evidence_id": "E1"}],
                     "invalid_citations": [],
+                    "claim_coverage_score": 1.0,
                     "claim_verifications": claims_list,
+                    "errors": [],
+                    "warnings": ["semantic_entailment_not_verified"],
                 },
             }
             f_labels_data["questions"][qid]["arms"][arm_id] = {
@@ -280,7 +296,10 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
                     "is_valid": True,
                     "valid_citations": [{"evidence_id": "E1"}],
                     "invalid_citations": [],
+                    "claim_coverage_score": 1.0,
                     "claim_verifications": claims_list,
+                    "errors": [],
+                    "warnings": ["semantic_entailment_not_verified"],
                 },
             },
         }
@@ -349,68 +368,102 @@ def _run_runner_with_patched_env(
 # ----------------------------------------------------------------------
 
 
-def test_01_wrong_forensic_packets_sha_rejected(tmp_path: Path) -> None:
+def test_01_real_transformers_chat_provider_signature_regression(tmp_path: Path) -> None:
+    """Regression test: Verify _init_v1_provider constructs TransformersChatProvider with real GenerationConfig."""
     env = _create_mock_benchmark_environment(tmp_path)
-    with pytest.raises(DataValidationError, match="Forensic review packets SHA mismatch"):
+    runner = SemanticVerifierBenchmarkRunner(
+        forensic_packets_path=env["forensic_packets"],
+        forensic_labels_path=env["forensic_labels"],
+        control_packets_path=env["control_packets"],
+        control_labels_path=env["control_labels"],
+        output_dir=env["output_dir"],
+        custom_provider=None,  # Exercise real provider init path
+    )
+
+    with patch("scripts.evaluate_verification_semantic_benchmark.TransformersChatProvider", autospec=True) as mock_class:
+        provider = runner._init_v1_provider()
+
+        # Assert exactly one positional argument passed to constructor
+        assert mock_class.call_count == 1
+        args, kwargs = mock_class.call_args
+        assert len(args) == 1
+        config = args[0]
+
+        assert isinstance(config, GenerationConfig)
+        assert config.backend == "transformers"
+        assert config.model_name == CANONICAL_V1_MODEL_NAME
+        assert config.model_revision == CANONICAL_V1_MODEL_REVISION
+        assert config.device == "cuda"
+        assert config.torch_dtype == "float16"
+        assert config.temperature == 0.0
+        assert config.max_input_tokens == 8192
+        assert config.max_output_tokens == 512
+        assert config.timeout_seconds == 180.0
+        assert config.local_files_only is False
+
+
+def test_02_canonical_config_drift_rejected(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+
+    # Model name drift
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_CONFIG: model_name must be"):
         runner = SemanticVerifierBenchmarkRunner(
             forensic_packets_path=env["forensic_packets"],
             forensic_labels_path=env["forensic_labels"],
             control_packets_path=env["control_packets"],
             control_labels_path=env["control_labels"],
             output_dir=env["output_dir"],
+            model_name="unauthorized-model",
+            custom_provider=None,
         )
-        runner.run()
+        runner._validate_canonical_config()
 
-
-def test_02_wrong_forensic_labels_sha_rejected(tmp_path: Path) -> None:
-    env = _create_mock_benchmark_environment(tmp_path)
-    with (
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_FORENSIC_REVIEW_ZIP_SHA256", sha256_file(env["forensic_packets"])),
-        pytest.raises(DataValidationError, match="Forensic labels SHA mismatch"),
-    ):
+    # Repeat count != 2 drift
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_CONFIG: repeat_count must be 2"):
         runner = SemanticVerifierBenchmarkRunner(
             forensic_packets_path=env["forensic_packets"],
             forensic_labels_path=env["forensic_labels"],
             control_packets_path=env["control_packets"],
             control_labels_path=env["control_labels"],
             output_dir=env["output_dir"],
+            repeat_count=1,
+            custom_provider=None,
         )
-        runner.run()
+        runner._validate_canonical_config()
 
 
-def test_03_wrong_control_packets_sha_rejected(tmp_path: Path) -> None:
+def test_03_directory_packet_sources_rejected(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
-    with (
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_FORENSIC_REVIEW_ZIP_SHA256", sha256_file(env["forensic_packets"])),
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_FORENSIC_LABELS_SHA256", sha256_file(env["forensic_labels"])),
-        pytest.raises(DataValidationError, match="Control review packets SHA mismatch"),
-    ):
-        runner = SemanticVerifierBenchmarkRunner(
-            forensic_packets_path=env["forensic_packets"],
-            forensic_labels_path=env["forensic_labels"],
-            control_packets_path=env["control_packets"],
-            control_labels_path=env["control_labels"],
-            output_dir=env["output_dir"],
-        )
-        runner.run()
+    # Pass directory instead of ZIP
+    dir_path = tmp_path / "forensic_bundle"
+    runner = SemanticVerifierBenchmarkRunner(
+        forensic_packets_path=dir_path,
+        forensic_labels_path=env["forensic_labels"],
+        control_packets_path=env["control_packets"],
+        control_labels_path=env["control_labels"],
+        output_dir=env["output_dir"],
+    )
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: forensic review source must be a ZIP file"):
+        runner._validate_sources()
 
 
-def test_04_wrong_control_labels_sha_rejected(tmp_path: Path) -> None:
+def test_04_exact_v0_replay_mismatch_rejected(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
-    with (
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_FORENSIC_REVIEW_ZIP_SHA256", sha256_file(env["forensic_packets"])),
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_FORENSIC_LABELS_SHA256", sha256_file(env["forensic_labels"])),
-        patch("scripts.evaluate_verification_semantic_benchmark.CANONICAL_CONTROL_REVIEW_ZIP_SHA256", sha256_file(env["control_packets"])),
-        pytest.raises(DataValidationError, match="Control labels SHA mismatch"),
-    ):
-        runner = SemanticVerifierBenchmarkRunner(
-            forensic_packets_path=env["forensic_packets"],
-            forensic_labels_path=env["forensic_labels"],
-            control_packets_path=env["control_packets"],
-            control_labels_path=env["control_labels"],
-            output_dir=env["output_dir"],
-        )
-        runner.run()
+
+    # Corrupt historical verification claim status
+    pkt_data = json.loads((tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").read_text(encoding="utf-8"))
+    pkt_data["historical_arm"]["historical_verification"]["claim_verifications"][0]["status"] = "unsupported"
+    (tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").write_text(json.dumps(pkt_data), encoding="utf-8")
+
+    # Re-zip
+    with zipfile.ZipFile(env["control_packets"], "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(tmp_path / "control_bundle"):
+            for file in files:
+                fp = Path(root) / file
+                z.write(fp, arcname=fp.relative_to(tmp_path / "control_bundle").as_posix())
+
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay status mismatch on 75171:PRIMARY"):
+        _run_runner_with_patched_env(env)
 
 
 def test_05_exact_composite_benchmark_counts(tmp_path: Path) -> None:
@@ -425,21 +478,22 @@ def test_05_exact_composite_benchmark_counts(tmp_path: Path) -> None:
 
 def test_06_claim_text_sha_mismatch_rejected(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
-    # Alter claim text in control labels
     data = json.loads(env["control_labels"].read_text())
     data["questions"]["75171"]["claims"]["C1"]["claim_text_sha256"] = "0" * 64
     env["control_labels"].write_text(json.dumps(data), encoding="utf-8")
 
-    with pytest.raises(DataValidationError, match="Claim text SHA mismatch for 75171"):
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: Claim text SHA mismatch for 75171"):
         _run_runner_with_patched_env(env)
 
 
-def test_07_skip_model_run_preflight(tmp_path: Path) -> None:
+def test_07_skip_model_run_preflight_reports_v0_baseline(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
     report = _run_runner_with_patched_env(env, skip_model_run=True)
     assert report["verdict"] == "VERIFIER_BENCHMARK_READY"
     assert report["semantic_verifier_promotion_authorized"] is False
     assert report["model_run_executed"] is False
+    assert "v0_baseline_metrics" in report
+    assert report["v0_baseline_metrics"]["v0_claim_binary"]["total_evaluated_claims"] == 38
 
 
 def test_08_deterministic_two_pass_stability_pass(tmp_path: Path) -> None:
@@ -465,9 +519,6 @@ def test_09_semantic_verifier_promotion_authorized_is_strictly_false(tmp_path: P
 
 def test_10_paired_deltas_correctness(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
-    # Provider predicts supported for everything
-    # V0 accepts everything (mock outputs are all valid/supported)
-    # So V0 and V1 are identical
     provider = FakeChatModelProvider(default_label="supported")
     report = _run_runner_with_patched_env(env, provider=provider)
 
@@ -481,7 +532,6 @@ def test_10_paired_deltas_correctness(tmp_path: Path) -> None:
 
 def test_11_error_tag_diagnostics_calculation(tmp_path: Path) -> None:
     env = _create_mock_benchmark_environment(tmp_path)
-    # Provider predicts contradicted for everything (catching all negatives)
     provider = FakeChatModelProvider(default_label="contradicted")
     report = _run_runner_with_patched_env(env, provider=provider)
 
@@ -496,12 +546,11 @@ def test_12_answer_level_metrics(tmp_path: Path) -> None:
 
     ans_m = report["metrics"]["answer_level_metrics"]
     assert ans_m["total_benchmark_arms"] == 22  # 6 forensic arms + 16 control arms
-    assert ans_m["v0_answer_metrics"]["total"] == 22
-    assert ans_m["v1_answer_metrics"]["total"] == 22
+    assert ans_m["v0_answer_metrics"]["total_evaluated"] == 22
+    assert ans_m["v1_answer_metrics"]["total_evaluated"] == 22
 
 
 def test_13_no_semantic_prompt_reimplementation(tmp_path: Path) -> None:
-    # Ensure ModelBackedCitationVerifier is used directly and provider receives system_instruction
     env = _create_mock_benchmark_environment(tmp_path)
     provider = FakeChatModelProvider()
     report = _run_runner_with_patched_env(env, provider=provider)
@@ -567,13 +616,20 @@ class BrokenFakeChatModelProvider(FakeChatModelProvider):
         raise ModelError("Permanent model failure on GPU")
 
 
-def test_17_permanent_structured_output_failure(tmp_path: Path) -> None:
+def test_17_permanent_model_failure_does_not_count_as_tn(tmp_path: Path) -> None:
+    """Regression test: Execution errors on human negatives must NOT increase TN."""
     env = _create_mock_benchmark_environment(tmp_path)
     provider = BrokenFakeChatModelProvider()
-    report = _run_runner_with_patched_env(env, provider=provider, repeat_count=1)
+    report = _run_runner_with_patched_env(env, provider=provider, repeat_count=2)
 
     assert report["verdict"] == "SEMANTIC_VERIFIER_EXECUTION_ERROR"
     assert report["execution_metadata"]["model_error_count"] > 0
+
+    v1_binary = report["metrics"]["v1_binary_metrics"]
+    assert v1_binary["tn"] == 0
+    assert v1_binary["tp"] == 0
+    assert v1_binary["execution_error_count"] == 38
+    assert v1_binary["total_evaluated_claims"] == 0
 
 
 def test_18_slice_and_stratum_metrics(tmp_path: Path) -> None:
@@ -604,3 +660,12 @@ def test_19_reference_answers_never_supplied_to_verifier(tmp_path: Path) -> None
         assert "ground_truth_answer" not in prompt.lower()
         assert "gold_answer" not in prompt.lower()
 
+
+def test_20_observational_wrapper_call_history(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+    report = _run_runner_with_patched_env(env)
+
+    calls_file = env["output_dir"] / "execution" / "observational_provider_calls.jsonl"
+    assert calls_file.is_file()
+    lines = calls_file.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) >= 44  # 22 arms * 2 passes

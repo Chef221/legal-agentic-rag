@@ -429,36 +429,89 @@ The objective of this offline benchmark is to evaluate the pre-existing `ModelBa
 
 ---
 
-### 9.6 Kaggle Execution Runbook (Copy-Paste Cells)
+### 9.6 V0 Deterministic Baseline Replay & Metrics
+
+During local preflight execution (`--skip-model-run`), the harness replayed `RuleBasedCitationVerifier` over all 22 historical benchmark arms with **100% exact fidelity** against frozen historical records (`v0_replay_arm_passes = 22/22`).
+
+Evaluating V0 against the 38 frozen human claim labels yields the exact pre-semantic baseline:
+
+| Metric Category | Metric | V0 Rule-Based Value |
+| :--- | :--- | :--- |
+| **Claim-Level Binary (38 claims)** | Total Evaluated Claims | `38` (`18` human supported, `20` human negative) |
+| | True Positives (TP) | `18` |
+| | False Positives (FP) | `20` (all negative claims accepted lexically) |
+| | True Negatives (TN) | `0` |
+| | False Negatives (FN) | `0` |
+| | **Supported Retention (Recall)** | **`100.0%`** ($18/18$) |
+| | **Negative Catch Rate (Specificity)** | **`0.0%`** ($0/20$) |
+| | **Binary Accuracy** | **`47.37%`** ($18/38$) |
+| | Precision | `47.37%` ($18/38$) |
+| | F1 Score | `0.6429` |
+| | Balanced Accuracy | `50.0%` |
+| **Answer-Level Binary (22 arms)** | Total Evaluated Arms | `22` (`7` human valid, `15` human invalid) |
+| | True Positives (TP) | `7` |
+| | False Positives (FP) | `15` |
+| | True Negatives (TN) | `0` |
+| | False Negatives (FN) | `0` |
+| | **Supported Answer Retention** | **`100.0%`** ($7/7$) |
+| | **Invalid Answer Catch Rate** | **`0.0%`** ($0/15$) |
+| | **Answer Binary Accuracy** | **`31.82%`** ($7/22$) |
+
+---
+
+### 9.7 Kaggle Execution Runbook (Copy-Paste Cells)
 
 > [!CAUTION]
-> **Execution Gate**: DO NOT RUN on Kaggle until the committed benchmark harness and test suite have been fully approved.
+> **Execution Gate**: DO NOT RUN on Kaggle until the committed benchmark harness and test suite have been externally reviewed. The placeholder commit SHA below MUST be replaced with the exact reviewed commit SHA prior to execution.
 
-#### Cell 1: Environment Setup & Git Checkout
+#### Cell 1: Environment Setup, Dependency Pinning & CUDA Gate
 ```bash
 %%bash
 set -euo pipefail
 
-# 1. Clone repository and checkout exact reviewed commit
+# 1. Target Commit Verification
+REVIEWED_COMMIT_SHA="PLACEHOLDER_REVIEWED_COMMIT_SHA"
+
+if [ "$REVIEWED_COMMIT_SHA" = "PLACEHOLDER_REVIEWED_COMMIT_SHA" ]; then
+    echo "ERROR: DO NOT RUN UNTIL EXTERNAL REVIEW REPLACES THIS VALUE WITH THE REVIEWED COMMIT SHA."
+    exit 1
+fi
+
 cd /kaggle/working
 if [ ! -d "legal-agentic-rag" ]; then
     git clone https://github.com/Chef221/legal-agentic-rag.git
 fi
 cd legal-agentic-rag
 git fetch origin --prune
-git checkout 530d2dcdd3bb51ccb7dd710f056281b04547207f
+git checkout "$REVIEWED_COMMIT_SHA"
 
 echo "=== Repository Authority Verified ==="
 git rev-parse HEAD
 
-# 2. Install editable package and dependencies
+# 2. Install editable package and pin dependencies
 pip install -q -e .
-python -m pip install -q transformers==4.47.1 accelerate==1.2.1 torch
+python -m pip install -q transformers==4.47.1 accelerate==1.2.1
+
+# 3. Environment & Hardware Verification
+python -c "
+import torch, transformers, legal_agentic_rag
+print('=== Dependency & Hardware Gate ===')
+print('legal_agentic_rag version:', legal_agentic_rag.__version__)
+assert legal_agentic_rag.__version__ == '0.50.7', 'Package version mismatch'
+print('transformers version:', transformers.__version__)
+assert transformers.__version__ == '4.47.1', 'Transformers version mismatch'
+print('torch version:', torch.__version__)
+print('CUDA available:', torch.cuda.is_available())
+assert torch.cuda.is_available(), 'CUDA is required for benchmark execution'
+print('CUDA device name:', torch.cuda.get_device_name(0))
+print('CUDA device count:', torch.cuda.device_count())
+"
 ```
 
-#### Cell 2: Verify Benchmark Sources by Exact SHA-256
+#### Cell 2: Verify Benchmark Sources by Exact SHA-256 & Persist Map
 ```python
 import hashlib
+import json
 from pathlib import Path
 
 SOURCE_CHECKSUMS = {
@@ -472,48 +525,50 @@ found_sources = {}
 input_root = Path("/kaggle/input")
 
 for filename, expected_sha in SOURCE_CHECKSUMS.items():
-    matched = None
-    for p in input_root.rglob(filename):
+    matches = []
+    for p in sorted(input_root.rglob(filename)):
         digest = hashlib.sha256(p.read_bytes()).hexdigest()
         if digest == expected_sha:
-            matched = p
-            break
-    if matched is None:
+            matches.append(p)
+    if not matches:
         raise FileNotFoundError(f"Source file {filename} matching SHA {expected_sha} not found under /kaggle/input")
-    found_sources[filename] = matched
-    print(f"Verified: {filename} -> {matched} (SHA: {expected_sha[:16]}...)")
+    if len(matches) > 1:
+        print(f"Notice: multiple SHA matches for {filename}; selecting deterministic first: {matches[0]}")
+    found_sources[filename] = str(matches[0])
+    print(f"Verified: {filename} -> {matches[0]} (SHA: {expected_sha[:16]}...)")
 
-print("\n=== All 4 External Benchmark Sources Verified ===")
+map_path = Path("/kaggle/working/verifier_benchmark_sources.json")
+map_path.write_text(json.dumps(found_sources, indent=2), encoding="utf-8")
+print(f"\n=== All 4 Sources Verified & Saved to {map_path} ===")
 ```
 
-#### Cell 3: Execute Benchmark Harness
+#### Cell 3: Execute Benchmark Harness via Verified Sources
 ```bash
 %%bash
 set -euo pipefail
 
 cd /kaggle/working/legal-agentic-rag
 
-# Discover exact file paths
-FORENSIC_PKTS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-forensic-review-packets.zip')))")
-FORENSIC_LBLS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-human-forensic-labels-v1.json')))")
-CONTROL_PKTS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-positive-control-review-packets-v1.zip')))")
-CONTROL_LBLS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-positive-control-human-labels-v1.json')))")
+# Read verified source paths from JSON
+python -c "
+import json, subprocess
+from pathlib import Path
 
-OUT_DIR="/kaggle/working/semantic_benchmark_output"
-OUT_ZIP="/kaggle/working/verification-semantic-benchmark-evidence.zip"
+sources = json.loads(Path('/kaggle/working/verifier_benchmark_sources.json').read_text(encoding='utf-8'))
 
-python scripts/evaluate_verification_semantic_benchmark.py \
-    --forensic-review-packets "$FORENSIC_PKTS" \
-    --forensic-labels "$FORENSIC_LBLS" \
-    --control-review-packets "$CONTROL_PKTS" \
-    --control-labels "$CONTROL_LBLS" \
-    --output-dir "$OUT_DIR" \
-    --package-zip "$OUT_ZIP" \
-    --model-name "Qwen/Qwen2.5-3B-Instruct" \
-    --model-revision "a1d308dfcc03e09da285d49d912439a655a571e8" \
-    --device "cuda" \
-    --torch-dtype "float16" \
-    --repeat-count 2
+cmd = [
+    'python', 'scripts/evaluate_verification_semantic_benchmark.py',
+    '--forensic-review-packets', sources['verification-forensic-review-packets.zip'],
+    '--forensic-labels', sources['verification-human-forensic-labels-v1.json'],
+    '--control-review-packets', sources['verification-positive-control-review-packets-v1.zip'],
+    '--control-labels', sources['verification-positive-control-human-labels-v1.json'],
+    '--output-dir', '/kaggle/working/semantic_benchmark_output',
+    '--package-zip', '/kaggle/working/verification-semantic-benchmark-evidence.zip',
+    '--repeat-count', '2',
+]
+print('Running:', ' '.join(cmd))
+subprocess.run(cmd, check=True)
+"
 ```
 
 #### Cell 4: Verify Output Package & Checksum
@@ -533,8 +588,11 @@ print(f"Size (bytes): {size_bytes}")
 print(f"SHA-256: {sha}")
 ```
 
-### 9.7 Implementation Status
+---
 
-- **Status**: `VERIFIER BENCHMARK HARNESS IMPLEMENTED — REAL MODEL EXECUTION PENDING REVIEW`
-- **Mechanical Harness Verdict**: `VERIFIER_BENCHMARK_READY`
+### 9.8 Implementation Status
+
+- **Status**: `VERIFIER BENCHMARK HARNESS IMPLEMENTED & HARDENED — REAL MODEL EXECUTION PENDING REVIEW`
+- **Preflight Mechanical Verdict**: `VERIFIER_BENCHMARK_READY`
+- **V0 Exact Replay Status**: `22/22 arms passed with 100% fidelity`
 - **Production Status**: Semantic verification remains disabled; `semantic_verifier_promotion_authorized = false`.
