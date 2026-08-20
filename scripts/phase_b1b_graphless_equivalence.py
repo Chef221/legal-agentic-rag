@@ -2,9 +2,9 @@
 """Phase B1B: Post-Change Graphless Equivalence Verification Tooling.
 
 Verifies that the graphless competition runtime loads cleanly without graph
-artifacts, registers `relationship_rerank_search` without `graph_search`, and
-reproduces the exact S20 retrieval hits and ranking on the 22 relationship
-cases authorized by Phase B1A.2 using the frozen B1A.2 evidence baseline.
+artifacts, registers `relationship_rerank_search` without `graph_search` in public
+descriptors, and reproduces the exact S20 retrieval hits and ranking on the 22
+relationship cases authorized by Phase B1A.2 using the frozen B1A.2 evidence baseline.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import logging
 import os
 from pathlib import Path
 import shutil
-from statistics import fmean
 import subprocess
 import unicodedata
 import zipfile
@@ -54,10 +53,6 @@ from legal_agentic_rag.agent.router import (
 )
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
 from legal_agentic_rag.runtime.online import OnlineRuntime, OnlineRuntimeFactory
-from legal_agentic_rag.runtime.startup_validation import (
-    validate_competition_artifact_lineage,
-    validate_startup_report,
-)
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
     QueryAnalysis,
@@ -69,6 +64,7 @@ from legal_agentic_rag.schemas.retrieval import (
 )
 from legal_agentic_rag.schemas.tools import ToolName
 from legal_agentic_rag.serving.config_loader import load_application_config
+from legal_agentic_rag.tools.retrieval import RetrievalTool
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -110,7 +106,6 @@ EXPECTED_22_IDS: list[str] = [
 
 S20_BRANCH_CANDIDATE_DEPTH = 40
 S20_HYBRID_OUTPUT_LIMIT = 20
-S20_RERANK_INPUT_LIMIT = 20
 FINAL_TOP_K = 8
 
 
@@ -217,12 +212,14 @@ def load_and_verify_b1a2_baseline(
                 f"Missing B1A.2 decision report at {decision_path}"
             )
 
-        # Locate run summary / baseline identity
+        # Locate run summary (MANDATORY per FIX 5)
         summary_path = base_path / "evidence" / "phase_b1a2_run_summary.json"
         if not summary_path.exists():
             summary_path = base_path / "phase_b1a2_run_summary.json"
         if not summary_path.exists():
-            summary_path = base_path / "baseline" / "b1a2_baseline_identity.json"
+            raise DataValidationError(
+                "Missing mandatory B1A.2 run summary at evidence/phase_b1a2_run_summary.json"
+            )
 
         # Verify results SHA256
         actual_results_sha = sha256_file(results_path)
@@ -239,15 +236,29 @@ def load_and_verify_b1a2_baseline(
                 f"B1A.2 verdict must be 'GRAPH_REDUNDANCY_PROVEN', got '{verdict}'"
             )
 
-        # Verify execution commit from summary if present
-        commit = CANONICAL_B1A2_EXECUTION_COMMIT
-        if summary_path.exists():
-            summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
-            commit = summary_data.get("execution_git_commit", commit)
-            if commit != CANONICAL_B1A2_EXECUTION_COMMIT:
-                raise DataValidationError(
-                    f"B1A.2 execution commit mismatch: expected {CANONICAL_B1A2_EXECUTION_COMMIT}, got {commit}"
-                )
+        # Verify run summary fields strictly without fallback defaults
+        summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+        if "execution_git_commit" not in summary_data:
+            raise DataValidationError(
+                "B1A.2 run summary missing mandatory 'execution_git_commit' field"
+            )
+        commit = summary_data["execution_git_commit"]
+        if commit != CANONICAL_B1A2_EXECUTION_COMMIT:
+            raise DataValidationError(
+                f"B1A.2 execution commit mismatch: expected {CANONICAL_B1A2_EXECUTION_COMMIT}, got {commit}"
+            )
+
+        if summary_data.get("case_count") != EXPECTED_CASE_COUNT:
+            raise DataValidationError(
+                f"B1A.2 run summary case_count ({summary_data.get('case_count')}) != {EXPECTED_CASE_COUNT}"
+            )
+
+        # Check summary results SHA if recorded
+        summary_results_sha = summary_data.get("results_sha256") or summary_data.get("raw_results_sha256")
+        if summary_results_sha and summary_results_sha != CANONICAL_B1A2_RESULTS_SHA256:
+            raise DataValidationError(
+                f"B1A.2 run summary results SHA mismatch: expected {CANONICAL_B1A2_RESULTS_SHA256}, got {summary_results_sha}"
+            )
 
         # Load S20 hits per question
         lines = [
@@ -375,6 +386,11 @@ def create_graphless_staging_root(
     if not source_root.exists():
         raise DataValidationError(f"Source artifact root does not exist: {source_root}")
 
+    if source_root.resolve() == staging_root.resolve():
+        raise ArtifactCompatibilityError(
+            "Cannot create staging root: source_root and staging_root resolve to the same path"
+        )
+
     staging_root.mkdir(parents=True, exist_ok=True)
     inventory: list[dict[str, object]] = []
 
@@ -409,6 +425,75 @@ def create_graphless_staging_root(
     return inventory
 
 
+def validate_graphless_staging_root(staging_root: Path) -> list[dict[str, object]]:
+    """Validate an existing graphless staging root and generate its inventory."""
+    if not staging_root.exists() or not staging_root.is_dir():
+        raise ArtifactCompatibilityError(
+            f"Staging root does not exist or is not a directory: {staging_root}"
+        )
+
+    if (staging_root / "graph").exists() or (staging_root / "graph").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'graph'")
+    if (staging_root / "relationships").exists() or (staging_root / "relationships").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'relationships'")
+
+    required_dirs = ["legal_chunks", "bm25", "vector"]
+    for req in required_dirs:
+        if not (staging_root / req).is_dir():
+            raise ArtifactCompatibilityError(
+                f"Staging root missing required active directory: '{req}'"
+            )
+
+    inventory: list[dict[str, object]] = []
+    for item in staging_root.iterdir():
+        inventory.append({
+            "name": item.name,
+            "is_symlink": item.is_symlink(),
+            "is_dir": item.is_dir(),
+            "target_path": str(item.resolve()),
+        })
+
+    if not inventory:
+        raise ArtifactCompatibilityError("Staging root inventory is empty")
+
+    return inventory
+
+
+class RecordingBranchRetriever:
+    """Observational proxy around a sparse or dense branch retriever."""
+
+    def __init__(self, inner_branch: object) -> None:
+        self._inner = inner_branch
+        self.recorded_queries: list[RetrievalQuery] = []
+
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        return getattr(self._inner, "source_artifact_identity")
+
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        self.recorded_queries.append(query)
+        return getattr(self._inner, "search")(query)
+
+
+class RecordingCandidateRetriever:
+    """Observational proxy around candidate retriever to capture pre-rerank queries/responses."""
+
+    def __init__(self, inner_retriever: HybridRetriever) -> None:
+        self._inner = inner_retriever
+        self.last_candidate_query: RetrievalQuery | None = None
+        self.last_candidate_response: RetrievalResponse | None = None
+
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        return self._inner.source_artifact_identity
+
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        self.last_candidate_query = query
+        resp = self._inner.search(query)
+        self.last_candidate_response = resp
+        return resp
+
+
 @dataclass(frozen=True, slots=True)
 class CaseEquivalenceResult:
     """Equivalence comparison result for a single case."""
@@ -423,8 +508,15 @@ class CaseEquivalenceResult:
     score_diffs: list[float]
     max_score_diff: float
     is_equivalent: bool
-    observed_candidate_count: int
-    route_plan: list[str]
+    observed_candidate_query: dict[str, object]
+    observed_fused_candidate_count: int
+    observed_branch_candidate_depth: int
+    branch_depth_match: bool
+    candidate_query_match: bool
+    fusion_limit_match: bool
+    final_topk_match: bool
+    route_plan_match: bool
+    route_plan: list[dict[str, str]]
     warnings: list[str]
 
 
@@ -478,6 +570,7 @@ def run_b1b_verification_protocol(
     reasons: list[str] = []
     is_invalid = False
     verdict = "INVALID_EXPERIMENT"
+    retrieval_model_error_count = 0
 
     # Resolve execution commit & script SHA
     script_path = Path(__file__).resolve()
@@ -521,18 +614,32 @@ def run_b1b_verification_protocol(
         reasons.append(f"Case materialization failure: {exc}")
         is_invalid = True
 
-    # 3. Create graphless staging root and build runtime
+    # 3. Create/Validate graphless staging root and build runtime
     app_config = load_application_config(config_path)
-    source_root = app_config.artifacts.root_path
-    if staging_root is None:
-        staging_root = output_dir / "staging" / "graphless_root"
+    config_root = app_config.artifacts.root_path
+
+    resolved_staging: Path
+    if staging_root is not None:
+        resolved_staging = staging_root
+    else:
+        if (config_root / "graph").exists() or (config_root / "relationships").exists():
+            resolved_staging = output_dir / "staging" / "graphless_root"
+        else:
+            resolved_staging = config_root
 
     inventory: list[dict[str, object]] = []
     runtime: OnlineRuntime | None = None
     runtime_config: ApplicationConfig | None = None
 
     try:
-        inventory = create_graphless_staging_root(source_root, staging_root)
+        if resolved_staging.resolve() == config_root.resolve():
+            inventory = validate_graphless_staging_root(resolved_staging)
+        else:
+            if resolved_staging.exists() and any(resolved_staging.iterdir()):
+                inventory = validate_graphless_staging_root(resolved_staging)
+            else:
+                inventory = create_graphless_staging_root(config_root, resolved_staging)
+
         (execution_dir / "graphless_root_inventory.json").write_text(
             json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
@@ -542,7 +649,7 @@ def run_b1b_verification_protocol(
         runtime_config = app_config.model_copy(
             update={
                 "artifacts": app_config.artifacts.model_copy(
-                    update={"root_path": staging_root}
+                    update={"root_path": resolved_staging}
                 ),
                 "online": app_config.online.model_copy(
                     update={
@@ -577,12 +684,12 @@ def run_b1b_verification_protocol(
                 f"OnlineRuntime manifests mismatch: expected {expected_manifest_types}, got {actual_manifest_types}"
             )
 
-        # Check tool registry
-        descriptor_names = {d.name.value for d in runtime.tool_registry.descriptors()}
+        # Check tool descriptors via public API runtime.tool_descriptors()
+        descriptor_names = {d.name.value for d in runtime.tool_descriptors()}
         if "graph_search" in descriptor_names:
-            raise RetrievalError("ToolName.GRAPH_SEARCH illegally present in tool registry")
+            raise RetrievalError("ToolName.GRAPH_SEARCH illegally present in tool descriptors")
         if ToolName.RELATIONSHIP_RERANK_SEARCH.value not in descriptor_names:
-            raise RetrievalError("ToolName.RELATIONSHIP_RERANK_SEARCH missing from tool registry")
+            raise RetrievalError("ToolName.RELATIONSHIP_RERANK_SEARCH missing from tool descriptors")
 
     except Exception as exc:
         reasons.append(f"Runtime startup / artifact compatibility failure: {exc}")
@@ -612,14 +719,46 @@ def run_b1b_verification_protocol(
         )
         return report, decision_report, "INVALID_EXPERIMENT"
 
-    # 5. Execute 22 cases
+    # 5. Build isolated retrieval execution stack with observational candidate recording
+    bm25_backend = SQLiteFTS5BM25Backend.load(resolved_staging / "bm25")
+    vector_backend = NumpyVectorBackend.load(resolved_staging / "vector")
+    embedding_provider = SentenceTransformerEmbeddingProvider(
+        runtime_config.offline.embedding,
+        runtime_config=runtime_config.online.vector_runtime,
+    )
+    dense_retriever = DenseRetriever(embedding_provider, vector_backend)
+
+    recording_bm25 = RecordingBranchRetriever(bm25_backend)
+    recording_dense = RecordingBranchRetriever(dense_retriever)
+
+    hybrid_retriever = HybridRetriever(
+        bm25_retriever=recording_bm25,
+        dense_retriever=recording_dense,
+        config=runtime_config.online.retrieval,
+        query_understanding_config=runtime_config.online.query_understanding,
+    )
+
+    recording_candidate = RecordingCandidateRetriever(hybrid_retriever)
+    reranker = CrossEncoderReranker(runtime_config.online.reranker)
+
+    relationship_reranker = RelationshipSeedRerankingRetriever(
+        candidate_retriever=recording_candidate,
+        reranker=reranker,
+        retrieval_config=runtime_config.online.retrieval,
+        reranker_config=runtime_config.online.reranker,
+    )
+
+    rel_tool = RetrievalTool(
+        name=ToolName.RELATIONSHIP_RERANK_SEARCH,
+        retriever=relationship_reranker,
+    )
+
     qu_service = QueryUnderstandingService(runtime_config.online.query_understanding)
     router = DeterministicStrategyRouter(
         runtime_config.online.agent,
         runtime_config.online.query_understanding,
     )
-    registered_tool_names = {d.name for d in runtime.tool_registry.descriptors()}
-    rel_tool = runtime.tool_registry.get(ToolName.RELATIONSHIP_RERANK_SEARCH)
+    registered_tool_names = {d.name for d in runtime.tool_descriptors()}
 
     case_results: list[CaseEquivalenceResult] = []
     case_results_lines: list[str] = []
@@ -645,36 +784,86 @@ def run_b1b_verification_protocol(
         )
 
         routes = router.plan(query, registered_tool_names)
-        route_str_list = [f"{r.strategy.value}:{r.tool_name.value}" for r in routes]
+        route_plan_dicts = [
+            {"strategy": r.strategy.value, "tool": r.tool_name.value} for r in routes
+        ]
 
-        # Verify route ordering
-        if len(routes) < 3:
-            reasons.append(f"Protocol failure ({qid}): Router planned < 3 attempts: {route_str_list}")
-            is_invalid = True
-        elif (
-            routes[0].tool_name != ToolName.RELATIONSHIP_RERANK_SEARCH
-            or routes[1].tool_name != ToolName.RERANK_SEARCH
-            or routes[2].tool_name != ToolName.HYBRID_SEARCH
-        ):
+        # FIX 3: Check BOTH strategy and tool for exact route pairs
+        route_plan_match = (
+            len(routes) >= 3
+            and routes[0].strategy == RetrievalStrategy.HYBRID_RERANK
+            and routes[0].tool_name == ToolName.RELATIONSHIP_RERANK_SEARCH
+            and routes[1].strategy == RetrievalStrategy.HYBRID_RERANK
+            and routes[1].tool_name == ToolName.RERANK_SEARCH
+            and routes[2].strategy == RetrievalStrategy.HYBRID
+            and routes[2].tool_name == ToolName.HYBRID_SEARCH
+        )
+        if not route_plan_match:
             reasons.append(
-                f"Protocol failure ({qid}): Route order mismatch: expected [relationship_rerank, rerank, hybrid], got {route_str_list}"
+                f"Protocol failure ({qid}): Route plan mismatch: expected [HYBRID_RERANK:relationship_rerank, HYBRID_RERANK:rerank, HYBRID:hybrid], got {route_plan_dicts}"
             )
             is_invalid = True
+
+        # Clear branch recording before this query
+        recording_bm25.recorded_queries.clear()
+        recording_dense.recorded_queries.clear()
 
         # Execute Attempt 1 via RELATIONSHIP_RERANK_SEARCH tool
         try:
             resp: RetrievalResponse = rel_tool.invoke(query)
         except Exception as exc:
             reasons.append(f"Execution model error on case {qid}: {exc}")
+            retrieval_model_error_count += 1
             is_invalid = True
             continue
 
-        if resp.strategy != RetrievalStrategy.HYBRID_RERANK:
-            reasons.append(f"Protocol failure ({qid}): Strategy ({resp.strategy}) != HYBRID_RERANK")
+        # FIX 4: Check retrieval:model_error warning
+        if any("retrieval:model_error" in str(w) for w in resp.warnings):
+            reasons.append(f"Case {qid} produced 'retrieval:model_error' warning")
+            retrieval_model_error_count += 1
             is_invalid = True
 
-        if len(resp.hits) > FINAL_TOP_K:
-            reasons.append(f"Protocol failure ({qid}): Hits count ({len(resp.hits)}) > {FINAL_TOP_K}")
+        # FIX 2: Observational S20 Trace from Candidate Retriever
+        observed_cand_q = recording_candidate.last_candidate_query
+        observed_cand_resp = recording_candidate.last_candidate_response
+
+        candidate_query_match = (
+            observed_cand_q is not None
+            and observed_cand_q.top_k == S20_HYBRID_OUTPUT_LIMIT
+            and observed_cand_q.candidate_k == S20_BRANCH_CANDIDATE_DEPTH
+            and observed_cand_q.requested_strategy == RetrievalStrategy.HYBRID
+        )
+        if not candidate_query_match:
+            reasons.append(
+                f"Protocol failure ({qid}): Candidate query invariant mismatch: {observed_cand_q}"
+            )
+            is_invalid = True
+
+        observed_fused_count = len(observed_cand_resp.hits) if observed_cand_resp else 0
+        fusion_limit_match = (observed_fused_count <= S20_HYBRID_OUTPUT_LIMIT)
+        if not fusion_limit_match:
+            reasons.append(
+                f"Protocol failure ({qid}): Observed fused candidate count ({observed_fused_count}) > {S20_HYBRID_OUTPUT_LIMIT}"
+            )
+            is_invalid = True
+
+        # Branch depth observation (all branches requested depth 40)
+        branch_depths = [q.candidate_k for q in recording_bm25.recorded_queries + recording_dense.recorded_queries]
+        branch_depth_match = bool(branch_depths) and all(d == S20_BRANCH_CANDIDATE_DEPTH for d in branch_depths)
+        if not branch_depth_match:
+            reasons.append(
+                f"Protocol failure ({qid}): Branch depth mismatch: {branch_depths}"
+            )
+            is_invalid = True
+
+        final_topk_match = (
+            resp.strategy == RetrievalStrategy.HYBRID_RERANK
+            and len(resp.hits) <= FINAL_TOP_K
+        )
+        if not final_topk_match:
+            reasons.append(
+                f"Protocol failure ({qid}): Final response invariant mismatch (hits={len(resp.hits)}, strategy={resp.strategy})"
+            )
             is_invalid = True
 
         b1b_hits = [
@@ -699,9 +888,6 @@ def run_b1b_verification_protocol(
 
         is_equiv = chunks_match and docs_match and scores_match
 
-        # Extract candidate count if available from trace
-        observed_cands = len(b1b_hits)
-
         case_res = CaseEquivalenceResult(
             question_id=qid,
             normalized_question=case.normalized_question,
@@ -713,15 +899,29 @@ def run_b1b_verification_protocol(
             score_diffs=score_diffs,
             max_score_diff=max_diff,
             is_equivalent=is_equiv,
-            observed_candidate_count=observed_cands,
-            route_plan=route_str_list,
+            observed_candidate_query={
+                "top_k": observed_cand_q.top_k if observed_cand_q else None,
+                "candidate_k": observed_cand_q.candidate_k if observed_cand_q else None,
+                "requested_strategy": observed_cand_q.requested_strategy.value if observed_cand_q and observed_cand_q.requested_strategy else None,
+            },
+            observed_fused_candidate_count=observed_fused_count,
+            observed_branch_candidate_depth=S20_BRANCH_CANDIDATE_DEPTH,
+            branch_depth_match=branch_depth_match,
+            candidate_query_match=candidate_query_match,
+            fusion_limit_match=fusion_limit_match,
+            final_topk_match=final_topk_match,
+            route_plan_match=route_plan_match,
+            route_plan=route_plan_dicts,
             warnings=resp.warnings,
         )
         case_results.append(case_res)
 
         case_record = {
             "question_id": qid,
-            "normalized_question": case.normalized_question,
+            "route_plan": route_plan_dicts,
+            "observed_candidate_query": case_res.observed_candidate_query,
+            "observed_fused_candidate_count": observed_fused_count,
+            "observed_branch_candidate_depth": S20_BRANCH_CANDIDATE_DEPTH,
             "b1b_final_hits": [asdict(h) for h in b1b_hits],
             "b1a2_expected_hits": [asdict(h) for h in expected_hits],
             "chunks_match": chunks_match,
@@ -729,7 +929,6 @@ def run_b1b_verification_protocol(
             "scores_match": scores_match,
             "max_score_diff": max_diff if max_diff != float("inf") else None,
             "is_equivalent": is_equiv,
-            "route_plan": route_str_list,
             "warnings": resp.warnings,
         }
         case_results_lines.append(json.dumps(case_record, ensure_ascii=False))
@@ -740,12 +939,17 @@ def run_b1b_verification_protocol(
             "chunks_match": chunks_match,
             "docs_match": docs_match,
             "scores_match": scores_match,
+            "route_plan_match": route_plan_match,
+            "candidate_query_match": candidate_query_match,
+            "fusion_limit_match": fusion_limit_match,
+            "branch_depth_match": branch_depth_match,
+            "final_topk_match": final_topk_match,
             "max_score_diff": max_diff if max_diff != float("inf") else None,
         }
         case_metrics_lines.append(json.dumps(case_metric, ensure_ascii=False))
 
         _LOGGER.info(
-            "Case [%d/%d] %s: equivalent=%s (chunks=%s, docs=%s, scores=%s, max_diff=%.7f)",
+            "Case [%d/%d] %s: equivalent=%s (chunks=%s, docs=%s, scores=%s, fused_cands=%d, max_diff=%.7f)",
             idx + 1,
             len(cases),
             qid,
@@ -753,6 +957,7 @@ def run_b1b_verification_protocol(
             chunks_match,
             docs_match,
             scores_match,
+            observed_fused_count,
             max_diff,
         )
 
@@ -764,8 +969,19 @@ def run_b1b_verification_protocol(
         ("\n".join(case_metrics_lines) + "\n").encode("utf-8")
     )
 
-    # 6. Evaluate verdict
-    if is_invalid or len(case_results) != len(cases):
+    # 6. Aggregate invariant counts
+    branch_depth_40_passes = sum(1 for cr in case_results if cr.branch_depth_match)
+    candidate_query_invariant_passes = sum(1 for cr in case_results if cr.candidate_query_match)
+    fusion_limit_passes = sum(1 for cr in case_results if cr.fusion_limit_match)
+    final_topk_passes = sum(1 for cr in case_results if cr.final_topk_match)
+    route_plan_passes = sum(1 for cr in case_results if cr.route_plan_match)
+    matching_count = sum(1 for cr in case_results if cr.is_equivalent)
+    chunk_matches_count = sum(1 for cr in case_results if cr.chunks_match)
+    doc_matches_count = sum(1 for cr in case_results if cr.docs_match)
+    score_passes_count = sum(1 for cr in case_results if cr.scores_match)
+
+    # 7. Evaluate verdict
+    if is_invalid or len(case_results) != len(cases) or retrieval_model_error_count > 0:
         verdict = "INVALID_EXPERIMENT"
     else:
         mismatches: list[str] = []
@@ -782,17 +998,21 @@ def run_b1b_verification_protocol(
         if mismatches:
             reasons.extend(mismatches)
             verdict = "B1B_EQUIVALENCE_FAIL"
-        else:
+        elif (
+            matching_count == len(cases)
+            and branch_depth_40_passes == len(cases)
+            and candidate_query_invariant_passes == len(cases)
+            and fusion_limit_passes == len(cases)
+            and final_topk_passes == len(cases)
+            and route_plan_passes == len(cases)
+        ):
             reasons.append(
                 f"All {len(cases)} relationship cases match frozen B1A.2 S20 hits exactly on chunk IDs, "
-                f"document IDs, and reranker scores (tolerance <= {SCORE_ABS_TOLERANCE}) against graphless runtime root."
+                f"document IDs, and reranker scores (tolerance <= {SCORE_ABS_TOLERANCE}) with 100% invariant passes."
             )
             verdict = "B1B_EQUIVALENCE_PASS"
-
-    matching_count = sum(1 for cr in case_results if cr.is_equivalent)
-    chunk_matches_count = sum(1 for cr in case_results if cr.chunks_match)
-    doc_matches_count = sum(1 for cr in case_results if cr.docs_match)
-    score_passes_count = sum(1 for cr in case_results if cr.scores_match)
+        else:
+            verdict = "INVALID_EXPERIMENT"
 
     report = {
         "experiment_id": "PHASE-B1B",
@@ -806,12 +1026,20 @@ def run_b1b_verification_protocol(
         "case_count": len(case_results),
         "verdict": verdict,
         "reasons": reasons,
+        "retrieval_model_error_count": retrieval_model_error_count,
         "equivalence_summary": {
             "exact_matches_count": matching_count,
             "chunk_sequence_matches_count": chunk_matches_count,
             "document_sequence_matches_count": doc_matches_count,
             "score_tolerance_passes_count": score_passes_count,
             "score_abs_tolerance": SCORE_ABS_TOLERANCE,
+        },
+        "aggregate_protocol_counts": {
+            "branch_depth_40_passes": branch_depth_40_passes,
+            "candidate_query_invariant_passes": candidate_query_invariant_passes,
+            "fusion_limit_passes": fusion_limit_passes,
+            "final_topk_passes": final_topk_passes,
+            "route_plan_passes": route_plan_passes,
         },
         "invariants": {
             "top_k": FINAL_TOP_K,
@@ -828,9 +1056,15 @@ def run_b1b_verification_protocol(
         "verdict": verdict,
         "reasons": reasons,
         "b1b_verified": (verdict == "B1B_EQUIVALENCE_PASS"),
+        "retrieval_model_error_count": retrieval_model_error_count,
         "summary": {
             "exact_matches": f"{matching_count}/{len(cases)}",
             "score_passes": f"{score_passes_count}/{len(cases)}",
+            "branch_depth_passes": f"{branch_depth_40_passes}/{len(cases)}",
+            "candidate_query_passes": f"{candidate_query_invariant_passes}/{len(cases)}",
+            "fusion_limit_passes": f"{fusion_limit_passes}/{len(cases)}",
+            "final_topk_passes": f"{final_topk_passes}/{len(cases)}",
+            "route_plan_passes": f"{route_plan_passes}/{len(cases)}",
         },
     }
 
@@ -852,6 +1086,8 @@ def run_b1b_verification_protocol(
         "manifest_sha256": manifest_sha,
         "development_sha256": questions_sha,
         "runtime_config_sha256": sha256_file(configs_dir / "runtime_config.json"),
+        "b1a2_results_sha256": b1a2_baseline.results_sha256,
+        "b1a2_execution_commit": b1a2_baseline.execution_git_commit,
     }
     (execution_dir / "b1b_execution_identity.json").write_text(
         json.dumps(execution_identity, ensure_ascii=False, indent=2) + "\n",
@@ -912,10 +1148,15 @@ def main() -> None:
     print("\n========================================================")
     print(f"PHASE B1B POST-CHANGE EQUIVALENCE VERDICT: {verdict}")
     print("========================================================")
-    print(f"Exact matches: {decision.get('summary', {}).get('exact_matches', 'N/A')}")
-    print(f"Evidence ZIP:  {zip_path}")
-    print(f"Evidence SHA:  {zip_sha}")
-    print(f"Evidence Size: {zip_size} bytes")
+    print(f"Exact matches:          {decision.get('summary', {}).get('exact_matches', 'N/A')}")
+    print(f"Score passes:           {decision.get('summary', {}).get('score_passes', 'N/A')}")
+    print(f"Branch depth passes:    {decision.get('summary', {}).get('branch_depth_passes', 'N/A')}")
+    print(f"Candidate query passes: {decision.get('summary', {}).get('candidate_query_passes', 'N/A')}")
+    print(f"Fusion limit passes:    {decision.get('summary', {}).get('fusion_limit_passes', 'N/A')}")
+    print(f"Route plan passes:      {decision.get('summary', {}).get('route_plan_passes', 'N/A')}")
+    print(f"Evidence ZIP:           {zip_path}")
+    print(f"Evidence SHA:           {zip_sha}")
+    print(f"Evidence Size:          {zip_size} bytes")
     print("========================================================\n")
 
 

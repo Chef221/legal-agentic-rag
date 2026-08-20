@@ -48,7 +48,7 @@ flowchart TD
 ```
 
 ### 2.1 Tool Surface Changes
-- **Removed**: `ToolName.GRAPH_SEARCH` (`"graph_search"`) from the online agent tool registry.
+- **Removed**: `ToolName.GRAPH_SEARCH` (`"graph_search"`) from active online agent capabilities and public descriptors.
 - **Added**: `ToolName.RELATIONSHIP_RERANK_SEARCH` (`"relationship_rerank_search"`).
 - **Public Strategy Preservation**: `relationship_rerank_search` emits `RetrievalStrategy.HYBRID_RERANK`. No new public strategy enum was added.
 
@@ -106,12 +106,15 @@ fi
 
 ACTUAL_COMMIT_SHA="$(git rev-parse HEAD)"
 echo "Verified Execution Commit: $ACTUAL_COMMIT_SHA"
-test -n "$ACTUAL_COMMIT_SHA"
+if [ "$REVIEWED_COMMIT_SHA" != "PLACEHOLDER_REVIEWED_COMMIT_SHA" ]; then
+    test "$ACTUAL_COMMIT_SHA" = "$REVIEWED_COMMIT_SHA"
+fi
 
-# 4. Install dependencies in editable mode
-pip install -q \
-  "torch==2.6.0" \
-  "transformers==4.49.0" \
+# 4. Uninstall incompatible torchao if present and install exact B1A.2 environment recipe
+pip uninstall -y torchao || true
+
+pip install --no-cache-dir \
+  "transformers==4.51.3" \
   "sentence-transformers==5.4.1" \
   "accelerate==1.6.0" \
   "nltk==3.7"
@@ -121,11 +124,19 @@ pip install --no-deps -e .
 python3 -c "
 import legal_agentic_rag
 import torch
+import transformers
+import sentence_transformers
 print('Package version:', legal_agentic_rag.__version__)
 assert legal_agentic_rag.__version__ == '0.50.7', f'Expected 0.50.7, got {legal_agentic_rag.__version__}'
+print('Torch version:', torch.__version__)
 print('CUDA available:', torch.cuda.is_available())
+print('CUDA runtime version:', torch.version.cuda)
 print('Device count:', torch.cuda.device_count())
+if torch.cuda.is_available():
+    print('GPU device name:', torch.cuda.get_device_name(0))
 assert torch.cuda.is_available(), 'CUDA is required for embedding and reranking'
+print('Transformers version:', transformers.__version__)
+print('Sentence-Transformers version:', sentence_transformers.__version__)
 "
 ```
 
@@ -136,6 +147,7 @@ assert torch.cuda.is_available(), 'CUDA is required for embedding and reranking'
 ```python
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 
 CANONICAL_DEV_SHA = "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
@@ -155,7 +167,7 @@ assert len(matching_devs) == 1, (
 dev_path = matching_devs[0]
 print(f"Found unique canonical development.json at: {dev_path}")
 
-# 2. Discover serving artifact root uniquely
+# 2. Discover serving artifact root uniquely satisfying full corpus validation
 val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
 if not val_candidates:
     val_candidates = list(Path("/kaggle/input").rglob("build_validation.json"))
@@ -163,34 +175,60 @@ if not val_candidates:
 valid_serving_roots = []
 for val_file in val_candidates:
     root = val_file.parent
-    if all((root / sub).is_dir() for sub in ["legal_chunks", "bm25", "vector"]):
+    if not all((root / sub).is_dir() for sub in ["legal_chunks", "bm25", "vector"]):
+        continue
+    try:
+        report = json.loads(val_file.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    dataset_manifest = report.get("dataset_manifest", {})
+    if (
+        report.get("is_valid") is True
+        and report.get("is_full_corpus") is True
+        and isinstance(dataset_manifest, dict)
+        and dataset_manifest.get("dataset_name") == "uit-dsc-2026-task2-selected-contexts"
+    ):
         valid_serving_roots.append(root)
 
-assert len(valid_serving_roots) >= 1, f"Expected valid serving root, found none in {val_candidates}"
+assert len(valid_serving_roots) == 1, (
+    f"Expected exactly 1 valid serving artifact root matching full corpus validation contract, "
+    f"found {len(valid_serving_roots)}: {valid_serving_roots}"
+)
 serving_root = valid_serving_roots[0]
-print(f"Found validated serving artifact root at: {serving_root}")
+print(f"Found unique validated serving artifact root at: {serving_root}")
 
-# 3. Discover Phase B1A.2 baseline evidence directory or zip
-b1a2_candidates = list(Path("/kaggle/input").rglob("*b1a2*")) + list(Path("/kaggle/input").rglob("phase-b1a2-graph-equivalence-evidence.zip"))
+# 3. Discover Phase B1A.2 baseline evidence directory or zip uniquely by canonical results SHA
 matching_b1a2 = []
-for cand in b1a2_candidates:
-    if cand.is_file() and cand.name == "phase-b1a2-graph-equivalence-evidence.zip":
-        matching_b1a2.append(cand)
-    elif cand.is_dir() and ((cand / "results" / "phase_b1a2_retrieval_results.jsonl").exists() or (cand / "phase_b1a2_retrieval_results.jsonl").exists()):
-        matching_b1a2.append(cand)
+for p in Path("/kaggle/input").rglob("*"):
+    if p.is_file() and p.name == "phase_b1a2_retrieval_results.jsonl":
+        if hashlib.sha256(p.read_bytes()).hexdigest() == CANONICAL_B1A2_RESULTS_SHA:
+            matching_b1a2.append(p.parents[1] if p.parent.name == "results" else p.parent)
+    elif p.is_file() and p.name.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(p, "r") as zf:
+                for member in zf.namelist():
+                    if member.endswith("phase_b1a2_retrieval_results.jsonl"):
+                        data = zf.read(member)
+                        if hashlib.sha256(data).hexdigest() == CANONICAL_B1A2_RESULTS_SHA:
+                            matching_b1a2.append(p)
+                            break
+        except Exception:
+            continue
 
-assert len(matching_b1a2) >= 1, f"Expected B1A.2 baseline evidence directory/zip, found none in {b1a2_candidates}"
+matching_b1a2 = list(dict.fromkeys(matching_b1a2))
+assert len(matching_b1a2) == 1, (
+    f"Expected exactly 1 verified B1A.2 baseline evidence root/zip with canonical results SHA {CANONICAL_B1A2_RESULTS_SHA}, "
+    f"found {len(matching_b1a2)}: {matching_b1a2}"
+)
 b1a2_evidence_root = matching_b1a2[0]
-print(f"Found verified B1A.2 baseline evidence at: {b1a2_evidence_root}")
+print(f"Found unique verified B1A.2 baseline evidence at: {b1a2_evidence_root}")
 ```
 
 ---
 
-### Cell B1B-K3 — Verify B1A.2 Provenance & Create Graphless Staging Root
+### Cell B1B-K3 — Create Graphless Staging Root
 
 ```python
-import subprocess
-import json
 import os
 import shutil
 from pathlib import Path
@@ -198,7 +236,7 @@ from pathlib import Path
 work_dir = Path("/kaggle/working")
 staging_root = work_dir / "graphless_staging_root"
 
-# Create graphless staging root (symlink valid components only)
+# Create graphless staging root (expose valid components only)
 staging_root.mkdir(parents=True, exist_ok=True)
 for item in serving_root.iterdir():
     if item.name in ("graph", "relationships"):
@@ -302,9 +340,18 @@ print("=" * 60)
 print(f"B1B Verified:             {decision['b1b_verified']}")
 print(f"Exact Matches:            {decision['summary']['exact_matches']} / 22")
 print(f"Score Tolerance Passes:   {decision['summary']['score_passes']} / 22")
+print(f"Branch Depth 40 Passes:   {decision['summary']['branch_depth_passes']} / 22")
+print(f"Candidate Query Passes:   {decision['summary']['candidate_query_passes']} / 22")
+print(f"Fusion Limit Passes:      {decision['summary']['fusion_limit_passes']} / 22")
+print(f"Final Top-K Passes:       {decision['summary']['final_topk_passes']} / 22")
+print(f"Route Plan Passes:        {decision['summary']['route_plan_passes']} / 22")
 
 print("\nEquivalence Summary:")
 for k, v in report.get("equivalence_summary", {}).items():
+    print(f"  {k}: {v}")
+
+print("\nAggregate Protocol Counts:")
+for k, v in report.get("aggregate_protocol_counts", {}).items():
     print(f"  {k}: {v}")
 
 print("\nReasons:")
