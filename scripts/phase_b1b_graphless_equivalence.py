@@ -253,9 +253,13 @@ def load_and_verify_b1a2_baseline(
                 f"B1A.2 run summary case_count ({summary_data.get('case_count')}) != {EXPECTED_CASE_COUNT}"
             )
 
-        # Check summary results SHA if recorded
-        summary_results_sha = summary_data.get("results_sha256") or summary_data.get("raw_results_sha256")
-        if summary_results_sha and summary_results_sha != CANONICAL_B1A2_RESULTS_SHA256:
+        # Check summary results SHA
+        if "results_sha256" not in summary_data or not summary_data["results_sha256"]:
+            raise DataValidationError(
+                "B1A.2 run summary missing mandatory 'results_sha256'"
+            )
+        summary_results_sha = str(summary_data["results_sha256"]).strip()
+        if summary_results_sha != CANONICAL_B1A2_RESULTS_SHA256:
             raise DataValidationError(
                 f"B1A.2 run summary results SHA mismatch: expected {CANONICAL_B1A2_RESULTS_SHA256}, got {summary_results_sha}"
             )
@@ -547,6 +551,109 @@ def compare_hit_lists(
     return chunks_match, docs_match, scores_match, score_diffs, max_diff
 
 
+def build_observed_relationship_retrieval_stack(
+    runtime_config: ApplicationConfig,
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
+) -> tuple[
+    RetrievalTool,
+    RecordingCandidateRetriever,
+    RecordingBranchRetriever,
+    RecordingBranchRetriever,
+]:
+    """Load BM25 and Vector backends from staging root and build observed retrieval stack."""
+    deep_validation = (
+        runtime_config.online.startup_validation.mode == "full"
+    )
+
+    # 1. Load BM25 manifest and instantiate/load SQLiteFTS5BM25Backend
+    bm25_dir = runtime_config.artifacts.directory("bm25_directory")
+    bm25_manifest = load_artifact_manifest(
+        bm25_dir,
+        expected_type=ArtifactType.BM25_INDEX,
+    )
+    bm25_backend = SQLiteFTS5BM25Backend(
+        runtime_config.offline.bm25,
+        runtime_config=runtime_config.online.bm25_runtime,
+        verify_integrity_on_load=deep_validation,
+    )
+    bm25_backend.load(bm25_dir, bm25_manifest)
+
+    # 2. Load Vector manifest and instantiate/load NumpyVectorBackend
+    vector_dir = runtime_config.artifacts.directory("vector_directory")
+    vector_manifest = load_artifact_manifest(
+        vector_dir,
+        expected_type=ArtifactType.VECTOR_INDEX,
+    )
+    vector_backend = NumpyVectorBackend(
+        runtime_config.offline.vector_index,
+        runtime_config=runtime_config.online.vector_runtime,
+        verify_integrity_on_load=deep_validation,
+        serving_metadata_source=runtime_config.artifacts.directory(
+            "vector_serving_directory"
+        ),
+    )
+    vector_backend.load(vector_dir, vector_manifest)
+
+    # 3. Instantiate EmbeddingProvider (SentenceTransformerEmbeddingProvider only takes EmbeddingConfig)
+    if embedding_provider is None:
+        embedding_provider = SentenceTransformerEmbeddingProvider(
+            runtime_config.offline.embedding
+        )
+
+    # Explicitly verify embedding provider compatibility with loaded vector artifact
+    meta = vector_manifest.metadata
+    expected_dim = meta.get("dimension")
+    if (
+        meta.get("embedding_provider_name") != embedding_provider.provider_name
+        or meta.get("embedding_provider_version") != embedding_provider.provider_version
+        or vector_manifest.model_name != embedding_provider.model_name
+        or vector_manifest.model_revision != embedding_provider.model_revision
+        or expected_dim != embedding_provider.dimension
+    ):
+        raise ArtifactCompatibilityError(
+            "Configured embedding provider is incompatible with vector artifact"
+        )
+
+    # 4. DenseRetriever
+    dense_retriever = DenseRetriever(embedding_provider, vector_backend)
+
+    # 5. Observational Branch Wrappers
+    recording_bm25 = RecordingBranchRetriever(bm25_backend)
+    recording_dense = RecordingBranchRetriever(dense_retriever)
+
+    # 6. HybridRetriever
+    hybrid_retriever = HybridRetriever(
+        bm25_retriever=recording_bm25,
+        dense_retriever=recording_dense,
+        config=runtime_config.online.retrieval,
+        query_understanding_config=runtime_config.online.query_understanding,
+    )
+
+    # 7. Observational Candidate Wrapper
+    recording_candidate = RecordingCandidateRetriever(hybrid_retriever)
+
+    # 8. Reranker & RelationshipSeedRerankingRetriever
+    if reranker is None:
+        reranker = CrossEncoderReranker(runtime_config.online.reranker)
+
+    relationship_reranker = RelationshipSeedRerankingRetriever(
+        candidate_retriever=recording_candidate,
+        reranker=reranker,
+        retrieval_config=runtime_config.online.retrieval,
+        reranker_config=runtime_config.online.reranker,
+    )
+
+    # 9. RetrievalTool
+    rel_tool = RetrievalTool(
+        name=ToolName.RELATIONSHIP_RERANK_SEARCH,
+        retriever=relationship_reranker,
+    )
+
+    return rel_tool, recording_candidate, recording_bm25, recording_dense
+
+
 def run_b1b_verification_protocol(
     config_path: Path,
     manifest_path: Path,
@@ -554,6 +661,9 @@ def run_b1b_verification_protocol(
     baseline_dir_or_zip: Path,
     output_dir: Path,
     staging_root: Path | None = None,
+    *,
+    embedding_provider: EmbeddingProvider | None = None,
+    reranker: Reranker | None = None,
 ) -> tuple[dict[str, object], dict[str, object], str]:
     """Execute the full B1B post-change verification protocol and determine mechanical verdict."""
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -670,7 +780,11 @@ def run_b1b_verification_protocol(
             encoding="utf-8",
         )
 
-        runtime = OnlineRuntimeFactory(runtime_config).build()
+        runtime = OnlineRuntimeFactory(
+            runtime_config,
+            embedding_provider=embedding_provider,
+            reranker=reranker,
+        ).build()
 
         # Check runtime manifests
         actual_manifest_types = set(runtime.manifests.keys())
@@ -720,38 +834,38 @@ def run_b1b_verification_protocol(
         return report, decision_report, "INVALID_EXPERIMENT"
 
     # 5. Build isolated retrieval execution stack with observational candidate recording
-    bm25_backend = SQLiteFTS5BM25Backend.load(resolved_staging / "bm25")
-    vector_backend = NumpyVectorBackend.load(resolved_staging / "vector")
-    embedding_provider = SentenceTransformerEmbeddingProvider(
-        runtime_config.offline.embedding,
-        runtime_config=runtime_config.online.vector_runtime,
-    )
-    dense_retriever = DenseRetriever(embedding_provider, vector_backend)
-
-    recording_bm25 = RecordingBranchRetriever(bm25_backend)
-    recording_dense = RecordingBranchRetriever(dense_retriever)
-
-    hybrid_retriever = HybridRetriever(
-        bm25_retriever=recording_bm25,
-        dense_retriever=recording_dense,
-        config=runtime_config.online.retrieval,
-        query_understanding_config=runtime_config.online.query_understanding,
-    )
-
-    recording_candidate = RecordingCandidateRetriever(hybrid_retriever)
-    reranker = CrossEncoderReranker(runtime_config.online.reranker)
-
-    relationship_reranker = RelationshipSeedRerankingRetriever(
-        candidate_retriever=recording_candidate,
-        reranker=reranker,
-        retrieval_config=runtime_config.online.retrieval,
-        reranker_config=runtime_config.online.reranker,
-    )
-
-    rel_tool = RetrievalTool(
-        name=ToolName.RELATIONSHIP_RERANK_SEARCH,
-        retriever=relationship_reranker,
-    )
+    try:
+        rel_tool, recording_candidate, recording_bm25, recording_dense = (
+            build_observed_relationship_retrieval_stack(
+                runtime_config,
+                embedding_provider=embedding_provider,
+                reranker=reranker,
+            )
+        )
+    except Exception as exc:
+        reasons.append(f"Retrieval stack construction failure: {exc}")
+        is_invalid = True
+        report = {
+            "experiment_id": "PHASE-B1B",
+            "verdict": "INVALID_EXPERIMENT",
+            "reasons": reasons,
+            "code_version": __version__,
+            "execution_git_commit": execution_commit,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        decision_report = {
+            "experiment_id": "PHASE-B1B",
+            "verdict": "INVALID_EXPERIMENT",
+            "reasons": reasons,
+            "b1b_verified": False,
+        }
+        (results_dir / "phase_b1b_equivalence_report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        (results_dir / "phase_b1b_decision_report.json").write_text(
+            json.dumps(decision_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return report, decision_report, "INVALID_EXPERIMENT"
 
     qu_service = QueryUnderstandingService(runtime_config.online.query_understanding)
     router = DeterministicStrategyRouter(

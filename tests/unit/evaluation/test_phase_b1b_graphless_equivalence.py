@@ -681,8 +681,8 @@ def test_23_end_to_end_mocked_protocol_execution_success(tmp_path: Path) -> None
 
     with patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_B1A2_RESULTS_SHA256", real_b1a2_sha), \
          patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
-         patch("legal_agentic_rag.indexing.bm25.SQLiteFTS5BM25Backend.load") as mock_bm25_load, \
-         patch("legal_agentic_rag.indexing.vector.NumpyVectorBackend.load") as mock_vec_load, \
+         patch("scripts.phase_b1b_graphless_equivalence.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.NumpyVectorBackend") as mock_vec_cls, \
          patch("scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider", return_value=mock_emb), \
          patch("scripts.phase_b1b_graphless_equivalence.CrossEncoderReranker", return_value=mock_rerank), \
          patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory.build") as mock_runtime_build, \
@@ -720,7 +720,7 @@ def test_23_end_to_end_mocked_protocol_execution_success(tmp_path: Path) -> None
         ]
         mock_runtime_build.return_value = mock_rt
 
-        # Mock backends for retrieval execution
+        # Mock backend instances for retrieval execution
         mock_b = MagicMock()
         mock_b.source_artifact_identity = ("legal_chunks", "1.0", "hash")
         def _mock_bm25_search(q):
@@ -735,7 +735,7 @@ def test_23_end_to_end_mocked_protocol_execution_success(tmp_path: Path) -> None
                 latency_ms=1.0,
             )
         mock_b.search.side_effect = _mock_bm25_search
-        mock_bm25_load.return_value = mock_b
+        mock_bm25_cls.return_value = mock_b
 
         mock_v = MagicMock()
         mock_v.source_artifact_identity = ("legal_chunks", "1.0", "hash")
@@ -756,7 +756,7 @@ def test_23_end_to_end_mocked_protocol_execution_success(tmp_path: Path) -> None
                 latency_ms=1.0,
             )
         mock_v.search.side_effect = _mock_dense_search
-        mock_vec_load.return_value = mock_v
+        mock_vec_cls.return_value = mock_v
 
         report, decision, verdict = run_b1b_verification_protocol(
             config_path=config_path,
@@ -789,9 +789,27 @@ def test_24_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
         (ArtifactType.BM25_INDEX, "bm25"),
         (ArtifactType.VECTOR_INDEX, "vector"),
     ):
-        meta = {"payload_file": "chunks.jsonl", "payload_sha256": empty_sha} if atype == ArtifactType.LEGAL_CHUNKS else {
-            "source_artifact_type": "legal_chunks", "source_artifact_version": "1.0", "source_processing_config_hash": "hash"
-        }
+        model_name = None
+        model_revision = None
+        if atype == ArtifactType.LEGAL_CHUNKS:
+            meta = {"payload_file": "chunks.jsonl", "payload_sha256": empty_sha}
+        elif atype == ArtifactType.VECTOR_INDEX:
+            meta = {
+                "source_artifact_type": "legal_chunks",
+                "source_artifact_version": "1.0",
+                "source_processing_config_hash": "hash",
+                "dimension": 384,
+                "embedding_provider_name": "test_emb",
+                "embedding_provider_version": "1.0",
+            }
+            model_name = "test_model"
+            model_revision = "rev"
+        else:
+            meta = {
+                "source_artifact_type": "legal_chunks",
+                "source_artifact_version": "1.0",
+                "source_processing_config_hash": "hash",
+            }
         manifest = ArtifactManifest(
             schema_version="1.0",
             artifact_type=atype,
@@ -802,6 +820,8 @@ def test_24_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
             created_at=datetime.now(UTC),
             processing_config_hash="hash",
             code_version="0.50.7",
+            model_name=model_name,
+            model_revision=model_revision,
             metadata=meta,
         )
         (source_root / dirname / "manifest.json").write_text(
@@ -829,12 +849,33 @@ def test_24_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
 
     with patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_B1A2_RESULTS_SHA256", real_b1a2_sha), \
          patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
-         patch("legal_agentic_rag.indexing.bm25.SQLiteFTS5BM25Backend.load"), \
-         patch("legal_agentic_rag.indexing.vector.NumpyVectorBackend.load"), \
-         patch("scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider"), \
+         patch("scripts.phase_b1b_graphless_equivalence.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.NumpyVectorBackend") as mock_vec_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider") as mock_emb_cls, \
          patch("scripts.phase_b1b_graphless_equivalence.CrossEncoderReranker"), \
          patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory.build") as mock_runtime_build, \
          patch("legal_agentic_rag.tools.retrieval.RetrievalTool.invoke", side_effect=RuntimeError("CUDA out of memory")):
+
+        mock_b = MagicMock()
+        mock_b.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_bm25_cls.return_value = mock_b
+
+        mock_v = MagicMock()
+        mock_v.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_v.embedding_provider_name = "test_emb"
+        mock_v.embedding_provider_version = "1.0"
+        mock_v.model_name = "test_model"
+        mock_v.model_revision = "rev"
+        mock_v.dimension = 384
+        mock_vec_cls.return_value = mock_v
+
+        mock_emb = MagicMock()
+        mock_emb.provider_name = "test_emb"
+        mock_emb.provider_version = "1.0"
+        mock_emb.model_name = "test_model"
+        mock_emb.model_revision = "rev"
+        mock_emb.dimension = 384
+        mock_emb_cls.return_value = mock_emb
 
         mock_rt = MagicMock()
         mock_rt.manifests = {
@@ -879,3 +920,141 @@ def test_24_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
         assert decision["verdict"] == "INVALID_EXPERIMENT"
         assert decision["b1b_verified"] is False
         assert report["retrieval_model_error_count"] > 0
+
+
+def test_25_build_observed_relationship_retrieval_stack_real_signatures(tmp_path: Path) -> None:
+    from scripts.phase_b1b_graphless_equivalence import (
+        build_observed_relationship_retrieval_stack,
+    )
+
+    staging_root = tmp_path / "staging"
+    bm25_dir = staging_root / "bm25"
+    vector_dir = staging_root / "vector"
+    bm25_dir.mkdir(parents=True)
+    vector_dir.mkdir(parents=True)
+
+    bm25_manifest = ArtifactManifest(
+        schema_version="1.0",
+        artifact_type=ArtifactType.BM25_INDEX,
+        artifact_version="1.0",
+        dataset_name="uit-dsc-2026-task2-selected-contexts",
+        dataset_revision="canonical",
+        record_count=10,
+        created_at=datetime.now(UTC),
+        processing_config_hash="hash",
+        code_version="0.50.7",
+        metadata={
+            "source_artifact_type": "legal_chunks",
+            "source_artifact_version": "1.0",
+            "source_processing_config_hash": "hash",
+        },
+    )
+    (bm25_dir / "manifest.json").write_text(bm25_manifest.model_dump_json(), encoding="utf-8")
+
+    vector_manifest = ArtifactManifest(
+        schema_version="1.0",
+        artifact_type=ArtifactType.VECTOR_INDEX,
+        artifact_version="1.0",
+        dataset_name="uit-dsc-2026-task2-selected-contexts",
+        dataset_revision="canonical",
+        record_count=10,
+        created_at=datetime.now(UTC),
+        processing_config_hash="hash",
+        code_version="0.50.7",
+        model_name="test_model",
+        model_revision="rev",
+        metadata={
+            "source_artifact_type": "legal_chunks",
+            "source_artifact_version": "1.0",
+            "source_processing_config_hash": "hash",
+            "dimension": 384,
+            "embedding_provider_name": "sentence-transformers",
+            "embedding_provider_version": "1.0",
+        },
+    )
+    (vector_dir / "manifest.json").write_text(vector_manifest.model_dump_json(), encoding="utf-8")
+
+    config = ApplicationConfig(
+        artifacts=ArtifactConfig(root_path=staging_root),
+        online=OnlineConfig(),
+    )
+
+    with patch("scripts.phase_b1b_graphless_equivalence.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.NumpyVectorBackend") as mock_vec_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider") as mock_emb_cls, \
+         patch("scripts.phase_b1b_graphless_equivalence.CrossEncoderReranker") as mock_rerank_cls:
+
+        mock_bm25_inst = MagicMock()
+        mock_bm25_inst.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_bm25_cls.return_value = mock_bm25_inst
+
+        mock_vec_inst = MagicMock()
+        mock_vec_inst.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_vec_inst.embedding_provider_name = "sentence-transformers"
+        mock_vec_inst.embedding_provider_version = "1.0"
+        mock_vec_inst.model_name = "test_model"
+        mock_vec_inst.model_revision = "rev"
+        mock_vec_inst.dimension = 384
+        mock_vec_cls.return_value = mock_vec_inst
+
+        mock_emb_inst = MagicMock()
+        mock_emb_inst.provider_name = "sentence-transformers"
+        mock_emb_inst.provider_version = "1.0"
+        mock_emb_inst.model_name = "test_model"
+        mock_emb_inst.model_revision = "rev"
+        mock_emb_inst.dimension = 384
+        mock_emb_cls.return_value = mock_emb_inst
+
+        mock_rerank_inst = MagicMock()
+        mock_rerank_inst.model_name = "test_reranker"
+        mock_rerank_cls.return_value = mock_rerank_inst
+
+        rel_tool, rec_cand, rec_bm25, rec_dense = build_observed_relationship_retrieval_stack(config)
+
+        # 1. Assert BM25 backend instantiated first with valid config, then instance.load(dir, manifest)
+        mock_bm25_cls.assert_called_once()
+        assert mock_bm25_cls.call_args[0] == (config.offline.bm25,)
+        assert mock_bm25_cls.call_args[1]["runtime_config"] == config.online.bm25_runtime
+        mock_bm25_inst.load.assert_called_once_with(bm25_dir, bm25_manifest)
+
+        # 2. Assert Vector backend instantiated first with valid config, then instance.load(dir, manifest)
+        mock_vec_cls.assert_called_once()
+        assert mock_vec_cls.call_args[0] == (config.offline.vector_index,)
+        assert mock_vec_cls.call_args[1]["runtime_config"] == config.online.vector_runtime
+        assert mock_vec_cls.call_args[1]["serving_metadata_source"] == staging_root / "vector_serving"
+        mock_vec_inst.load.assert_called_once_with(vector_dir, vector_manifest)
+
+        # 3. Assert SentenceTransformerEmbeddingProvider receives ONLY EmbeddingConfig (no runtime_config)
+        mock_emb_cls.assert_called_once_with(config.offline.embedding)
+
+        # 4. Assert observational wrappers are configured
+        assert isinstance(rec_bm25, RecordingBranchRetriever)
+        assert rec_bm25._inner is mock_bm25_inst
+        assert isinstance(rec_dense, RecordingBranchRetriever)
+        assert isinstance(rec_cand, RecordingCandidateRetriever)
+        assert rel_tool.name == ToolName.RELATIONSHIP_RERANK_SEARCH
+
+
+def test_26_missing_b1a2_summary_results_sha_rejected(tmp_path: Path) -> None:
+    base_dir = tmp_path / "b1a2_no_results_sha"
+    _build_dummy_b1a2_baseline(base_dir)
+
+    summary_path = base_dir / "evidence" / "phase_b1a2_run_summary.json"
+    summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+    del summary_data["results_sha256"]
+    summary_path.write_text(json.dumps(summary_data), encoding="utf-8")
+
+    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+    with patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
+        with pytest.raises(DataValidationError, match="missing mandatory 'results_sha256'"):
+            load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
+
+
+def test_27_wrong_b1a2_summary_results_sha_rejected(tmp_path: Path) -> None:
+    base_dir = tmp_path / "b1a2_wrong_results_sha"
+    _build_dummy_b1a2_baseline(base_dir, summary_override={"results_sha256": "0" * 64})
+
+    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+    with patch("scripts.phase_b1b_graphless_equivalence.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
+        with pytest.raises(DataValidationError, match="results SHA mismatch"):
+            load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
