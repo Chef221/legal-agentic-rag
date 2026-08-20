@@ -613,7 +613,7 @@ The controlled offline benchmark comparing the deterministic `RuleBasedCitationV
 | **Package Version** | `0.50.7` |
 | **V1 Model** | `Qwen/Qwen2.5-3B-Instruct` |
 | **Model Revision** | `a1d308dfcc03e09da285d49d912439a655a571e8` |
-| **Provider** | `TransformersChatProvider` (`transformers==4.47.1`, `torch==2.11.0+cpu`/CUDA) |
+| **Provider** | `TransformersChatProvider` (`transformers==4.47.1`, `torch==2.10.0+cu128`) |
 | **Execution Hardware** | Tesla T4 / CUDA |
 | **Repeat Count** | `2` (Pass 1 = Metrics, Pass 2 = Deterministic Stability) |
 | **Execution Health** | `0` model errors, `2` structured output retries |
@@ -651,12 +651,12 @@ The controlled offline benchmark comparing the deterministic `RuleBasedCitationV
 | Human Truth $\backslash$ V1 Predicted | SUPPORTED | CONTRADICTED | INSUFFICIENT | Human Total | Class Recall | Class Precision | Class F1 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **SUPPORTED** | **16** | 1 | 1 | 18 | `88.89%` | `55.17%` | `0.6809` |
-| **CONTRADICTED** | 5 | **1** | 1 | 7 | `14.29%` | `33.33%` | `0.2000` |
-| **INSUFFICIENT** | 8 | 1 | **4** | 13 | `30.77%` | `66.67%` | `0.4211` |
+| **CONTRADICTED** | 3 | **1** | 3 | 7 | `14.29%` | `33.33%` | `0.2000` |
+| **INSUFFICIENT** | 10 | 1 | **2** | 13 | `15.38%` | `33.33%` | `0.2105` |
 | **Predicted Total** | 29 | 3 | 6 | **38** | — | — | — |
-| **Macro Average** | — | — | — | — | **`44.65%`** | **`51.72%`** | **`0.4340`** |
+| **Macro Average** | — | — | — | — | **`39.52%`** | **`40.61%`** | **`0.3638`** |
 
-*Overall Three-Way Accuracy*: **`55.26%`** ($21/38$).
+*Overall Three-Way Accuracy*: **`50.00%`** ($19/38$).
 
 #### 3. Paired Claim-Level Deltas (V0 vs V1)
 
@@ -719,7 +719,7 @@ Evaluating V1 negative-claim catch rates across the frozen forensic error tags r
 #### Technical Rationale:
 1. **Material but Insufficient Gain**: While V1 improves net claim correctness by $+5$ claims and increases invalid answer catch rate from $0.0\%$ to $46.67\%$, it still allows **$65.0\%$ of negative claims** ($13/20$) and **$53.33\%$ of invalid answers** ($8/15$) to pass through undetected into production output.
 2. **Supported Claim Regressions**: V1 introduces $2$ false rejections out of $18$ valid human claims ($11.11\%$ regression rate on gold supported text), risking unnecessary abstentions or retries on correct legal answers.
-3. **Weak Fine-Grained Discrimination**: Three-way classification recall on negative claims is severely deficient (`CONTRADICTED` recall is $14.29\%$, `INSUFFICIENT` recall is $30.77\%$), indicating the model frequently defaults to predicting `SUPPORTED` whenever topical vocabulary overlaps.
+3. **Weak Fine-Grained Discrimination**: Three-way classification recall on negative claims is severely deficient (`CONTRADICTED` recall is $14.29\%$, `INSUFFICIENT` recall is $15.38\%$), indicating the model frequently defaults to predicting `SUPPORTED` whenever topical vocabulary overlaps.
 4. **Blindness to Critical Legal Failure Modes**: V1 exhibited a $0.0\%$ catch rate on condition omissions/inversions, wrong-article miscitations, and quantity/duration errors, and only $12.5\%$ on scope overgeneralizations.
 5. **Fail-Closed Principle**: In a legal question-answering system, hallucinated conditions or misattributed articles can cause severe legal misinformation. An unproven semantic verifier cannot be enabled in production.
 
@@ -730,10 +730,12 @@ Evaluating V1 negative-claim catch rates across the frozen forensic error tags r
 The 38-claim benchmark served its primary purpose: providing an unbiased, un-overfitted evaluation of the pre-existing V1 implementation.
 
 > [!IMPORTANT]
-> **Post-Evaluation Role Transition**:
+> **Post-Evaluation Role Transition & Usage Constraints**:
 > - Role: `verification_benchmark_v1_role = "development_after_first_evaluation"`.
 > - Because empirical error modes, per-claim predictions, and failure tags are now fully exposed, **the composite 38-claim dataset is permanently classified as DEVELOPMENT DATA**.
-> - If prompt engineering, few-shot examples, fine-tuning, threshold adjustments, or post-processing rules are developed targeting these failure modes, the 38 claims **MUST NOT** be used as final promotion evidence for the tuned V2 system.
+> - It may be used for diagnostic forensic analysis and verifier-development evaluation under its frozen usage policy.
+> - Its human labels remain strictly prohibited for training, fine-tuning, retrieval relevance supervision, public/private test annotation, and manual submission correction unless a separate explicit governance decision changes that policy.
+> - If prompt engineering, few-shot examples, threshold adjustments, or post-processing rules are developed targeting these failure modes, the 38 claims **MUST NOT** be used as final promotion evidence for the tuned V2 system.
 > - Final promotion of any future V2 verifier strictly requires an independently sampled, previously unseen **Fresh Holdout**.
 
 ---
