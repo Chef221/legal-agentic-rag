@@ -445,9 +445,9 @@ class V2D2DevelopmentBenchmarkEvaluator:
         stability_info = self._evaluate_stability(v2_passes_claim_preds)
 
         # 10. Determine Canonical Verdict Precedence
-        if model_error_count > 0:
+        if model_error_count > 0 or stability_info["execution_error_in_any_pass_count"] > 0:
             verdict = "V2_DEVELOPMENT_EXECUTION_ERROR"
-        elif stability_info["unstable_claim_count"] > 0:
+        elif stability_info["unstable_semantic_claim_count"] > 0:
             verdict = "V2_DEVELOPMENT_LABEL_INSTABILITY"
         else:
             verdict = "V2_DEVELOPMENT_BENCHMARK_PASS"
@@ -1211,12 +1211,23 @@ class V2D2DevelopmentBenchmarkEvaluator:
     def _evaluate_stability(
         self, passes_preds: list[list[dict[str, Any]]]
     ) -> dict[str, Any]:
-        """Compute two-pass label agreement and record any unstable claims."""
+        """Compute two-pass label agreement distinguishing valid semantic labels from execution errors."""
+        total_claims = len(passes_preds[0]) if passes_preds else 0
         if len(passes_preds) < 2:
             return {
+                "total_claims": total_claims,
+                "claims_with_two_valid_semantic_labels": total_claims,
+                "stable_semantic_claim_count": total_claims,
+                "unstable_semantic_claim_count": 0,
+                "successful_label_stability_percentage": 100.0,
                 "label_stability_percentage": 100.0,
                 "unstable_claim_count": 0,
+                "pass1_execution_error_count": 0,
+                "pass2_execution_error_count": 0,
+                "execution_error_in_any_pass_count": 0,
+                "repeated_execution_error_claim_count": 0,
                 "unstable_claims": [],
+                "execution_error_claims": [],
             }
 
         pass1_map = {
@@ -1228,16 +1239,32 @@ class V2D2DevelopmentBenchmarkEvaluator:
             for r in passes_preds[1]
         }
 
+        claims_with_two_valid_labels = 0
+        stable_semantic_count = 0
+        unstable_semantic_count = 0
+        pass1_exec_error_count = 0
+        pass2_exec_error_count = 0
+        exec_error_in_any_pass_count = 0
+        repeated_exec_error_count = 0
+
         unstable_claims: list[dict[str, Any]] = []
-        matching_count = 0
-        total_claims = len(pass1_map)
+        execution_error_claims: list[dict[str, Any]] = []
 
         for key, p1_val in pass1_map.items():
-            p2_val = pass2_map.get(key)
-            if p1_val == p2_val:
-                matching_count += 1
-            else:
-                unstable_claims.append(
+            p2_val = pass2_map.get(key, "EXECUTION_ERROR")
+            p1_err = p1_val in ("EXECUTION_ERROR", BinaryPrediction.EXECUTION_ERROR.value)
+            p2_err = p2_val in ("EXECUTION_ERROR", BinaryPrediction.EXECUTION_ERROR.value)
+
+            if p1_err:
+                pass1_exec_error_count += 1
+            if p2_err:
+                pass2_exec_error_count += 1
+
+            if p1_err or p2_err:
+                exec_error_in_any_pass_count += 1
+                if p1_err and p2_err:
+                    repeated_exec_error_count += 1
+                execution_error_claims.append(
                     {
                         "question_id": key[0],
                         "arm_id": key[1],
@@ -1246,12 +1273,41 @@ class V2D2DevelopmentBenchmarkEvaluator:
                         "pass2_prediction": p2_val,
                     }
                 )
+            else:
+                claims_with_two_valid_labels += 1
+                if p1_val == p2_val:
+                    stable_semantic_count += 1
+                else:
+                    unstable_semantic_count += 1
+                    unstable_claims.append(
+                        {
+                            "question_id": key[0],
+                            "arm_id": key[1],
+                            "claim_id": key[2],
+                            "pass1_prediction": p1_val,
+                            "pass2_prediction": p2_val,
+                        }
+                    )
 
-        pct = (matching_count / total_claims * 100.0) if total_claims else 100.0
+        pct = (
+            (stable_semantic_count / claims_with_two_valid_labels * 100.0)
+            if claims_with_two_valid_labels
+            else 0.0
+        )
         return {
+            "total_claims": total_claims,
+            "claims_with_two_valid_semantic_labels": claims_with_two_valid_labels,
+            "stable_semantic_claim_count": stable_semantic_count,
+            "unstable_semantic_claim_count": unstable_semantic_count,
+            "successful_label_stability_percentage": round(pct, 2),
             "label_stability_percentage": round(pct, 2),
-            "unstable_claim_count": len(unstable_claims),
+            "unstable_claim_count": unstable_semantic_count,
+            "pass1_execution_error_count": pass1_exec_error_count,
+            "pass2_execution_error_count": pass2_exec_error_count,
+            "execution_error_in_any_pass_count": exec_error_in_any_pass_count,
+            "repeated_execution_error_claim_count": repeated_exec_error_count,
             "unstable_claims": unstable_claims,
+            "execution_error_claims": execution_error_claims,
         }
 
     def _compute_all_metrics(
@@ -1473,6 +1529,8 @@ class V2D2DevelopmentBenchmarkEvaluator:
         v2_fixes_count = 0
         v2_regressions_count = 0
         v2_exec_error_count = 0
+        semantic_regressions_count = 0
+        execution_error_regressions_count = 0
 
         for t in targets:
             k = (t.question_id, t.arm_id, t.claim_id)
@@ -1487,6 +1545,10 @@ class V2D2DevelopmentBenchmarkEvaluator:
             elif v1_c and not v2_c:
                 v1_only_correct += 1
                 v2_regressions_count += 1
+                if v2_err:
+                    execution_error_regressions_count += 1
+                else:
+                    semantic_regressions_count += 1
             elif not v1_c and v2_c:
                 v2_only_correct += 1
                 v2_fixes_count += 1
@@ -1502,6 +1564,8 @@ class V2D2DevelopmentBenchmarkEvaluator:
             "net_correctness_delta": net_delta,
             "v2_fixes_count": v2_fixes_count,
             "v2_regressions_count": v2_regressions_count,
+            "semantic_regressions_count": semantic_regressions_count,
+            "execution_error_regressions_count": execution_error_regressions_count,
             "v2_execution_error_count": v2_exec_error_count,
         }
 
@@ -1540,13 +1604,21 @@ class V2D2DevelopmentBenchmarkEvaluator:
 
         return {
             "total_answers": total_arms,
+            "evaluated_answers": total_arms,
+            "execution_error_answers": 0,
             "valid_ground_truth_answers": gold_valid_count,
-            "valid_answers_retained": valid_retained,
-            "valid_answer_retention_rate": round(valid_retention_rate, 4),
             "invalid_ground_truth_answers": gold_invalid_count,
+            "evaluated_valid_ground_truth_answers": gold_valid_count,
+            "evaluated_invalid_ground_truth_answers": gold_invalid_count,
+            "valid_answers_retained": valid_retained,
             "invalid_answers_caught": invalid_caught,
+            "valid_answer_retention_rate": round(valid_retention_rate, 4),
+            "evaluated_valid_answer_retention_rate": round(valid_retention_rate, 4),
             "invalid_answer_catch_rate": round(invalid_catch_rate, 4),
+            "evaluated_invalid_answer_catch_rate": round(invalid_catch_rate, 4),
             "answer_level_accuracy": round(accuracy, 4),
+            "evaluated_answer_accuracy": round(accuracy, 4),
+            "full_denominator_answer_accuracy": round(accuracy, 4),
             "execution_errors": 0,
         }
 
@@ -1562,56 +1634,93 @@ class V2D2DevelopmentBenchmarkEvaluator:
         for p in claim_preds:
             preds_by_arm[(p["question_id"], p["arm_id"])].append(p)
 
-        valid_retained = 0
-        invalid_caught = 0
-        gold_valid_count = 0
-        gold_invalid_count = 0
-        correct_arms = 0
         total_arms = len(arm_targets)
-        exec_errors = 0
+        execution_error_answers = 0
+        evaluated_correct_answers = 0
+        valid_answers_retained = 0
+        invalid_answers_caught = 0
+        evaluated_valid_ground_truth = 0
+        evaluated_invalid_ground_truth = 0
+        total_valid_ground_truth = 0
+        total_invalid_ground_truth = 0
 
         for arm in arm_targets:
             key = (arm.question_id, arm.arm_id)
             c_preds = preds_by_arm.get(key, [])
             gold_valid = all(c.human_label == HumanEntailment.SUPPORTED for c in arm.claims)
 
-            has_exec_err = any(
-                p.get(pred_key) in ("EXECUTION_ERROR", BinaryPrediction.EXECUTION_ERROR.value)
-                for p in c_preds
-            )
-            if has_exec_err:
-                exec_errors += 1
-                pred_valid = False
+            if gold_valid:
+                total_valid_ground_truth += 1
             else:
-                pred_valid = bool(c_preds) and all(
-                    p.get(pred_key) == supported_val for p in c_preds
+                total_invalid_ground_truth += 1
+
+            has_exec_err = (
+                not c_preds
+                or any(
+                    p.get(pred_key) in ("EXECUTION_ERROR", BinaryPrediction.EXECUTION_ERROR.value)
+                    for p in c_preds
                 )
+            )
+
+            if has_exec_err:
+                execution_error_answers += 1
+                # Fail-closed: execution errors do NOT count toward valid retained, invalid caught, or correct answers
+                continue
+
+            # Successfully evaluated arm
+            pred_valid = all(p.get(pred_key) == supported_val for p in c_preds)
 
             if gold_valid:
-                gold_valid_count += 1
+                evaluated_valid_ground_truth += 1
                 if pred_valid:
-                    valid_retained += 1
-                    correct_arms += 1
+                    valid_answers_retained += 1
+                    evaluated_correct_answers += 1
             else:
-                gold_invalid_count += 1
+                evaluated_invalid_ground_truth += 1
                 if not pred_valid:
-                    invalid_caught += 1
-                    correct_arms += 1
+                    invalid_answers_caught += 1
+                    evaluated_correct_answers += 1
 
-        valid_retention_rate = valid_retained / gold_valid_count if gold_valid_count else 0.0
-        invalid_catch_rate = invalid_caught / gold_invalid_count if gold_invalid_count else 0.0
-        accuracy = correct_arms / total_arms if total_arms else 0.0
+        evaluated_answers = total_arms - execution_error_answers
+        valid_retention_rate = (
+            valid_answers_retained / evaluated_valid_ground_truth
+            if evaluated_valid_ground_truth
+            else 0.0
+        )
+        invalid_catch_rate = (
+            invalid_answers_caught / evaluated_invalid_ground_truth
+            if evaluated_invalid_ground_truth
+            else 0.0
+        )
+        evaluated_accuracy = (
+            evaluated_correct_answers / evaluated_answers
+            if evaluated_answers
+            else 0.0
+        )
+        full_accuracy = (
+            evaluated_correct_answers / total_arms
+            if total_arms
+            else 0.0
+        )
 
         return {
             "total_answers": total_arms,
-            "valid_ground_truth_answers": gold_valid_count,
-            "valid_answers_retained": valid_retained,
+            "evaluated_answers": evaluated_answers,
+            "execution_error_answers": execution_error_answers,
+            "valid_ground_truth_answers": total_valid_ground_truth,
+            "invalid_ground_truth_answers": total_invalid_ground_truth,
+            "evaluated_valid_ground_truth_answers": evaluated_valid_ground_truth,
+            "evaluated_invalid_ground_truth_answers": evaluated_invalid_ground_truth,
+            "valid_answers_retained": valid_answers_retained,
+            "invalid_answers_caught": invalid_answers_caught,
             "valid_answer_retention_rate": round(valid_retention_rate, 4),
-            "invalid_ground_truth_answers": gold_invalid_count,
-            "invalid_answers_caught": invalid_caught,
+            "evaluated_valid_answer_retention_rate": round(valid_retention_rate, 4),
             "invalid_answer_catch_rate": round(invalid_catch_rate, 4),
-            "answer_level_accuracy": round(accuracy, 4),
-            "execution_errors": exec_errors,
+            "evaluated_invalid_answer_catch_rate": round(invalid_catch_rate, 4),
+            "answer_level_accuracy": round(evaluated_accuracy, 4),
+            "evaluated_answer_accuracy": round(evaluated_accuracy, 4),
+            "full_denominator_answer_accuracy": round(full_accuracy, 4),
+            "execution_errors": execution_error_answers,
         }
 
     def _compute_dimension_diagnostics(
@@ -1650,6 +1759,7 @@ class V2D2DevelopmentBenchmarkEvaluator:
         rejection_categories = Counter()
         total_retries = 0
         claims_with_exec_error = 0
+        successfully_structured_claims = 0
 
         for t in targets:
             k = (t.question_id, t.arm_id, t.claim_id)
@@ -1663,9 +1773,11 @@ class V2D2DevelopmentBenchmarkEvaluator:
             total_retries += telemetry.get("retry_count", 0)
             for cat in telemetry.get("draft_rejection_categories", []):
                 rejection_categories[cat] += 1
-            if telemetry.get("semantic_execution_error"):
+            if telemetry.get("semantic_execution_error") or pred.get("v2_d2_binary_prediction") == BinaryPrediction.EXECUTION_ERROR.value:
                 claims_with_exec_error += 1
+                continue
 
+            successfully_structured_claims += 1
             for dim in (
                 "actor_role",
                 "action_object",
@@ -1681,6 +1793,9 @@ class V2D2DevelopmentBenchmarkEvaluator:
                     tag_breakdown[tag][dim][val] += 1
 
         return {
+            "total_claims": len(targets),
+            "successfully_structured_claim_count": successfully_structured_claims,
+            "execution_error_claim_count": claims_with_exec_error,
             "global_dimension_counts": {dim: dict(cnt) for dim, cnt in global_counts.items()},
             "per_error_tag_dimension_breakdown": {
                 tag: {dim: dict(cnt) for dim, cnt in dims.items()}
@@ -1793,16 +1908,27 @@ class V2D2DevelopmentBenchmarkEvaluator:
         v2_correct = v2_binary["tp"] + v2_binary["tn"]
         v1_correct = v1_binary["tp"] + v1_binary["tn"]
 
+        v2_binary_exec_err = v2_binary.get("execution_errors", 0)
+        v2_three_way_exec_err = metrics_report.get("v2_d2_three_way", {}).get("execution_errors", 0)
+
         # Strict Freeze Eligibility Criteria:
-        # - model_errors == 0
-        # - unstable_claims == 0
-        # - v2_correct > 23 (canonical V1)
-        # - v2_negative_caught > 7 (canonical V1)
-        # - v2_supported_retained >= 16 (canonical V1)
-        # - paired net correctness delta > 0
+        # 1. verdict == "V2_DEVELOPMENT_BENCHMARK_PASS"
+        # 2. model_error_count == 0
+        # 3. stability_info["execution_error_in_any_pass_count"] == 0
+        # 4. stability_info["unstable_semantic_claim_count"] == 0
+        # 5. v2_binary_exec_err == 0
+        # 6. v2_three_way_exec_err == 0
+        # 7. v2_correct > 23 (canonical V1)
+        # 8. v2_negative_caught > 7 (canonical V1)
+        # 9. v2_supported_retained >= 16 (canonical V1)
+        # 10. paired net correctness delta > 0
         freeze_eligible = (
-            model_error_count == 0
-            and stability_info["unstable_claim_count"] == 0
+            verdict == "V2_DEVELOPMENT_BENCHMARK_PASS"
+            and model_error_count == 0
+            and stability_info.get("execution_error_in_any_pass_count", 0) == 0
+            and stability_info.get("unstable_semantic_claim_count", 0) == 0
+            and v2_binary_exec_err == 0
+            and v2_three_way_exec_err == 0
             and v2_correct > 23
             and v2_binary["tn"] > 7
             and v2_binary["tp"] >= 16
@@ -1841,9 +1967,15 @@ class V2D2DevelopmentBenchmarkEvaluator:
             "v1_claim_binary": v1_binary,
             "v2_d2_claim_binary": v2_binary,
             "paired_v1_vs_v2_d2": paired,
+            "v1_answer_level": metrics_report.get("v1_answer_metrics"),
+            "v2_d2_answer_level": metrics_report.get("v2_d2_answer_metrics"),
             "decision_criteria_audit": {
+                "verdict_is_benchmark_pass": verdict == "V2_DEVELOPMENT_BENCHMARK_PASS",
                 "zero_model_errors": model_error_count == 0,
-                "zero_unstable_claims": stability_info["unstable_claim_count"] == 0,
+                "zero_execution_errors_in_stability": stability_info.get("execution_error_in_any_pass_count", 0) == 0,
+                "zero_unstable_semantic_claims": stability_info.get("unstable_semantic_claim_count", 0) == 0,
+                "zero_binary_execution_errors": v2_binary_exec_err == 0,
+                "zero_three_way_execution_errors": v2_three_way_exec_err == 0,
                 "d2_correct_exceeds_v1": v2_correct > 23,
                 "d2_negative_catch_exceeds_v1": v2_binary["tn"] > 7,
                 "d2_supported_retention_meets_v1": v2_binary["tp"] >= 16,

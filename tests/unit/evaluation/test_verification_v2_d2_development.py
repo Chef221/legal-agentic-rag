@@ -119,6 +119,31 @@ def _make_dummy_claim_target(
     )
 
 
+def _make_dummy_arm_target(
+    qid: str,
+    arm_id: str,
+    claims: list[BenchmarkClaimTarget],
+) -> BenchmarkArmTarget:
+    return BenchmarkArmTarget(
+        slice_id="test_slice",
+        question_id=qid,
+        arm_id=arm_id,
+        historical_stop_reason="answer_verified",
+        stratum="A_SINGLE_CLAIM_CLEAN",
+        question_text="Test question",
+        answer_response=AnswerResponse(
+            question="Test question",
+            answer="Test answer",
+            insufficient_evidence=False,
+            retrieval_strategy="hybrid",
+            trace_id="test_trace",
+        ),
+        evidence_list=[],
+        historical_verification={},
+        claims=claims,
+    )
+
+
 def test_candidate_id_is_v2_d2():
     """Verify that canonical candidate ID is V2-D2."""
     assert CANONICAL_CANDIDATE_ID == "V2-D2"
@@ -256,7 +281,7 @@ def test_execution_identity_structure(tmp_path: Path):
 
 
 def test_paired_metrics_and_freeze_criteria():
-    """Verify paired comparison calculations and freeze criteria."""
+    """Verify paired comparison calculations including semantic and error regressions."""
     evaluator = V2D2DevelopmentBenchmarkEvaluator(
         forensic_packets_path=Path("f.zip"),
         forensic_labels_path=Path("f.json"),
@@ -270,31 +295,156 @@ def test_paired_metrics_and_freeze_criteria():
         _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
         _make_dummy_claim_target("q1", "PRIMARY", "C2", HumanEntailment.CONTRADICTED),
         _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT),
+        _make_dummy_claim_target("q2", "PRIMARY", "C2", HumanEntailment.SUPPORTED),
     ]
 
     v1_preds = [
         {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "is_correct": True, "v1_binary_prediction": "ACCEPT"},
         {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C2", "is_correct": False, "v1_binary_prediction": "ACCEPT"},
         {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "is_correct": True, "v1_binary_prediction": "REJECT"},
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C2", "is_correct": True, "v1_binary_prediction": "ACCEPT"},
     ]
-    # D2 fixes C2
+    # D2 fixes C2 on q1, errors on C2 on q2
     v2_preds = [
         {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "is_correct": True, "v2_d2_binary_prediction": "ACCEPT"},
         {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C2", "is_correct": True, "v2_d2_binary_prediction": "REJECT"},
         {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "is_correct": True, "v2_d2_binary_prediction": "REJECT"},
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C2", "is_correct": False, "v2_d2_binary_prediction": "EXECUTION_ERROR"},
     ]
 
     paired = evaluator._compute_paired_metrics(targets, v1_preds, v2_preds)
     assert paired["both_correct"] == 2
     assert paired["v2_only_correct"] == 1
-    assert paired["v1_only_correct"] == 0
-    assert paired["net_correctness_delta"] == 1
+    assert paired["v1_only_correct"] == 1
+    assert paired["net_correctness_delta"] == 0
     assert paired["v2_fixes_count"] == 1
-    assert paired["v2_regressions_count"] == 0
+    assert paired["v2_regressions_count"] == 1
+    assert paired["semantic_regressions_count"] == 0
+    assert paired["execution_error_regressions_count"] == 1
+    assert paired["v2_execution_error_count"] == 1
 
 
-def test_freeze_eligibility_gating():
-    """Verify strict freeze gating logic."""
+def test_answer_level_execution_error_on_invalid_answer_not_counted_as_invalid_caught():
+    """1. human INVALID answer + execution error: MUST NOT increment invalid_answers_caught."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    c1 = _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.CONTRADICTED)
+    arm = _make_dummy_arm_target("q1", "PRIMARY", [c1])
+    claim_preds = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"}
+    ]
+    res = evaluator._compute_answer_level_metrics_from_preds([arm], claim_preds, pred_key="v2_d2_three_way_prediction")
+    assert res["total_answers"] == 1
+    assert res["execution_error_answers"] == 1
+    assert res["evaluated_answers"] == 0
+    assert res["invalid_answers_caught"] == 0
+    assert res["valid_answers_retained"] == 0
+    assert res["evaluated_invalid_ground_truth_answers"] == 0
+    assert res["evaluated_answer_accuracy"] == 0.0
+
+
+def test_answer_level_execution_error_on_valid_answer_not_counted_as_valid_retained():
+    """2. human VALID answer + execution error: MUST NOT increment valid_answers_retained."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    c1 = _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED)
+    arm = _make_dummy_arm_target("q1", "PRIMARY", [c1])
+    claim_preds = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"}
+    ]
+    res = evaluator._compute_answer_level_metrics_from_preds([arm], claim_preds, pred_key="v2_d2_three_way_prediction")
+    assert res["total_answers"] == 1
+    assert res["execution_error_answers"] == 1
+    assert res["evaluated_answers"] == 0
+    assert res["valid_answers_retained"] == 0
+    assert res["invalid_answers_caught"] == 0
+    assert res["evaluated_valid_ground_truth_answers"] == 0
+
+
+def test_answer_level_execution_error_increments_error_count_and_excludes_from_evaluated():
+    """3 & 4. answer execution error increments execution_error_answers and is excluded from evaluated denominator."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    arm1 = _make_dummy_arm_target("q1", "PRIMARY", [_make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED)])
+    arm2 = _make_dummy_arm_target("q2", "PRIMARY", [_make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.CONTRADICTED)])
+    arm3 = _make_dummy_arm_target("q3", "PRIMARY", [_make_dummy_claim_target("q3", "PRIMARY", "C1", HumanEntailment.SUPPORTED)])
+
+    claim_preds = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "SUPPORTED"},
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"},
+        {"question_id": "q3", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "INSUFFICIENT"},
+    ]
+    res = evaluator._compute_answer_level_metrics_from_preds([arm1, arm2, arm3], claim_preds, pred_key="v2_d2_three_way_prediction")
+    assert res["total_answers"] == 3
+    assert res["execution_error_answers"] == 1
+    assert res["evaluated_answers"] == 2
+    assert res["evaluated_valid_ground_truth_answers"] == 2
+    assert res["evaluated_invalid_ground_truth_answers"] == 0
+    assert res["valid_answers_retained"] == 1
+    assert res["invalid_answers_caught"] == 0
+    assert res["evaluated_answer_accuracy"] == 0.5
+    assert res["full_denominator_answer_accuracy"] == round(1 / 3, 4)
+
+
+def test_clean_answer_metrics_reproduce_canonical_semantics():
+    """5. Clean answer metrics reproduce ordinary 22-answer semantics."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    # Build 7 valid arms and 15 invalid arms
+    arms = []
+    preds = []
+    for i in range(7):
+        qid = f"v_{i}"
+        c = _make_dummy_claim_target(qid, "PRIMARY", "C1", HumanEntailment.SUPPORTED)
+        arms.append(_make_dummy_arm_target(qid, "PRIMARY", [c]))
+        preds.append({"question_id": qid, "arm_id": "PRIMARY", "claim_id": "C1", "v1_three_way_prediction": "SUPPORTED"})
+    for i in range(15):
+        qid = f"inv_{i}"
+        c = _make_dummy_claim_target(qid, "PRIMARY", "C1", HumanEntailment.CONTRADICTED)
+        arms.append(_make_dummy_arm_target(qid, "PRIMARY", [c]))
+        # 7 caught, 8 missed
+        pred_val = "CONTRADICTED" if i < 7 else "SUPPORTED"
+        preds.append({"question_id": qid, "arm_id": "PRIMARY", "claim_id": "C1", "v1_three_way_prediction": pred_val})
+
+    res = evaluator._compute_answer_level_metrics_from_preds(arms, preds, pred_key="v1_three_way_prediction")
+    assert res["total_answers"] == 22
+    assert res["evaluated_answers"] == 22
+    assert res["execution_error_answers"] == 0
+    assert res["valid_ground_truth_answers"] == 7
+    assert res["invalid_ground_truth_answers"] == 15
+    assert res["valid_answers_retained"] == 7
+    assert res["invalid_answers_caught"] == 7
+    assert res["valid_answer_retention_rate"] == 1.0
+    assert res["invalid_answer_catch_rate"] == round(7 / 15, 4)
+    assert res["answer_level_accuracy"] == round(14 / 22, 4)
+
+
+def test_stability_two_pass_distinguishes_errors_from_stable_labels():
+    """6, 7, 8, 9. Two-pass stability classifies errors vs stable vs unstable correctly."""
     evaluator = V2D2DevelopmentBenchmarkEvaluator(
         forensic_packets_path=Path("f.zip"),
         forensic_labels_path=Path("f.json"),
@@ -304,39 +454,99 @@ def test_freeze_eligibility_gating():
         output_dir=Path("out"),
     )
 
-    exec_identity = {"execution_git_commit": "abcdef1234567890abcdef1234567890abcdef12"}
-    stability_clean = {"unstable_claim_count": 0, "label_stability_percentage": 100.0}
-    stability_dirty = {"unstable_claim_count": 1, "label_stability_percentage": 97.37}
+    pass1 = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"},  # 6: err+err
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "SUPPORTED"},        # 7: sem+err
+        {"question_id": "q3", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "SUPPORTED"},        # 8: supp+supp
+        {"question_id": "q4", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "SUPPORTED"},        # 9: supp+insuff
+    ]
+    pass2 = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"},
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "EXECUTION_ERROR"},
+        {"question_id": "q3", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "SUPPORTED"},
+        {"question_id": "q4", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d2_three_way_prediction": "INSUFFICIENT"},
+    ]
 
-    # Case 1: Model errors > 0 -> KEEP_ITERATING
-    metrics_report = {
+    res = evaluator._evaluate_stability([pass1, pass2])
+    assert res["total_claims"] == 4
+    assert res["claims_with_two_valid_semantic_labels"] == 2  # q3 and q4 only
+    assert res["stable_semantic_claim_count"] == 1           # q3 only
+    assert res["unstable_semantic_claim_count"] == 1         # q4 only
+    assert res["successful_label_stability_percentage"] == 50.0
+    assert res["pass1_execution_error_count"] == 1           # q1
+    assert res["pass2_execution_error_count"] == 2           # q1, q2
+    assert res["execution_error_in_any_pass_count"] == 2     # q1, q2
+    assert res["repeated_execution_error_claim_count"] == 1  # q1
+
+
+def test_freeze_gate_execution_errors_and_verdict_hardening():
+    """10, 11, 12, 13, 14. Freeze gate hardening across errors, verdict, binary, three-way."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    exec_identity = {"execution_git_commit": "abcdef1234567890abcdef1234567890abcdef12"}
+    stability_clean = {
+        "unstable_claim_count": 0,
+        "unstable_semantic_claim_count": 0,
+        "execution_error_in_any_pass_count": 0,
+        "label_stability_percentage": 100.0,
+    }
+
+    base_metrics = {
         "v1_claim_binary": {"tp": 16, "tn": 7, "fp": 13, "fn": 2},
-        "v2_d2_claim_binary": {"tp": 18, "tn": 15, "fp": 5, "fn": 0},
+        "v2_d2_claim_binary": {"tp": 18, "tn": 15, "fp": 5, "fn": 0, "execution_errors": 0},
+        "v2_d2_three_way": {"execution_errors": 0},
         "paired_v1_vs_v2_d2": {"net_correctness_delta": 10},
     }
-    _, dec1, _ = evaluator._build_reports(
+
+    # 10. Execution error in any pass -> verdict is EXECUTION_ERROR and NEVER freezes
+    stability_with_err = dict(stability_clean, execution_error_in_any_pass_count=1)
+    _, d10, _ = evaluator._build_reports(
         verdict="V2_DEVELOPMENT_EXECUTION_ERROR",
         execution_identity=exec_identity,
-        stability_info=stability_clean,
-        metrics_report=metrics_report,
+        stability_info=stability_with_err,
+        metrics_report=base_metrics,
         dimension_diagnostics={},
         v0_claim_preds=[],
         v1_claim_preds=[],
         v2_pass1_preds=[],
         all_claim_targets=[],
-        model_error_count=2,
-        total_provider_calls=40,
-        structured_retry_count=2,
+        model_error_count=0,
+        total_provider_calls=38,
+        structured_retry_count=0,
     )
-    assert dec1["development_evaluation_decision"] == "KEEP_ITERATING"
-    assert dec1["promotion_authorized"] is False
+    assert d10["development_evaluation_decision"] == "KEEP_ITERATING"
 
-    # Case 2: Clean pass with correct > 23, tn > 7, tp >= 16, delta > 0 -> CANDIDATE_FREEZE_ELIGIBLE
-    _, dec2, _ = evaluator._build_reports(
+    # 11. Verdict != V2_DEVELOPMENT_BENCHMARK_PASS can NEVER freeze
+    _, d11, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_LABEL_INSTABILITY",
+        execution_identity=exec_identity,
+        stability_info=stability_clean,
+        metrics_report=base_metrics,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=0,
+        total_provider_calls=38,
+        structured_retry_count=0,
+    )
+    assert d11["development_evaluation_decision"] == "KEEP_ITERATING"
+
+    # 12. Binary execution_errors > 0 can NEVER freeze
+    m12 = dict(base_metrics)
+    m12["v2_d2_claim_binary"] = {"tp": 18, "tn": 15, "fp": 5, "fn": 0, "execution_errors": 1}
+    _, d12, _ = evaluator._build_reports(
         verdict="V2_DEVELOPMENT_BENCHMARK_PASS",
         execution_identity=exec_identity,
         stability_info=stability_clean,
-        metrics_report=metrics_report,
+        metrics_report=m12,
         dimension_diagnostics={},
         v0_claim_preds=[],
         v1_claim_preds=[],
@@ -346,15 +556,16 @@ def test_freeze_eligibility_gating():
         total_provider_calls=38,
         structured_retry_count=0,
     )
-    assert dec2["development_evaluation_decision"] == "CANDIDATE_FREEZE_ELIGIBLE"
-    assert dec2["promotion_authorized"] is False
+    assert d12["development_evaluation_decision"] == "KEEP_ITERATING"
 
-    # Case 3: Label instability -> KEEP_ITERATING
-    _, dec3, _ = evaluator._build_reports(
-        verdict="V2_DEVELOPMENT_LABEL_INSTABILITY",
+    # 13. Three-way execution_errors > 0 can NEVER freeze
+    m13 = dict(base_metrics)
+    m13["v2_d2_three_way"] = {"execution_errors": 1}
+    _, d13, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_BENCHMARK_PASS",
         execution_identity=exec_identity,
-        stability_info=stability_dirty,
-        metrics_report=metrics_report,
+        stability_info=stability_clean,
+        metrics_report=m13,
         dimension_diagnostics={},
         v0_claim_preds=[],
         v1_claim_preds=[],
@@ -364,7 +575,94 @@ def test_freeze_eligibility_gating():
         total_provider_calls=38,
         structured_retry_count=0,
     )
-    assert dec3["development_evaluation_decision"] == "KEEP_ITERATING"
+    assert d13["development_evaluation_decision"] == "KEEP_ITERATING"
+
+    # 14. Clean improved stable candidate CAN freeze
+    _, d14, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_BENCHMARK_PASS",
+        execution_identity=exec_identity,
+        stability_info=stability_clean,
+        metrics_report=base_metrics,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=0,
+        total_provider_calls=38,
+        structured_retry_count=0,
+    )
+    assert d14["development_evaluation_decision"] == "CANDIDATE_FREEZE_ELIGIBLE"
+    assert d14["promotion_authorized"] is False
+
+
+def test_dimension_diagnostics_denominator_contract():
+    """15. Dimension totals use successfully structured denominator only."""
+    evaluator = V2D2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+    targets = [
+        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED, tags=["FACTUAL_INCORRECT"]),
+        _make_dummy_claim_target("q1", "PRIMARY", "C2", HumanEntailment.CONTRADICTED, tags=["SOURCE_MISATTRIBUTION"]),
+        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT),
+    ]
+
+    preds = [
+        {
+            "question_id": "q1",
+            "arm_id": "PRIMARY",
+            "claim_id": "C1",
+            "v2_d2_binary_prediction": "ACCEPT",
+            "structured_assessment": {
+                "claim_id": "C1",
+                "actor_role": "ESTABLISHED",
+                "action_object": "ESTABLISHED",
+                "condition_exception": "ESTABLISHED",
+                "quantity_temporal": "ESTABLISHED",
+                "negation_modality": "ESTABLISHED",
+                "source_article_scope": "ESTABLISHED",
+                "evidence_coverage": "COMPLETE",
+                "telemetry": {"retry_count": 0, "draft_rejection_categories": []},
+            },
+        },
+        {
+            "question_id": "q1",
+            "arm_id": "PRIMARY",
+            "claim_id": "C2",
+            "v2_d2_binary_prediction": "REJECT",
+            "structured_assessment": {
+                "claim_id": "C2",
+                "actor_role": "CONFLICT",
+                "action_object": "ESTABLISHED",
+                "condition_exception": "ESTABLISHED",
+                "quantity_temporal": "ESTABLISHED",
+                "negation_modality": "ESTABLISHED",
+                "source_article_scope": "CONFLICT",
+                "evidence_coverage": "PARTIAL",
+                "telemetry": {"retry_count": 1, "draft_rejection_categories": ["MISSING_FIELD"]},
+            },
+        },
+        {
+            "question_id": "q2",
+            "arm_id": "PRIMARY",
+            "claim_id": "C1",
+            "v2_d2_binary_prediction": "EXECUTION_ERROR",
+            "structured_assessment": None,
+        },
+    ]
+
+    diag = evaluator._compute_dimension_diagnostics(targets, preds)
+    assert diag["total_claims"] == 3
+    assert diag["successfully_structured_claim_count"] == 2
+    assert diag["execution_error_claim_count"] == 1
+    # Check that each dimension sum equals successfully_structured_claim_count (2)
+    for dim, counts in diag["global_dimension_counts"].items():
+        assert sum(counts.values()) == 2
 
 
 def test_package_zip_archive_members_inventory(tmp_path: Path):
