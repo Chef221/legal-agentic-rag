@@ -378,12 +378,22 @@ The immediate next action is:
      - Formal decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`. `semantic_verifier_promotion_authorized = false` remains in effect.
      - 38-claim dataset lifecycle: Permanently burned as DEVELOPMENT DATA (`verification_benchmark_v1_role = "development_after_first_evaluation"`). Future V2 promotion strictly requires a fresh, uncompromised holdout.
      - Invariant: Positive-control reserve cases (`27503`, `31317`, `33177`, `85651`, `112105`, `112833`, `130283`, `137453`) cannot be repurposed as a secret promotion holdout.
-   - **Next Action in Priority B**: Pre-register Fresh Holdout Strategy & Explore V2 Verifier Design Hypotheses (Condition logic, actor roles, sufficiency/insufficient discrimination, source specificity, quantity semantics, scope boundaries).
+   - **Task B-HOLDOUT-SEALED COMPLETE — V2_HOLDOUT_PRE_REGISTERED**:
+     - Fresh, independent holdout pre-registered from frozen Phase-A census records (`phase-a-current-system-census-final-evidence.zip` SHA-256 `df05a401599c43a28e39136d72b225841b242d10a40dc5bc475b9be6ed86be8b`).
+     - Applied 46-QID contamination exclusion set (SHA-256 `eefdd8967c39324bc7e88a8451ef8fb9241f765af1e68a0199db9ba33af01fda`) across 772 eligible records.
+     - Deterministically sampled 16 PRIMARY (4/4/4/4) + 8 FRESH RESERVE (2/2/2/2) cases under pre-registered salt `verification-v2-holdout-gen-v1:` (`deterministic_sha256_stratified_v2`).
+     - Materialized 16 PRIMARY packets with `review_status = "sealed_unreviewed"` and null claim labels.
+     - Confirmed 16/16 chunk lookups, 16/16 trace mappings, 16/16 metadata cross-checks, and 16/16 exact V0 RuleBasedCitationVerifier replay matches.
+     - Selection commitment artifact: `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, size `16,788` bytes).
+     - Sealed review package: `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`, size `108,532` bytes).
+     - Invariants: Holdout blindness strictly enforced (zero selected QIDs exposed in tracked docs or console summary); review packets remain sealed until candidate V2 system is frozen.
+   - **Next Action in Priority B**: Develop V2 verifier hypotheses using ONLY the 38-claim development benchmark while the fresh holdout remains sealed.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Task B-HOLDOUT-SEALED?** Resolved: Pre-registered fresh holdout from frozen Phase-A census with 46-QID contamination exclusion set (772 eligible records). Selected 16 PRIMARY (4/4/4/4) + 8 FRESH RESERVE (2/2/2/2) under salt `verification-v2-holdout-gen-v1:`. All 16 primary packets materialized with 100% chunk lookups, 100% trace mapping, and 16/16 V0 verifier replay match. Review status: `sealed_unreviewed` (claim labels null). Artifacts: `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`) and `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`). Verdict: `V2_HOLDOUT_PRE_REGISTERED`.
 - **What happened in the V0 vs V1 Semantic Verifier Benchmark Execution?** Resolved: Executed controlled offline benchmark on Kaggle Tesla T4 (`d3aac626400cbe31ed0ed5ad109762fcb78d737d`). Evidence archived in `verification-semantic-benchmark-evidence.zip` (SHA-256 `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`). Mechanical verdict: `VERIFIER_BENCHMARK_PASS`. V1 improved net correctness by +5 claims and caught 7/15 invalid answers, but failed on 13/20 negative claims and regressed on 2 supported claims. Formal decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`. 38 claims burned as development data; fresh holdout required before future V2 promotion.
 - **What happened in the Benchmark Harness Implementation?** Resolved: Built `scripts/evaluate_verification_semantic_benchmark.py` and `tests/unit/evaluation/test_verification_semantic_benchmark.py` covering fail-closed source verification, exact V0 replay on 22 historical arms, 2-pass deterministic stability evaluation, paired delta analysis, false accept/reject rates, and error tag diagnostics. Pre-flight verification passed cleanly on canonical external files. Verdict: `VERIFIER_BENCHMARK_READY`.
 - **What happened in Task B-FORENSIC-1C?** Resolved: Human-approved positive-control labels frozen into immutable content-bound overlay artifact `verification-positive-control-human-labels-v1.json` (27 claims: 16 SUPPORTED, 2 CONTRADICTED, 9 INSUFFICIENT). Composite 38-claim benchmark established (18 SUPPORTED, 7 CONTRADICTED, 13 INSUFFICIENT). Verdict: `POSITIVE_CONTROL_HUMAN_LABELS_FROZEN`.
@@ -425,11 +435,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (V0 vs V1 Verifier Benchmark Closed — VERIFIER_BENCHMARK_PASS; V1 NOT PROMOTED; 38 Claims = Development Data; Model-backed Verifier Disabled)
+    0.50.7 (Fresh V2 Holdout Pre-Registered & Sealed — V2_HOLDOUT_PRE_REGISTERED; 38 Claims = Development Data; Model-backed Verifier Disabled)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (Pre-registering Fresh Holdout & V2 Verifier Design)
+    Priority B — Verification-correctness audit (V2 Verifier Hypothesis Development)
 
 Next action:
-    Pre-register Fresh Holdout Strategy & Explore V2 Verifier Design Hypotheses
+    Develop V2 verifier hypotheses using ONLY the 38-claim development benchmark while the fresh holdout remains sealed
 ```

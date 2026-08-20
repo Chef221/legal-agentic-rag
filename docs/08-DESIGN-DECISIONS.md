@@ -2844,3 +2844,21 @@ The benchmark was executed on Kaggle GPU under execution commit `d3aac626400cbe3
 3. **38-Claim Benchmark Burned as Development Data**: The 38-claim composite dataset is permanently transitioned to `verification_benchmark_v1_role = "development_after_first_evaluation"`. It may be used for diagnostic forensic analysis and verifier-development evaluation under its frozen usage policy. Its human labels remain prohibited for training, fine-tuning, retrieval relevance supervision, public/private test annotation, and manual submission correction unless a separate explicit governance decision changes that policy. It MUST NOT serve as final promotion evidence for any future tuned V2 verifier.
 4. **Prohibition of Repurposing Control Reserves**: The 8 positive-control reserve cases (`27503`, `31317`, `33177`, `85651`, `112105`, `112833`, `130283`, `137453`) cannot be repurposed as a secret promotion holdout.
 5. **Mandatory Fresh Holdout Pre-Registration**: Any future V2 semantic verifier evaluation requires a fresh, independently sampled holdout drawn from the $\approx 764$ untouched Phase-A records with explicit exclusion of all 28 previously audited QIDs.
+
+---
+
+## D119 — Fresh V2 Verification Holdout Pre-Registration and Sealed Protocol
+
+**Status:** Accepted (Verdict: `V2_HOLDOUT_PRE_REGISTERED`)
+
+**Context:**
+Following the closure of the V1 benchmark and the classification of the 38 human-reviewed claims as development data, a fresh, independent holdout dataset has been pre-registered before any V2 tuning, prompt engineering, or candidate modeling.
+The holdout was selected deterministically from frozen Phase-A census records under pre-registered salt `verification-v2-holdout-gen-v1:`, algorithm `deterministic_sha256_stratified_v2`, and strict exclusion of all 46 previously audited/control QIDs (SHA-256 `eefdd8967c39324bc7e88a8451ef8fb9241f765af1e68a0199db9ba33af01fda`).
+The selection commitment is archived in `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, size 16,788 bytes) and review packets in `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`, size 108,532 bytes).
+
+**Decisions & Invariants:**
+1. **Mechanical Verdict**: `V2_HOLDOUT_PRE_REGISTERED` (`16` PRIMARY across 4 strata 4/4/4/4, `8` FRESH RESERVE across 4 strata 2/2/2/2, 16/16 chunk lookup passes, 16/16 trace mapping passes, 16/16 metadata cross-checks, 16/16 V0 RuleBasedCitationVerifier replay passes).
+2. **Holdout Blindness & Sealing Invariant**: Zero selected question IDs or raw prompts are recorded in tracked documentation, console summaries, or agent communication. The holdout review packet archive remains strictly sealed and unreviewed (`review_status = "sealed_unreviewed"`, `claim_labels = null`).
+3. **Strict Development vs Holdout Separation**: All future V2 development, tuning, and prompt engineering must use ONLY the 38-claim development benchmark (`verification_benchmark_v1_role = "development_after_first_evaluation"`).
+4. **Mandatory Freezing Before Unsealing**: The fresh holdout MUST NOT be unsealed for human forensic review until the candidate V2 system (code, prompt, model, inference parameters, promotion gates) is completely frozen.
+5. **Reserve Replacement Invariant**: The 8 fresh reserve cases may only be used for mechanical reconstruction/provenance failure, never for undesirable human labels or performance optimization.

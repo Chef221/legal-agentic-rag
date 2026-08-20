@@ -786,3 +786,67 @@ Based on the empirical diagnostic results of the V1 benchmark, the future V2 sem
 4. **Article & Source Specificity**: Penalizing claims that cite Article $N$ when the supporting rule is located in Article $M$ or another decree.
 5. **Quantity & Temporal Semantics**: Moving beyond token matching to enforce semantic alignment on statutory deadlines, validity periods, administrative fees, and numerical thresholds.
 6. **Scope Boundary Enforcement**: Preventing narrow procedural rules (e.g. specific to state-owned enterprises or foreign workers) from being validated as universal legal mandates.
+
+---
+
+## 11. Fresh V2 Holdout Pre-Registration and Sealed Materialization
+
+### 11.1 Pre-Registration Commitment & Source Identity
+
+To guarantee rigorous anti-overfitting governance before any V2 tuning, prompt engineering, or candidate modeling begins, a fresh, independent holdout dataset has been deterministically sampled and sealed from frozen Phase-A census historical records.
+
+| Property | Value |
+| :--- | :--- |
+| **Mechanical Verdict** | **`V2_HOLDOUT_PRE_REGISTERED`** |
+| **Selection Algorithm** | `deterministic_sha256_stratified_v2` |
+| **Pre-Registered Selection Salt** | `verification-v2-holdout-gen-v1:` |
+| **Phase-A Source Archive** | `phase-a-current-system-census-final-evidence.zip` |
+| **Phase-A Source Archive SHA-256** | `df05a401599c43a28e39136d72b225841b242d10a40dc5bc475b9be6ed86be8b` |
+| **Phase-A Raw Results SHA-256** | `7b1bf802c752e37cee7386c0b24f6e0ee5ea2f65056b22eaa9488d73161aaee6` |
+| **Canonical Development SHA-256** | `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8` |
+| **Serving Dataset Name** | `uit-dsc-2026-task2-selected-contexts` |
+| **Serving Dataset Revision** | `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e` |
+| **Serving Record Count** | `330,768` chunks (Payload SHA `3a769121f07aa1c65b69569ce296b416f40048ba47b9761a393c245ece609872`) |
+| **Contamination Exclusion Set Count** | `46` unique QIDs |
+| **Contamination Exclusion Set SHA-256** | `eefdd8967c39324bc7e88a8451ef8fb9241f765af1e68a0199db9ba33af01fda` |
+| **Eligible Pool Count** | `772` historical `answer_verified` records |
+| **Stratum Distribution (Before Sampling)** | `D_NEGATION_MODALITY`: 164, `C_NUMERIC`: 177, `B_MULTI_CLAIM_CLEAN`: 117, `A_SINGLE_CLAIM_CLEAN`: 314 |
+| **Primary Holdout Count** | `16` (Quota: `4` per stratum across `4` strata) |
+| **Fresh Reserve Holdout Count** | `8` (Quota: `2` per stratum across `4` strata) |
+| **Selected Chunk Lookup Passes** | `16 / 16` (`100.0%`) |
+| **Selection Trace Mapping Passes** | `16 / 16` (`100.0%`) |
+| **Citation Metadata Cross-Check Passes** | `16 / 16` (`100.0%`) |
+| **V0 Rule-Based Verifier Replay Passes** | `16 / 16` (`100.0%`) |
+| **Human Review Status** | `"sealed_unreviewed"` (`0` labeled claims, `claim_labels = null`) |
+| **Holdout Sealed Invariant** | `true` |
+| **Selection Commitment Artifact** | `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, size `16,788` bytes) |
+| **Sealed Review Package** | `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`, size `108,532` bytes) |
+
+> [!IMPORTANT]
+> **Holdout Blindness & Content-Free Governance**:
+> - The specific question IDs, question texts, reference answers, and model responses for the 16 primary and 8 fresh reserve holdout cases are strictly **SEALED**.
+> - Zero question IDs or prompt texts are recorded in tracked documentation, console summaries, or agent communication.
+> - The holdout review packet archive `verification-v2-holdout-review-packets-v1.zip` remains strictly sealed and MUST NOT be opened, inspected, or submitted for human labeling during V2 development.
+
+---
+
+### 11.2 Lifecycle and Future Unsealing Protocol
+
+The complete lifecycle for V2 verifier development and holdout evaluation is strictly defined:
+
+```text
+STEP A: Fresh Holdout Pre-Registration & Sealing [COMPLETED - V2_HOLDOUT_PRE_REGISTERED]
+        ↓
+STEP B: V2 Verifier Development & Iteration (Using ONLY 38-Claim Development Benchmark)
+        ↓
+STEP C: Freeze V2 System (Code, Prompt, Model Revision, Inference Parameters, Promotion Gates)
+        ↓
+STEP D: Unseal Fresh Holdout for Human Forensic Labeling (Under Frozen Human-Label Usage Policy)
+        ↓
+STEP E: Freeze Human Holdout Labels into Immutable Overlay Artifact
+        ↓
+STEP F: Execute One-Shot Final V2 Promotion Benchmark on Fresh Holdout
+```
+
+- Under no circumstances may STEP D (unsealing for human review) occur before STEP C (freezing the candidate V2 system).
+- The 38-claim composite benchmark remains the sole authorized development evaluation dataset.

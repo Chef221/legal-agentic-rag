@@ -2460,3 +2460,18 @@ reports are reviewed.
 - dataset lifecycle: 38-claim composite dataset permanently burned as DEVELOPMENT DATA (`verification_benchmark_v1_role = "development_after_first_evaluation"`);
 - holdout governance: 8 positive-control reserves cannot be repurposed as a secret promotion holdout; pre-registered fresh holdout strategy required before future V2 promotion;
 - active frontier advances to pre-registering fresh holdout protocol and exploring V2 verifier design hypotheses.
+
+## 72. Milestone 51.7 — Priority B: Fresh V2 Holdout Pre-Registration and Sealed Materialization
+
+**Status:** Completed & Closed (Authoritative selection artifact: `verification-v2-holdout-selection-v1.json` SHA-256: `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, size `16,788 bytes`; Sealed review package: `verification-v2-holdout-review-packets-v1.zip` SHA-256: `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`, size `108,532 bytes`; Verdict: `V2_HOLDOUT_PRE_REGISTERED`)
+
+- implemented and hardened holdout pre-registration harness in `scripts/preregister_verification_v2_holdout.py` and unit test suite `tests/unit/evaluation/test_preregister_verification_v2_holdout.py` (14 unit tests);
+- validated Phase-A source integrity fail-closed (archive `df05a4...`, results `7b1bf8...`, development `867879...`, serving payload `330768` chunks);
+- applied 46-QID contamination exclusion set (4 forensic + 16 primary controls + 8 reserve controls + 22 B1A relationship cases, SHA-256 `eefdd8967c39324bc7e88a8451ef8fb9241f765af1e68a0199db9ba33af01fda`);
+- derived 772 eligible `answer_verified` records and stratified into 4 strata (`D_NEGATION_MODALITY`: 164, `C_NUMERIC`: 177, `B_MULTI_CLAIM_CLEAN`: 117, `A_SINGLE_CLAIM_CLEAN`: 314);
+- deterministically sampled 16 PRIMARY (4/4/4/4) and 8 FRESH RESERVE (2/2/2/2) cases under salt `verification-v2-holdout-gen-v1:`;
+- materialized 16 primary packets with `review_status = "sealed_unreviewed"` and null claim labels;
+- confirmed 16/16 chunk lookups, 16/16 selection trace mappings, 16/16 citation metadata cross-checks, and 16/16 exact V0 RuleBasedCitationVerifier replays;
+- emitted external selection report, content-free public commitment, and sealed review ZIP;
+- strictly preserved holdout blindness: zero question IDs or prompts exposed in tracked documentation or console summary;
+- next active action: develop V2 verifier using ONLY the 38-claim development benchmark while the fresh holdout remains sealed.
