@@ -445,11 +445,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Structured Semantic Verifier V2-D1 Implemented — V2_DEVELOPMENT_BENCHMARK_READY; 38 Claims = Development Data; Fresh Holdout Sealed; Production Verifier Disabled)
+    0.50.7 (V2-D3 Development Benchmark Passed: 28/38 Binary, 24/38 Three-Way, +5 Net Delta over V1; Forensic Development Audit Complete; Fresh Holdout Sealed; Production Verifier Disabled)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (External Review of V2-D1 Candidate before Execution)
+    Priority B — Verification-correctness audit (D3 forensic development audit completed; D3.1 design pending external review)
 
 Next action:
-    Review V2-D1 candidate implementation and execute first Kaggle development run on the 38-claim benchmark
+    External review of V2-D3.1 architecture options (Hierarchical 2-Gate Single-Call vs Sequential Pipeline) before implementation
 ```
