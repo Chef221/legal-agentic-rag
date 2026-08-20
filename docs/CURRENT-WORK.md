@@ -366,12 +366,14 @@ The immediate next action is:
    - Invariant: H40 remains unpromoted. Production routing unchanged (S20 in Attempt 1, H40 in Attempt 2).
 5. **Active Research Frontier — Priority B (Verification-Correctness Audit)**:
    - **Task B-FORENSIC-0 COMPLETE — FORENSIC_SOURCE_READY**: Four-question paired forensic source packets (`102047`, `147239`, `26541`, `95861`) materialized from frozen B1A historical evidence (`phase-b1a-graph-routing-ablation-evidence.zip` SHA-256 `b88ccce928b4cecfc9239d490c59f91405834c5a3199f917d757c5735b1d6631`). Verified 100% chunk lookup pass from canonical `uit-dsc-2026-task2-v0400/legal_chunks` (330,768 records), 100% citation cross-check pass, and 100% (6/6) verifier replay pass across all applicable arms. See [`docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md`](file:///c:/legal-agentic-rag/docs/27-VERIFICATION-CORRECTNESS-FORENSIC-AUDIT.md).
-   - **Next Action in Priority B**: Conduct human forensic review on the materialized paired packets (labeling claim entailment and granular error tags).
+   - **Task B-FORENSIC-1A COMPLETE — HUMAN_FORENSIC_LABELS_FROZEN**: Human-approved claim entailment and granular error mode labels frozen into immutable overlay artifact `verification-human-forensic-labels-v1.json` (SHA-256 `bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733`) and `verification-human-forensic-labels-v1.zip` (SHA-256 `25c23b80fb94a59976ccd821944355ff80aa60c7360e32a3dd8dea19dae12cbb`). Verified 4 questions, 8 historical arms, 11 labeled claims (2 SUPPORTED, 5 CONTRADICTED, 4 INSUFFICIENT), 2 generation-failed unlabeled arms. Scope is strictly internal evaluation-only.
+   - **Next Action in Priority B**: Positive-Control Selection / Materialization (to assemble a balanced benchmark before evaluating semantic verification candidates).
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Task B-FORENSIC-1A?** Resolved: Human-approved forensic labels frozen into immutable content-bound overlay artifact `verification-human-forensic-labels-v1.json` (11 claims: 2 SUPPORTED, 5 CONTRADICTED, 4 INSUFFICIENT, 2 generation-failed unlabeled arms). Verdict: `HUMAN_FORENSIC_LABELS_FROZEN`.
 - **What happened in Task B-FORENSIC-0?** Resolved: Materialized 4 paired forensic packets (`102047`, `147239`, `26541`, `95861`) across 8 historical arms from canonical B1A frozen evidence with 0 retrieval reruns, 0 generation reruns, 0 auto-labeled semantic truth, and 100% rule verifier replay match. Verdict: `FORENSIC_SOURCE_READY`.
 - **What happened in Stage R1?** Resolved: Stage R1 candidate-pool audit passed cleanly with `CANDIDATE_POOL_AUDIT_PASS`. Proved candidate-pool depth is behaviorally material (35 tail entrants, 20 document-level churn events across 17/22 relationship cases). H40 remains unpromoted in Attempt 2.
 - **What happened in Phase B1B?** Resolved: Phase B1B post-change verification passed cleanly with `B1B_EQUIVALENCE_PASS`. Exact S20 retrieval behavior preserved, zero-edge competition graph removed, 3 online artifacts active.
@@ -408,11 +410,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Task B-FORENSIC-0 Complete — FORENSIC_SOURCE_READY; H40 Unpromoted; Model-backed Verifier Disabled)
+    0.50.7 (Task B-FORENSIC-1A Complete — HUMAN_FORENSIC_LABELS_FROZEN; H40 Unpromoted; Model-backed Verifier Disabled)
 
 Active development frontier:
     Priority B — Verification-correctness audit
 
 Next action:
-    Human forensic review of materialized 4-case paired packets
+    Positive-Control Selection / Materialization
 ```

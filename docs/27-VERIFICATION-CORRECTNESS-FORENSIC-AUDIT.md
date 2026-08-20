@@ -1,20 +1,19 @@
-# 27 — Priority B: Verification-Correctness Forensic Audit (B-FORENSIC-0)
+# 27 — Priority B: Verification-Correctness Forensic Audit
 
 ## 1. Executive Summary & Audit State
 
 - **Frontier**: Priority B — Verification-Correctness Audit
-- **Milestone Task**: B-FORENSIC-0 (Four-Question Paired Forensic Source Materialization)
-- **Status**: `FORENSIC_SOURCE_READY` — Hardened Materializer Implemented & Real Source Execution Verified (Human Review Pending)
+- **Milestone Task**: B-FORENSIC-0 (Materialization) & B-FORENSIC-1A (Human Labels Freeze v1)
+- **Status**: `HUMAN_FORENSIC_LABELS_FROZEN`
 - **Production Code Changes**: NONE (`src/` untouched)
 - **Model / Verifier Status**:
   - `ModelBackedCitationVerifier` remains DISABLED (`semantic_verification.enabled = false`).
   - Production `RuleBasedCitationVerifier` behavior is UNCHANGED.
   - S20 remains the active production configuration; H40 remains UNPROMOTED.
-- **Auto-Labeling Policy**: Strictly ZERO auto-generated semantic/legal correctness labels. Human review status is `unreviewed`.
-- **Review Package**:
-  - Archive: `verification-forensic-review-packets.zip`
-  - SHA-256: `996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a`
-  - Size: `42,826 bytes`
+- **Human Review Package**:
+  - Source Review Archive: `verification-forensic-review-packets.zip` (SHA-256 `996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a`, `42,826 bytes`)
+  - Frozen Label Artifact JSON: `verification-human-forensic-labels-v1.json` (SHA-256 `bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733`, `11,849 bytes`)
+  - Frozen Label Artifact ZIP: `verification-human-forensic-labels-v1.zip` (SHA-256 `25c23b80fb94a59976ccd821944355ff80aa60c7360e32a3dd8dea19dae12cbb`, `3,118 bytes`)
 
 ---
 
@@ -88,100 +87,121 @@ The initial audit investigates 4 target questions across both historical arms (t
 
 ---
 
-## 4. Paired Forensic Packet Schema
+## 4. Human Forensic Labels v1 (B-FORENSIC-1A)
 
-Each target question is emitted as a unified paired JSON packet structured for human review:
+The human forensic labels are an immutable overlay over frozen review packets, capturing verified human judgments on claim entailment and granular error modes.
+
+### 4.1 Provenance & Authority Statement
+- **Approval Kind**: `explicit_user_human_approval`
+- **Approval Date**: `2026-08-20`
+- **Reviewer Identifier**: `human_reviewer_1`
+- **Scope Contract**:
+  > *"These labels are internal human forensic annotations over frozen train-derived development outputs and supplied frozen evidence. They are not official UIT DSC relevance or legal-answer ground-truth labels."*
+- **Usage Policy**:
+  - **Allowed**: `verification_correctness_evaluation`, `forensic_analysis`
+  - **Strictly Prohibited**: `training`, `fine_tuning`, `retrieval_relevance_supervision`, `public_test_annotation`, `private_test_annotation`, `manual_submission_correction`
+
+### 4.2 Exact Label Counts
+
+Across the 8 historical arms (6 verified arms + 2 generation-failed arms):
+
+| Metric | Count |
+| :--- | :--- |
+| **Target Questions** | 4 |
+| **Historical Arms** | 8 |
+| **Total Labeled Claims** | 11 |
+| **`SUPPORTED`** | 2 |
+| **`CONTRADICTED`** | 5 |
+| **`INSUFFICIENT`** | 4 |
+| **Generation-Failed Unlabeled Arms** | 2 |
+
+> [!NOTE]
+> These cases represent a deliberately selected suspicious forensic subset and **must not** be used to infer an overall system-wide verifier false-positive rate.
+
+### 4.3 Detailed Case-by-Case Claim Matrix
+
+| Question ID | Arm | Historical Status | Claim ID | Human Entailment Label | Granular Error Tags |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **102047** | BASE | `answer_verified` | C1 | `CONTRADICTED` | `CONDITION_INVERTED`, `SCOPE_OVERGENERALIZED` |
+| **102047** | CANDIDATE | `answer_verified` | C1 | `CONTRADICTED` | `CONDITION_OMITTED`, `SCOPE_OVERGENERALIZED` |
+| **147239** | BASE | `generation_failed` | — | *(Unlabeled)* | *(None — generation_failed)* |
+| **147239** | CANDIDATE | `answer_verified` | C1 | `SUPPORTED` | `NONE` |
+| **147239** | CANDIDATE | `answer_verified` | C2 | `CONTRADICTED` | `ACTOR_ROLE_INVERTED` |
+| **26541** | BASE | `answer_verified` | C1 | `INSUFFICIENT` | `WRONG_DOCUMENT`, `WRONG_ARTICLE` |
+| **26541** | CANDIDATE | `generation_failed` | — | *(Unlabeled)* | *(None — generation_failed)* |
+| **95861** | BASE | `answer_verified` | C1 | `CONTRADICTED` | `ACTOR_ROLE_INVERTED`, `WRONG_DOCUMENT` |
+| **95861** | BASE | `answer_verified` | C2 | `INSUFFICIENT` | `WRONG_DOCUMENT` |
+| **95861** | BASE | `answer_verified` | C3 | `INSUFFICIENT` | `WRONG_DOCUMENT` |
+| **95861** | CANDIDATE | `answer_verified` | C1 | `CONTRADICTED` | `ACTOR_ROLE_INVERTED`, `WRONG_DOCUMENT` |
+| **95861** | CANDIDATE | `answer_verified` | C2 | `INSUFFICIENT` | `ACTOR_ROLE_INVERTED`, `WRONG_DOCUMENT` |
+| **95861** | CANDIDATE | `answer_verified` | C3 | `SUPPORTED` | `NONE` |
+
+---
+
+## 5. Frozen Label Overlay Schema
+
+The human label artifact overlay is formatted as follows:
 
 ```json
 {
   "schema_version": "1.0",
-  "question_id": "102047",
-  "source_identity": {
-    "source_kind": "canonical_zip",
-    "archive_filename": "phase-b1a-graph-routing-ablation-evidence.zip",
-    "archive_sha256_observed": "b88ccce928b4cecfc9239d490c59f91405834c5a3199f917d757c5735b1d6631",
-    "canonical_zip_sha256_expected": "b88ccce928b4cecfc9239d490c59f91405834c5a3199f917d757c5735b1d6631",
-    "base_results_sha256": "c72dc38f37945831095c71ba4b0f24f328de2e01dc4f7ecac6e527b997dc3cac",
-    "candidate_results_sha256": "420d2297d529c3d8c246de499111840d4a4a98b010bd95e42639b7ba9f3fb6ad",
-    "code_version": "0.50.6",
-    "materialized_question_source_sha256": "f5d681c447a2bb964de90298207af0363c76b3546bfa027603d7fa98322a3ce3",
-    "canonical_development_sha256": "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8",
-    "development_filename": "development.json",
-    "serving_artifact_identity": {
-      "artifact_type": "legal_chunks",
-      "dataset_name": "uit-dsc-2026-task2-selected-contexts",
-      "dataset_revision": "sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e",
-      "code_version": "0.40.0",
-      "record_count": 330768,
-      "payload_integrity_verified": true,
-      "payload_sha256": "3a769121f07aa1c65b69569ce296b416f40048ba47b9761a393c245ece609872"
-    }
+  "artifact_type": "verification_human_forensic_labels",
+  "label_version": "v1",
+  "verdict": "HUMAN_FORENSIC_LABELS_FROZEN",
+  "source_review_package": {
+    "filename": "verification-forensic-review-packets.zip",
+    "sha256": "996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a",
+    "size_bytes": 42826
   },
-  "question": "...",
-  "reference_answer_context": {
-    "text": "...",
-    "ground_truth_status": "human_review_context_only_not_claim_entailment_ground_truth"
+  "approval": {
+    "approval_kind": "explicit_user_human_approval",
+    "approval_date": "2026-08-20",
+    "reviewer_id": "human_reviewer_1",
+    "organizer_ground_truth": false,
+    "legal_expert_credential_asserted": false,
+    "approval_statement": "..."
   },
-  "arms": {
-    "BASE": {
-      "historical_response": { ... },
-      "agent_outcome": { ... },
-      "selected_evidence": [ ... ],
-      "context_selection_trace": [ ... ],
-      "historical_verification": { ... },
-      "rule_verifier_replay": {
-        "replay_applicable": true,
-        "replay_matches_historical": true,
-        "replay_result": { ... }
-      }
-    },
-    "CANDIDATE": {
-      "historical_response": { ... },
-      "agent_outcome": { ... },
-      "selected_evidence": [ ... ],
-      "context_selection_trace": [ ... ],
-      "historical_verification": { ... },
-      "rule_verifier_replay": {
-        "replay_applicable": true,
-        "replay_matches_historical": true,
-        "replay_result": { ... }
+  "usage_policy": {
+    "allowed_initial_uses": ["verification_correctness_evaluation", "forensic_analysis"],
+    "prohibited_initial_uses": ["training", "fine_tuning", "retrieval_relevance_supervision", "public_test_annotation", "private_test_annotation", "manual_submission_correction"]
+  },
+  "questions": {
+    "102047": {
+      "question_id": "102047",
+      "arms": {
+        "BASE": {
+          "historical_stop_reason": "answer_verified",
+          "claim_review_applicable": true,
+          "claims": {
+            "C1": {
+              "claim_id": "C1",
+              "claim_text_sha256": "...",
+              "claim_text": "...",
+              "entailment_label": "CONTRADICTED",
+              "error_tags": ["CONDITION_INVERTED", "SCOPE_OVERGENERALIZED"],
+              "diagnostic_metadata": {
+                "status": "diagnostic_not_ground_truth",
+                "historical_rule_status": "supported",
+                "historical_evidence_ids": ["E1"]
+              }
+            }
+          }
+        },
+        "CANDIDATE": { ... }
       }
     }
   },
-  "human_forensic_review": {
-    "review_status": "unreviewed",
-    "base_claim_labels": null,
-    "candidate_claim_labels": null,
-    "cross_arm_notes": null,
-    "root_cause_classification": null
+  "aggregate": {
+    "question_count": 4,
+    "historical_arm_count": 8,
+    "labeled_claim_count": 11,
+    "supported": 2,
+    "contradicted": 5,
+    "insufficient": 4,
+    "generation_failed_unlabeled_arms": 2
   }
 }
 ```
-
----
-
-## 5. Human Review Contract (For Subsequent Phases)
-
-When human forensic annotation begins, claims will be labeled using:
-
-1. **Claim Entailment Labels**:
-   - `SUPPORTED`: The claim is directly and accurately entailed by the cited evidence.
-   - `CONTRADICTED`: The claim asserts a legal statement that contradicts the cited evidence.
-   - `INSUFFICIENT`: The cited evidence does not contain sufficient facts to establish the claim.
-   - `REVIEW_REQUIRES_EXTERNAL_LEGAL_KNOWLEDGE`: Cannot be resolved from provided evidence chunks alone.
-
-2. **Granular Error Tags**:
-   - `CONDITION_OMITTED`
-   - `CONDITION_INVERTED`
-   - `EXCEPTION_IGNORED`
-   - `ACTOR_ROLE_INVERTED`
-   - `NEGATION_INVERTED`
-   - `QUANTITY_ERROR`
-   - `SCOPE_OVERGENERALIZED`
-   - `WRONG_DOCUMENT`
-   - `WRONG_ARTICLE`
-   - `TEMPORAL_APPLICABILITY_ERROR`
-   - `OTHER` / `NONE`
 
 ---
 
@@ -194,8 +214,11 @@ When human forensic annotation begins, claims will be labeled using:
 - [x] Paired BASE and CANDIDATE arms preserved
 - [x] 100% deterministic chunk reconstruction from canonical `uit-dsc-2026-task2-v0400/legal_chunks`
 - [x] In-protocol payload integrity verification of serving artifacts (`records.jsonl` SHA verified)
-- [x] 100% source mapping cross-check between `selected_evidence` and `selection_trace` (across both verified and generation_failed arms)
+- [x] 100% source mapping cross-check between `selected_evidence` and `selection_trace`
 - [x] 100% verifier replay fidelity across all 6 applicable historical arms
-- [x] 35/35 unit tests passing
+- [x] Exact human claim-text binding: all 11 claims bound to exact frozen UTF-8 claim text SHA-256 digests
+- [x] Immutable separation: source review packets remain unmutated; human labels generated as overlay
+- [x] 20/20 freezer unit tests passing (`tests/unit/evaluation/test_freeze_verification_forensic_labels.py`)
+- [x] 35/35 materializer unit tests passing (`tests/unit/evaluation/test_verification_forensic_packets.py`)
 - [x] Full pytest test suite passing
-- [x] Materialized packet files and review ZIP written outside tracked repository content
+- [x] Real human label artifacts written outside tracked repository content
