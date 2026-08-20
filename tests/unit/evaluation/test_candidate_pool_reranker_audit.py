@@ -899,6 +899,10 @@ def test_12_end_to_end_audit_pass_with_shared_scoring_delta(tmp_path: Path) -> N
         assert exec_ident["canonical_b1a2_source_kind"] == "canonical_extracted_bundle"
         assert exec_ident["canonical_b1a2_observed_zip_sha256"] is None
 
+        # Verify runtime_config_sha256 matches exact persisted file bytes
+        runtime_config_path = out_dir / "configs" / "runtime_config.json"
+        assert sha256_file(runtime_config_path) == exec_ident["runtime_config_sha256"]
+
         base_ident = json.loads((out_dir / "baseline" / "b1a2_baseline_identity.json").read_text(encoding="utf-8"))
         assert base_ident["source_kind"] == "canonical_extracted_bundle"
         assert base_ident["observed_zip_sha256"] is None
@@ -916,6 +920,10 @@ def test_12_end_to_end_audit_pass_with_shared_scoring_delta(tmp_path: Path) -> N
             assert "execution/audit_execution_identity.json" in names
             assert "baseline/b1a2_baseline_identity.json" in names
             assert "execution/graphless_root_inventory.json" in names
+
+            # Verify packaged runtime_config.json bytes match recorded SHA exactly
+            packaged_cfg_bytes = z.read("configs/runtime_config.json")
+            assert sha256_bytes(packaged_cfg_bytes) == exec_ident["runtime_config_sha256"]
 
 
 def test_13_drift_detected_when_legacy_s20_probe_diverges(tmp_path: Path) -> None:
@@ -1400,3 +1408,139 @@ def test_17_call_counts_verification(tmp_path: Path) -> None:
     call_args_list = mock_pipeline.reranker.rerank.call_args_list
     assert len(call_args_list[0][0][1]) == 40  # Shared mechanics call
     assert len(call_args_list[1][0][1]) == 20  # Legacy validation probe call
+
+
+def test_18_runtime_config_evidence_hash_matches_persisted_bytes(tmp_path: Path) -> None:
+    """Explicit regression test: hashed runtime_config bytes must exactly match persisted and packaged bytes."""
+    source_root = tmp_path / "artifacts"
+    _setup_mock_staging_root(source_root)
+
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
+
+    dummy_dev = {qid: {"question": f"Văn bản {qid}"} for qid in EXPECTED_22_IDS}
+    for i in range(len(dummy_dev), CANONICAL_SOURCE_QUESTION_COUNT):
+        dummy_dev[f"extra_{i}"] = {"question": "extra"}
+    questions_file = tmp_path / "dev.json"
+    questions_file.write_text(json.dumps(dummy_dev), encoding="utf-8")
+    dev_sha = sha256_file(questions_file)
+
+    config = ApplicationConfig(artifacts=ArtifactConfig(root_path=source_root), online=OnlineConfig())
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(config.model_dump(mode="json")), encoding="utf-8")
+
+    out_dir = tmp_path / "output_test18"
+
+    mock_emb = MagicMock()
+    mock_emb.provider_name = "sentence-transformers"
+    mock_emb.provider_version = "1.0"
+    mock_emb.model_name = "test_model"
+    mock_emb.model_revision = "rev"
+    mock_emb.dimension = 384
+
+    mock_rerank = MagicMock()
+    mock_rerank.model_name = "test_rerank"
+
+    def _score_for_chunk(cid: str, delta: float = 0.0) -> float:
+        if "tail-chunk" in cid:
+            return 0.875
+        r = int(cid.split("-")[-1])
+        return round(0.95 - (r * 0.01) + delta, 8)
+
+    def _mock_rerank(q, candidates):
+        cands = list(candidates)
+        delta = 1.5e-5 if len(cands) == 40 else 0.0
+        ordered_cands = sorted(cands, key=lambda c: (-_score_for_chunk(c.chunk_id, delta), c.rank, c.chunk_id))
+        hits = [
+            RetrievalHit(
+                chunk_id=c.chunk_id,
+                document_id=c.document_id,
+                rank=idx,
+                score=_score_for_chunk(c.chunk_id, delta),
+                strategy=RetrievalStrategy.RERANK,
+                text="sample text",
+            )
+            for idx, c in enumerate(ordered_cands, start=1)
+        ]
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
+        )
+
+    mock_rerank.rerank.side_effect = _mock_rerank
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
+         patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
+         patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
+         patch("scripts.candidate_pool_reranker_audit.SentenceTransformerEmbeddingProvider", return_value=mock_emb), \
+         patch("scripts.candidate_pool_reranker_audit.CrossEncoderReranker", return_value=mock_rerank):
+
+        mock_bm25 = MagicMock()
+        mock_bm25.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_bm25.search.return_value = RetrievalResponse(
+            query=RetrievalQuery(query_id="1", original_question="q", normalized_question="q"),
+            strategy=RetrievalStrategy.BM25,
+            hits=[
+                RetrievalHit(chunk_id=f"chunk-102047-{r}", document_id=f"doc-102047-{r}", rank=r, score=1.0 / r, strategy=RetrievalStrategy.BM25, text="s")
+                for r in range(1, 41)
+            ],
+            latency_ms=1.0,
+        )
+        mock_bm25_cls.return_value = mock_bm25
+
+        mock_vec = MagicMock()
+        mock_vec.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_vec.embedding_provider_name = "sentence-transformers"
+        mock_vec.embedding_provider_version = "1.0"
+        mock_vec.model_name = "test_model"
+        mock_vec.model_revision = "rev"
+        mock_vec.dimension = 384
+        mock_vec.search.return_value = RetrievalResponse(
+            query=RetrievalQuery(query_id="1", original_question="q", normalized_question="q"),
+            strategy=RetrievalStrategy.DENSE,
+            hits=[
+                RetrievalHit(chunk_id=f"chunk-102047-{r}", document_id=f"doc-102047-{r}", rank=r, score=1.0 / r, strategy=RetrievalStrategy.DENSE, text="s")
+                for r in range(1, 41)
+            ],
+            latency_ms=1.0,
+        )
+        mock_vec_cls.return_value = mock_vec
+
+        report, decision, verdict = run_candidate_pool_audit_protocol(
+            config_path=config_path,
+            manifest_path=manifest_file,
+            questions_path=questions_file,
+            baseline_evidence_path=bundle_dir,
+            output_dir=out_dir,
+        )
+
+        runtime_config_path = out_dir / "configs" / "runtime_config.json"
+        identity_path = out_dir / "execution" / "audit_execution_identity.json"
+        evidence_zip_path = out_dir / "candidate-pool-reranker-audit-evidence.zip"
+
+        assert runtime_config_path.is_file()
+        assert identity_path.is_file()
+        assert evidence_zip_path.is_file()
+
+        identity = json.loads(identity_path.read_text(encoding="utf-8"))
+        recorded_sha = identity.get("runtime_config_sha256")
+        assert recorded_sha is not None
+
+        # 1. Direct file SHA-256 equals recorded identity hash
+        persisted_sha = sha256_file(runtime_config_path)
+        assert persisted_sha == recorded_sha, (
+            f"Persisted file SHA {persisted_sha} != recorded SHA {recorded_sha}"
+        )
+
+        # 2. Package ZIP member bytes SHA-256 equals recorded identity hash
+        with zipfile.ZipFile(evidence_zip_path, "r") as z:
+            packaged_bytes = z.read("configs/runtime_config.json")
+            packaged_sha = sha256_bytes(packaged_bytes)
+            assert packaged_sha == recorded_sha, (
+                f"Packaged ZIP member SHA {packaged_sha} != recorded SHA {recorded_sha}"
+            )
+            assert packaged_sha == persisted_sha

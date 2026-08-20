@@ -1129,8 +1129,10 @@ def run_candidate_pool_audit_protocol(
             )
         }
     )
-    runtime_config_json = json.dumps(runtime_config.model_dump(mode="json"), indent=2)
-    runtime_config_sha = sha256_bytes(runtime_config_json.encode("utf-8"))
+    runtime_config_bytes = (
+        json.dumps(runtime_config.model_dump(mode="json"), indent=2) + "\n"
+    ).encode("utf-8")
+    runtime_config_sha = sha256_bytes(runtime_config_bytes)
 
     if reasons:
         invalid_report = {
@@ -1384,7 +1386,7 @@ def run_candidate_pool_audit_protocol(
     decision_path.write_text(json.dumps(decision, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     # Save configs & execution metadata
-    (configs_dir / "runtime_config.json").write_text(runtime_config_json + "\n", encoding="utf-8")
+    (configs_dir / "runtime_config.json").write_bytes(runtime_config_bytes)
     (configs_dir / "phase-b1a-graph-routing-cases.json").write_text(
         json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8"
     )
