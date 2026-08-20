@@ -857,12 +857,18 @@ STEP F: Execute One-Shot Final V2 Promotion Benchmark on Fresh Holdout
 
 ### 12.1 Motivation & V1 Observed Weaknesses
 
-The V1 benchmark (`ModelBackedCitationVerifier`) asked the model to directly produce a single final semantic label (`supported`, `contradicted`, `insufficient`). While V1 achieved 60.53% claim accuracy and caught 7/15 invalid answers, diagnostic analysis revealed critical failure modes:
-1. **0% Catch on Condition Inversions & Omissions (0/3)**: When evidence stated a conditional rule ($X \implies Y$), V1 falsely validated unconditional assertions ($Y$).
-2. **0% Catch on Wrong Statutory Articles (0/2)**: V1 accepted claims citing the wrong article if the text was topically related.
-3. **0% Catch on Quantity & Date Mismatches (0/3)**: V1 validated numeric tokens even when used in conflicting semantic roles (e.g. deadline vs fine amount).
-4. **12.5% Catch on Scope Overgeneralizations (1/8)**: V1 struggled to detect narrow procedural scopes being generalized to universal mandates.
-5. **Low 3-Way Negative Recall**: `CONTRADICTED` recall was 14.29% (1/7) and `INSUFFICIENT` recall was 15.38% (2/13).
+The V1 benchmark (`ModelBackedCitationVerifier`) asked the model to directly produce a single final semantic label (`supported`, `contradicted`, `insufficient`). While V1 achieved 60.53% claim accuracy (23/38) and caught 7/15 invalid answers (63.64% answer-level accuracy), diagnostic analysis across human error tags revealed critical failure modes:
+1. **0% Catch on Wrong Statutory Articles (0 / 4 caught)**: V1 accepted claims citing the wrong article if the text was topically related.
+2. **0% Catch on Condition Inversions & Omissions (0 / 3 caught total)**:
+   - `CONDITION_OMITTED`: 0 / 2 caught (when evidence stated a conditional rule $X \implies Y$, V1 falsely validated unconditional assertions $Y$).
+   - `CONDITION_INVERTED`: 0 / 1 caught.
+3. **0% Catch on Quantity & Date Mismatches (0 / 2 caught)**: V1 validated numeric tokens even when used in conflicting semantic roles (`QUANTITY_ERROR`).
+4. **12.5% Catch on Scope Overgeneralizations (1 / 8 caught)**: V1 struggled to detect narrow procedural scopes being generalized to universal mandates (`SCOPE_OVERGENERALIZED`).
+5. **20.0% Catch on Miscellaneous Subtle Distortions (1 / 5 caught)**: (`OTHER`).
+6. **Moderate Catch on Inverted Roles & Wrong Documents**:
+   - `ACTOR_ROLE_INVERTED`: 4 / 5 caught (80.0%).
+   - `WRONG_DOCUMENT`: 5 / 9 caught (55.56%).
+7. **Low 3-Way Negative Recall**: `CONTRADICTED` recall was 14.29% (1/7) and `INSUFFICIENT` recall was 15.38% (2/13).
 
 ---
 
@@ -893,6 +899,7 @@ flowchart TD
 - **Backend:** `transformers`
 - **Model Name:** `Qwen/Qwen2.5-3B-Instruct`
 - **Model Revision:** `a1d308dfcc03e09da285d49d912439a655a571e8`
+- **Provider Version Requirement:** `4.47.1` (pinned)
 - **Device / Dtype:** `cuda` / `float16`
 - **Temperature:** `0.0`
 - **Max Input / Output Tokens:** `8192` / `512`
@@ -933,40 +940,216 @@ def derive_claim_semantic_label(assessment: StructuredClaimAssessmentDraft) -> S
 
 ### 12.4 Kaggle Development Runbook (For Future V2-D1 Execution)
 
-```bash
+```python
 # ==============================================================================
-# CELL 1: Environment Setup & Verify Git Authority
+# CELL 1: Environment Setup & Pinned Dependency Gate
 # ==============================================================================
+import os, sys, importlib.metadata
+
 !git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
 %cd /kaggle/working/legal-agentic-rag
-!git checkout <COMMITTED_V2_SHA>
-!pip install -e .
-!pip install transformers torch accelerate
+!git checkout <COMMITTED_REVIEWED_V2_SHA>
+!git status --short
+!git rev-parse HEAD
 
+!pip install -q -e .
+!python -m pip install -q transformers==4.47.1 accelerate==1.2.1
+
+import torch
+import transformers
+import legal_agentic_rag
+
+assert transformers.__version__ == "4.47.1", f"Transformers version drift: {transformers.__version__}"
+assert torch.cuda.is_available() is True, "CUDA device required for V2-D1 execution"
+print("Transformers Version:", transformers.__version__)
+print("CUDA Device:", torch.cuda.get_device_name(0))
+print("CUDA Version:", torch.version.cuda)
+```
+
+```python
 # ==============================================================================
-# CELL 2: Preflight Verification (Validates All 5 Canonical Checksums & V0 Replay)
+# CELL 2: Holdout Blindness Guard & Exact SHA-256 Source Discovery (with Base64 Transport)
 # ==============================================================================
+import os, sys, json, base64
+from pathlib import Path
+from hashlib import sha256
+
+def sha256_file(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Step 1: Fail closed if any holdout artifact is present in /kaggle/input
+forbidden_holdout_filenames = [
+    "verification-v2-holdout-selection-v1.json",
+    "verification-v2-holdout-review-packets-v1.zip",
+    "verification_v2_holdout_output",
+    "phase-a-current-system-census-final-evidence.zip",
+]
+for root, _, files in os.walk("/kaggle/input"):
+    for fname in files:
+        if fname in forbidden_holdout_filenames:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout artifact found: {fname}")
+
+# Step 2: Canonical expected SHA-256 signatures for the 5 development sources
+canonical_sources = {
+    "forensic_packets": {
+        "name": "verification-forensic-review-packets.zip",
+        "sha256": "996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a",
+    },
+    "forensic_labels": {
+        "name": "verification-human-forensic-labels-v1.json",
+        "sha256": "bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733",
+    },
+    "control_packets": {
+        "name": "verification-positive-control-review-packets-v1.zip",
+        "sha256": "cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4",
+    },
+    "control_labels": {
+        "name": "verification-positive-control-human-labels-v1.json",
+        "sha256": "60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373",
+    },
+    "v1_evidence": {
+        "name": "verification-semantic-benchmark-evidence.zip",
+        "sha256": "bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6",
+    },
+}
+
+discovered_paths = {}
+
+# Step 3: Discover files by scanning /kaggle/input and handling base64 chunks if transport encoded
+for key, spec in canonical_sources.items():
+    matched_path = None
+    for root, _, files in os.walk("/kaggle/input"):
+        for fname in files:
+            p = Path(root) / fname
+            if p.is_file() and p.stat().st_size > 0:
+                if p.name == spec["name"] or p.name.startswith(spec["name"]):
+                    if sha256_file(p) == spec["sha256"]:
+                        matched_path = p
+                        break
+        if matched_path:
+            break
+
+    # If not found directly, check for base64 encoded text files
+    if not matched_path:
+        for root, _, files in os.walk("/kaggle/input"):
+            for fname in files:
+                if fname.startswith(spec["name"]) and (fname.endswith(".b64") or fname.endswith(".txt")):
+                    b64_p = Path(root) / fname
+                    raw_bytes = base64.b64decode(b64_p.read_text(encoding="utf-8").strip())
+                    if sha256(raw_bytes).hexdigest() == spec["sha256"]:
+                        out_p = Path("/kaggle/working") / spec["name"]
+                        out_p.write_bytes(raw_bytes)
+                        matched_path = out_p
+                        break
+            if matched_path:
+                break
+
+    if not matched_path:
+        raise FileNotFoundError(f"Could not discover canonical source {spec['name']} with SHA {spec['sha256']}")
+
+    discovered_paths[key] = str(matched_path)
+    print(f"Verified source [{key}]: {matched_path} (SHA: {spec['sha256'][:16]}...)")
+
+# Persist discovered sources map
+sources_map_file = Path("/kaggle/working/v2_development_sources.json")
+sources_map_file.write_text(json.dumps(discovered_paths, indent=2), encoding="utf-8")
+```
+
+```python
+# ==============================================================================
+# CELL 3: Preflight Verification (Validates All 5 Canonical Checksums & V0 Replay)
+# ==============================================================================
+import json
+from pathlib import Path
+
+sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
+
 !python scripts/evaluate_verification_v2_development.py \
-  --forensic-packets "/kaggle/input/verification-sources/verification-forensic-review-packets.zip" \
-  --forensic-labels "/kaggle/input/verification-sources/verification-human-forensic-labels-v1.json" \
-  --control-packets "/kaggle/input/verification-sources/verification-positive-control-review-packets-v1.zip" \
-  --control-labels "/kaggle/input/verification-sources/verification-positive-control-human-labels-v1.json" \
-  --v1-evidence "/kaggle/input/verification-sources/verification-semantic-benchmark-evidence.zip" \
+  --forensic-packets "{sources['forensic_packets']}" \
+  --forensic-labels "{sources['forensic_labels']}" \
+  --control-packets "{sources['control_packets']}" \
+  --control-labels "{sources['control_labels']}" \
+  --v1-evidence "{sources['v1_evidence']}" \
   --output-dir "/kaggle/working/v2_development_preflight" \
   --preflight-only
+```
 
+```python
 # ==============================================================================
-# CELL 3: Full V2-D1 Development Execution (2-Pass Stability & Multi-Dimensional Metrics)
+# CELL 4: Full Real V2-D1 Development Execution (2-Pass Stability & Multi-Dimensional Metrics)
 # ==============================================================================
+import json
+from pathlib import Path
+
+sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
+
 !python scripts/evaluate_verification_v2_development.py \
-  --forensic-packets "/kaggle/input/verification-sources/verification-forensic-review-packets.zip" \
-  --forensic-labels "/kaggle/input/verification-sources/verification-human-forensic-labels-v1.json" \
-  --control-packets "/kaggle/input/verification-sources/verification-positive-control-review-packets-v1.zip" \
-  --control-labels "/kaggle/input/verification-sources/verification-positive-control-human-labels-v1.json" \
-  --v1-evidence "/kaggle/input/verification-sources/verification-semantic-benchmark-evidence.zip" \
+  --forensic-packets "{sources['forensic_packets']}" \
+  --forensic-labels "{sources['forensic_labels']}" \
+  --control-packets "{sources['control_packets']}" \
+  --control-labels "{sources['control_labels']}" \
+  --v1-evidence "{sources['v1_evidence']}" \
   --output-dir "/kaggle/working/v2_development_output" \
   --package-zip "/kaggle/working/verification-v2-d1-development-evidence.zip" \
   --candidate-id "V2-D1" \
   --device "cuda" \
   --repeat-count 2
+```
+
+```python
+# ==============================================================================
+# CELL 5: Evidence Package Verification & Summary Assertion
+# ==============================================================================
+import json, zipfile
+from pathlib import Path
+from hashlib import sha256
+
+def sha256_file(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+pkg_path = Path("/kaggle/working/verification-v2-d1-development-evidence.zip")
+assert pkg_path.is_file(), f"Missing package: {pkg_path}"
+pkg_sha = sha256_file(pkg_path)
+pkg_size = pkg_path.stat().st_size
+print(f"Evidence Package SHA-256: {pkg_sha}")
+print(f"Evidence Package Size: {pkg_size} bytes")
+
+with zipfile.ZipFile(pkg_path, "r") as zf:
+    members = zf.namelist()
+    print(f"Total Archive Members: {len(members)}")
+    for m in sorted(members):
+        print(f"  - {m}")
+
+# Verify decision report
+decision_path = Path("/kaggle/working/v2_development_output/results/v2_development_decision_report.json")
+decision = json.loads(decision_path.read_text(encoding="utf-8"))
+report = json.loads(Path("/kaggle/working/v2_development_output/results/v2_development_report.json").read_text(encoding="utf-8"))
+
+print("\n" + "=" * 60)
+print("V2-D1 DEVELOPMENT EXECUTION SUMMARY")
+print("=" * 60)
+print("Candidate ID:               ", decision["candidate_id"])
+print("Git Commit:                 ", decision["execution_git_commit"])
+print("Verdict:                    ", decision["verdict"])
+print("Decision:                   ", decision["development_evaluation_decision"])
+print("Stability:                  ", decision["stability"]["label_stability_percentage"], f"% ({decision['stability']['unstable_claim_count']} unstable)")
+print("Model Errors:               ", decision["model_error_count"])
+print("Structured Output Retries:  ", decision["structured_retry_count"])
+print("Claim Accuracy (V1 vs V2):  ", f"{decision['v1_claim_binary']['accuracy']*100:.2f}% -> {decision['v2_claim_binary']['accuracy']*100:.2f}%")
+print("Negative Catch (V1 vs V2):  ", f"{decision['v1_claim_binary']['negative_catch']*100:.2f}% -> {decision['v2_claim_binary']['negative_catch']*100:.2f}%")
+print("Retention (V1 vs V2):       ", f"{decision['v1_claim_binary']['supported_retention']*100:.2f}% -> {decision['v2_claim_binary']['supported_retention']*100:.2f}%")
+print("Answer Accuracy (V1 vs V2): ", f"{report['metrics']['v1_answer_level']['answer_level_accuracy']*100:.2f}% -> {report['metrics']['v2_answer_level']['answer_level_accuracy']*100:.2f}%")
+print("Promotion Authorized:       ", decision["promotion_authorized"])
+print("=" * 60)
+
+# HARD SAFETY ASSERTION: Promotion is NEVER authorized on development runs
+assert decision["promotion_authorized"] is False, "CRITICAL: promotion_authorized must be False for development evaluation"
 ```

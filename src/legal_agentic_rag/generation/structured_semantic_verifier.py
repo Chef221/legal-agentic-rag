@@ -80,6 +80,8 @@ For each claim_id, evaluate:
 
 Return only one JSON object matching the schema with exactly one assessment per claim_id in the exact order supplied."""
 
+STRUCTURED_SEMANTIC_SYSTEM_INSTRUCTION: str = _STRUCTURED_SYSTEM_INSTRUCTION
+
 
 class SemanticDimensionStatus(StrEnum):
     """Categorical status for a specific semantic dimension."""

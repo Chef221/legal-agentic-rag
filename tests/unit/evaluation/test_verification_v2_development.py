@@ -15,16 +15,23 @@ import pytest
 
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.generation.citation_verifier import RuleBasedCitationVerifier
+import legal_agentic_rag.generation.semantic_verifier
+from legal_agentic_rag.generation.semantic_verifier import ModelBackedCitationVerifier
+import legal_agentic_rag.generation.structured_semantic_verifier
 from legal_agentic_rag.generation.structured_semantic_verifier import (
+    STRUCTURED_SEMANTIC_SYSTEM_INSTRUCTION,
     EvidenceCoverageStatus,
     SemanticDimensionStatus,
     StructuredClaimAssessmentDraft,
     StructuredSemanticCitationVerifier,
+    StructuredSemanticVerificationDraft,
     derive_claim_semantic_label,
 )
 from legal_agentic_rag.schemas.answering import (
     AnswerResponse,
     Citation,
+    CitationVerificationResult,
     ClaimSupportStatus,
     ClaimVerification,
     Evidence,
@@ -36,25 +43,27 @@ from scripts.evaluate_verification_v2_development import (
     CANONICAL_FORENSIC_LABELS_SHA256,
     CANONICAL_FORENSIC_REVIEW_ZIP_SHA256,
     CANONICAL_V1_EVIDENCE_ZIP_SHA256,
+    CANONICAL_V2_BACKEND,
+    CANONICAL_V2_MODEL_NAME,
+    CANONICAL_V2_MODEL_REVISION,
+    CANONICAL_V2_PROVIDER_VERSION,
     BenchmarkArmTarget,
     BenchmarkClaimTarget,
     BinaryPrediction,
     HumanEntailment,
+    ObservationalChatModelProviderWrapper,
     V2DevelopmentBenchmarkEvaluator,
+    get_git_commit,
+    get_runtime_environment,
+    is_git_worktree_clean,
     main,
     sha256_file,
     sha256_text,
 )
 
 
-def _compute_sha256(data: str | bytes) -> str:
-    if isinstance(data, str):
-        return sha256(data.encode("utf-8")).hexdigest()
-    return sha256(data).hexdigest()
-
-
 class MockV2ChatProvider(ChatModelProvider):
-    def __init__(self, responses: list[str]) -> None:
+    def __init__(self, responses: list[str | Exception]) -> None:
         self.responses = responses
         self.call_count = 0
 
@@ -64,19 +73,21 @@ class MockV2ChatProvider(ChatModelProvider):
 
     @property
     def provider_version(self) -> str:
-        return "1.0.0"
+        return CANONICAL_V2_PROVIDER_VERSION
 
     @property
     def model_name(self) -> str:
-        return "Qwen/Qwen2.5-3B-Instruct"
+        return CANONICAL_V2_MODEL_NAME
 
     @property
     def model_revision(self) -> str:
-        return "a1d308dfcc03e09da285d49d912439a655a571e8"
+        return CANONICAL_V2_MODEL_REVISION
 
     def complete(self, *, system_instruction: str, user_prompt: str) -> str:
         res = self.responses[self.call_count % len(self.responses)]
         self.call_count += 1
+        if isinstance(res, Exception):
+            raise res
         return res
 
 
@@ -169,16 +180,16 @@ def test_sources_validation_fails_on_wrong_extension(tmp_path: Path):
 def test_binary_metrics_calculation():
     """Verify calculation of TP, FP, TN, FN, accuracy, precision, retention, negative catch, F1, balanced acc."""
     targets = [
-        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),   # TP
-        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.SUPPORTED),   # FN
-        _make_dummy_claim_target("q3", "PRIMARY", "C1", HumanEntailment.CONTRADICTED), # TN
-        _make_dummy_claim_target("q4", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT), # FP
+        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+        _make_dummy_claim_target("q3", "PRIMARY", "C1", HumanEntailment.CONTRADICTED),
+        _make_dummy_claim_target("q4", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT),
     ]
     preds = [
-        {"v2_binary_prediction": "ACCEPT"},  # TP
-        {"v2_binary_prediction": "REJECT"},  # FN
-        {"v2_binary_prediction": "REJECT"},  # TN
-        {"v2_binary_prediction": "ACCEPT"},  # FP
+        {"v2_binary_prediction": "ACCEPT"},
+        {"v2_binary_prediction": "REJECT"},
+        {"v2_binary_prediction": "REJECT"},
+        {"v2_binary_prediction": "ACCEPT"},
     ]
 
     evaluator = V2DevelopmentBenchmarkEvaluator(
@@ -235,25 +246,28 @@ def test_three_way_metrics_calculation():
     assert m["confusion_matrix"]["INSUFFICIENT"]["INSUFFICIENT"] == 1
 
 
-def test_paired_metrics_calculation():
-    """Verify paired comparison deltas between V1 and V2."""
+def test_paired_metrics_calculation_and_v2_execution_error_reporting():
+    """Verify paired comparison deltas and explicit execution error count/IDs."""
     targets = [
         _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
         _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.CONTRADICTED),
         _make_dummy_claim_target("q3", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT),
         _make_dummy_claim_target("q4", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+        _make_dummy_claim_target("q5", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
     ]
     v1_preds = [
-        {"is_correct": True},   # both correct
-        {"is_correct": False},  # V2 fix
-        {"is_correct": True},   # V2 regression
-        {"is_correct": False},  # both wrong
+        {"is_correct": True, "v1_binary_prediction": "ACCEPT"},
+        {"is_correct": False, "v1_binary_prediction": "ACCEPT"},
+        {"is_correct": True, "v1_binary_prediction": "REJECT"},
+        {"is_correct": False, "v1_binary_prediction": "REJECT"},
+        {"is_correct": True, "v1_binary_prediction": "ACCEPT"},
     ]
     v2_preds = [
-        {"is_correct": True},   # both correct
-        {"is_correct": True},   # V2 fix
-        {"is_correct": False},  # V2 regression
-        {"is_correct": False},  # both wrong
+        {"is_correct": True, "v2_binary_prediction": "ACCEPT"},
+        {"is_correct": True, "v2_binary_prediction": "REJECT"},
+        {"is_correct": False, "v2_binary_prediction": "ACCEPT"},
+        {"is_correct": False, "v2_binary_prediction": "REJECT"},
+        {"is_correct": False, "v2_binary_prediction": "EXECUTION_ERROR"},
     ]
 
     evaluator = V2DevelopmentBenchmarkEvaluator(
@@ -268,11 +282,13 @@ def test_paired_metrics_calculation():
     p = evaluator._compute_paired_metrics(targets, v1_preds, v2_preds)
     assert p["both_correct"] == 1
     assert p["v2_only_correct"] == 1
-    assert p["v1_only_correct"] == 1
+    assert p["v1_only_correct"] == 2
     assert p["both_wrong"] == 1
-    assert p["net_correctness_delta"] == 0
+    assert p["net_correctness_delta"] == -1
     assert p["v2_fixes_count"] == 1
-    assert p["v2_regressions_count"] == 1
+    assert p["v2_regressions_count"] == 2
+    assert p["v2_execution_error_count"] == 1
+    assert p["v2_execution_error_claim_ids"] == ["q5:PRIMARY:C1"]
 
 
 def test_stability_evaluation():
@@ -292,7 +308,7 @@ def test_stability_evaluation():
     ]
     pass2 = [
         {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v2_three_way_prediction": "SUPPORTED"},
-        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_three_way_prediction": "INSUFFICIENT"},  # unstable
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_three_way_prediction": "INSUFFICIENT"},
     ]
 
     stab = evaluator._evaluate_stability([pass1, pass2])
@@ -302,35 +318,29 @@ def test_stability_evaluation():
     assert stab["unstable_claims"][0]["question_id"] == "q2"
 
 
-def test_dimension_diagnostics():
-    """Verify aggregation of structured dimension statuses and error tag activations."""
+def test_dimension_diagnostics_no_double_counting_multi_tag():
+    """Verify that a claim carrying 3 error tags increments global dimension counts EXACTLY ONCE."""
     targets = [
-        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.CONTRADICTED, tags=["CONDITION_INVERTED"]),
-        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.INSUFFICIENT, tags=["SCOPE_OVERGENERALIZED"]),
+        _make_dummy_claim_target(
+            "q1",
+            "PRIMARY",
+            "C1",
+            HumanEntailment.CONTRADICTED,
+            tags=["ACTOR_ROLE_INVERTED", "WRONG_DOCUMENT", "CONDITION_INVERTED"],
+        )
     ]
     v2_preds = [
         {
             "structured_assessment": {
-                "actor_role": "MATCH",
+                "actor_role": "CONFLICT",
                 "action_object": "MATCH",
                 "condition_exception": "CONFLICT",
-                "quantity_temporal": "MATCH",
-                "negation_modality": "MATCH",
-                "source_article_scope": "MATCH",
-                "evidence_coverage": "COMPLETE",
-            }
-        },
-        {
-            "structured_assessment": {
-                "actor_role": "MATCH",
-                "action_object": "MATCH",
-                "condition_exception": "MATCH",
-                "quantity_temporal": "MATCH",
+                "quantity_temporal": "NOT_APPLICABLE",
                 "negation_modality": "MATCH",
                 "source_article_scope": "INSUFFICIENT",
                 "evidence_coverage": "PARTIAL",
             }
-        },
+        }
     ]
 
     evaluator = V2DevelopmentBenchmarkEvaluator(
@@ -343,19 +353,492 @@ def test_dimension_diagnostics():
     )
 
     diag = evaluator._compute_dimension_diagnostics(targets, v2_preds)
+
+    assert diag["evaluated_claim_count"] == 1
+    # Global counts must be exactly 1, NOT 3
+    assert diag["dimension_status_counts"]["actor_role"]["CONFLICT"] == 1
     assert diag["dimension_status_counts"]["condition_exception"]["CONFLICT"] == 1
     assert diag["dimension_status_counts"]["source_article_scope"]["INSUFFICIENT"] == 1
+    assert diag["dimension_status_counts"]["action_object"]["MATCH"] == 1
     assert diag["evidence_coverage_counts"]["PARTIAL"] == 1
+
+    # But per-tag activations should record the activations under each tag
+    assert diag["error_tag_activations"]["ACTOR_ROLE_INVERTED"]["total_claims"] == 1
+    assert diag["error_tag_activations"]["ACTOR_ROLE_INVERTED"]["actor_role:CONFLICT"] == 1
+    assert diag["error_tag_activations"]["WRONG_DOCUMENT"]["total_claims"] == 1
+    assert diag["error_tag_activations"]["WRONG_DOCUMENT"]["source_article_scope:INSUFFICIENT"] == 1
+    assert diag["error_tag_activations"]["CONDITION_INVERTED"]["total_claims"] == 1
     assert diag["error_tag_activations"]["CONDITION_INVERTED"]["condition_exception:CONFLICT"] == 1
-    assert diag["error_tag_activations"]["SCOPE_OVERGENERALIZED"]["source_article_scope:INSUFFICIENT"] == 1
+
+
+def test_dimension_diagnostics_clean_38_claims_totals():
+    """Verify that a clean 38-claim run yields sum(statuses)==38 for each dimension and coverage."""
+    targets = [
+        _make_dummy_claim_target(f"q{i}", "PRIMARY", "C1", HumanEntailment.SUPPORTED, tags=["TAG_A", "TAG_B"])
+        for i in range(38)
+    ]
+    v2_preds = [
+        {
+            "structured_assessment": {
+                "actor_role": "MATCH",
+                "action_object": "MATCH",
+                "condition_exception": "MATCH",
+                "quantity_temporal": "MATCH",
+                "negation_modality": "MATCH",
+                "source_article_scope": "MATCH",
+                "evidence_coverage": "COMPLETE",
+            }
+        }
+        for _ in range(38)
+    ]
+
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    diag = evaluator._compute_dimension_diagnostics(targets, v2_preds)
+    assert diag["evaluated_claim_count"] == 38
+    for d, counts in diag["dimension_status_counts"].items():
+        assert sum(counts.values()) == 38, f"Dimension {d} sum != 38"
+    assert sum(diag["evidence_coverage_counts"].values()) == 38
+
+
+def test_dimension_diagnostics_with_execution_errors_uses_evaluated_denominator():
+    """Verify that claims with execution errors (structured_assessment=None) are excluded from denominator."""
+    targets = [
+        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+    ]
+    v2_preds = [
+        {
+            "structured_assessment": {
+                "actor_role": "MATCH",
+                "action_object": "MATCH",
+                "condition_exception": "MATCH",
+                "quantity_temporal": "MATCH",
+                "negation_modality": "MATCH",
+                "source_article_scope": "MATCH",
+                "evidence_coverage": "COMPLETE",
+            }
+        },
+        {"structured_assessment": None},  # execution error
+    ]
+
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    diag = evaluator._compute_dimension_diagnostics(targets, v2_preds)
+    assert diag["evaluated_claim_count"] == 1
+    assert sum(diag["dimension_status_counts"]["actor_role"].values()) == 1
+
+
+def test_development_freeze_gating_rejects_execution_errors():
+    """Verify that a run with execution errors can NEVER produce CANDIDATE_FREEZE_ELIGIBLE."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    metrics_report = {
+        "v1_claim_binary": {"tp": 16, "tn": 7, "fp": 13, "fn": 2, "accuracy": 0.6053, "negative_catch": 0.35, "supported_retention": 0.8889},
+        "v2_claim_binary": {"tp": 18, "tn": 15, "fp": 5, "fn": 0, "execution_errors": 1, "accuracy": 0.8684, "negative_catch": 0.75, "supported_retention": 1.0},
+        "v2_three_way": {"execution_errors": 1},
+        "paired_v1_vs_v2": {"net_correctness_delta": 10, "v2_fixes_count": 10, "v2_regressions_count": 0, "v2_execution_error_count": 1},
+    }
+
+    report, decision, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_EXECUTION_ERROR",
+        execution_identity={},
+        stability_info={"unstable_claim_count": 0},
+        metrics_report=metrics_report,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=1,
+        total_provider_calls=22,
+        structured_retry_count=0,
+    )
+
+    assert decision["development_evaluation_decision"] == "KEEP_ITERATING"
+    assert decision["promotion_authorized"] is False
+
+
+def test_development_freeze_gating_rejects_instability():
+    """Verify that a run with label instability can NEVER produce CANDIDATE_FREEZE_ELIGIBLE."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    metrics_report = {
+        "v1_claim_binary": {"tp": 16, "tn": 7, "fp": 13, "fn": 2, "accuracy": 0.6053, "negative_catch": 0.35, "supported_retention": 0.8889},
+        "v2_claim_binary": {"tp": 18, "tn": 15, "fp": 5, "fn": 0, "execution_errors": 0, "accuracy": 0.8684, "negative_catch": 0.75, "supported_retention": 1.0},
+        "v2_three_way": {"execution_errors": 0},
+        "paired_v1_vs_v2": {"net_correctness_delta": 10, "v2_fixes_count": 10, "v2_regressions_count": 0, "v2_execution_error_count": 0},
+    }
+
+    report, decision, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_LABEL_INSTABILITY",
+        execution_identity={},
+        stability_info={"unstable_claim_count": 2},
+        metrics_report=metrics_report,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=0,
+        total_provider_calls=44,
+        structured_retry_count=0,
+    )
+
+    assert decision["development_evaluation_decision"] == "KEEP_ITERATING"
+    assert decision["promotion_authorized"] is False
+
+
+def test_development_freeze_gating_accepts_clean_improved_candidate():
+    """Verify that a mechanically clean run with improved metrics produces CANDIDATE_FREEZE_ELIGIBLE."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    metrics_report = {
+        "v1_claim_binary": {"tp": 16, "tn": 7, "fp": 13, "fn": 2, "accuracy": 0.6053, "negative_catch": 0.35, "supported_retention": 0.8889},
+        "v2_claim_binary": {"tp": 17, "tn": 12, "fp": 8, "fn": 1, "execution_errors": 0, "accuracy": 0.7632, "negative_catch": 0.60, "supported_retention": 0.9444},
+        "v2_three_way": {"execution_errors": 0},
+        "paired_v1_vs_v2": {"net_correctness_delta": 6, "v2_fixes_count": 7, "v2_regressions_count": 1, "v2_execution_error_count": 0},
+    }
+
+    report, decision, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_BENCHMARK_PASS",
+        execution_identity={},
+        stability_info={"unstable_claim_count": 0},
+        metrics_report=metrics_report,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=0,
+        total_provider_calls=44,
+        structured_retry_count=0,
+    )
+
+    assert decision["development_evaluation_decision"] == "CANDIDATE_FREEZE_ELIGIBLE"
+    assert decision["promotion_authorized"] is False
+
+
+def test_provider_wrapper_observability_on_success_and_exception():
+    """Verify that ObservationalChatModelProviderWrapper records every invocation attempt including failures."""
+    inner = MockV2ChatProvider(["valid response", RuntimeError("Model CUDA OOM")])
+    obs = ObservationalChatModelProviderWrapper(inner)
+
+    # Call 1: success
+    res1 = obs.complete(system_instruction="sys", user_prompt="prompt 1")
+    assert res1 == "valid response"
+    assert len(obs.call_history) == 1
+    assert obs.call_history[0]["call_succeeded"] is True
+    assert obs.call_history[0]["completion_sha256"] == sha256_text("valid response")
+
+    # Call 2: failure
+    with pytest.raises(RuntimeError, match="Model CUDA OOM"):
+        obs.complete(system_instruction="sys", user_prompt="prompt 2")
+
+    assert len(obs.call_history) == 2
+    assert obs.call_history[1]["call_succeeded"] is False
+    assert obs.call_history[1]["exception_type"] == "RuntimeError"
+    assert obs.call_history[1]["exception_message_sha256"] == sha256_text("Model CUDA OOM")
+
+
+def test_provider_wrapper_retry_observability():
+    """Verify retry call accounting for malformed + successful, and malformed + failed retries."""
+    base_v0 = RuleBasedCitationVerifier()
+
+    # Case A: malformed JSON on call 1, valid on call 2 => 2 calls
+    valid_json = json.dumps({
+        "assessments": [
+            {
+                "claim_id": "C1",
+                "actor_role": "MATCH",
+                "action_object": "MATCH",
+                "condition_exception": "MATCH",
+                "quantity_temporal": "MATCH",
+                "negation_modality": "MATCH",
+                "source_article_scope": "MATCH",
+                "evidence_coverage": "COMPLETE",
+            }
+        ]
+    })
+    mock_a = MockV2ChatProvider(["malformed json string", valid_json])
+    obs_a = ObservationalChatModelProviderWrapper(mock_a)
+    verifier_a = StructuredSemanticCitationVerifier(base_verifier=base_v0, provider=obs_a, max_structured_output_retries=1)
+
+    resp = AnswerResponse(
+        question="Thời hạn cấp giấy phép là bao lâu?",
+        answer="Thời hạn cấp giấy phép là 15 ngày làm việc [E1].",
+        insufficient_evidence=False,
+        retrieval_strategy="hybrid_rerank",
+        trace_id="t1",
+        citations=[
+            Citation(
+                evidence_id="E1",
+                chunk_id="chunk_001",
+                document_id="doc_001",
+                document_title="Luật Đầu tư",
+                document_number="61/2020/QH14",
+                article_number="15",
+            )
+        ],
+    )
+    ev = Evidence(
+        evidence_id="E1",
+        chunk_id="chunk_001",
+        document_id="doc_001",
+        text="Thời hạn cấp giấy phép là 15 ngày làm việc kể từ ngày nhận đủ hồ sơ.",
+        document_title="Luật Đầu tư",
+        document_number="61/2020/QH14",
+        article_number="15",
+    )
+
+    cit_res, struct_res = verifier_a.verify_structured(resp, [ev])
+    assert obs_a.total_calls == 2
+    assert obs_a.call_history[0]["call_succeeded"] is True
+    assert obs_a.call_history[1]["call_succeeded"] is True
+    assert len(struct_res.assessments) == 1
+    assert max(0, obs_a.total_calls - 1) == 1
+
+    # Case B: malformed on call 1, exception on call 2 => 2 calls recorded
+    mock_b = MockV2ChatProvider(["malformed json string", RuntimeError("Provider timeout")])
+    obs_b = ObservationalChatModelProviderWrapper(mock_b)
+    verifier_b = StructuredSemanticCitationVerifier(base_verifier=base_v0, provider=obs_b, max_structured_output_retries=1)
+
+    with pytest.raises(RuntimeError, match="Provider timeout"):
+        verifier_b.verify_structured(resp, [ev])
+
+    assert obs_b.total_calls == 2
+    assert obs_b.call_history[0]["call_succeeded"] is True
+    assert obs_b.call_history[1]["call_succeeded"] is False
+
+
+
+def test_candidate_execution_identity_completeness(tmp_path: Path):
+    """Verify that execution identity captures all required provenance fields."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+        candidate_id="V2-D1",
+        repeat_count=2,
+    )
+
+    sources_info = {"test_source": {"filename": "s.zip", "sha256": "abcdef", "size_bytes": 100}}
+    runtime_info = {
+        "provider_name": "transformers",
+        "provider_version": CANONICAL_V2_PROVIDER_VERSION,
+        "model_name": CANONICAL_V2_MODEL_NAME,
+        "model_revision": CANONICAL_V2_MODEL_REVISION,
+    }
+    v0_stats = {"v0_replay_100_percent_fidelity": True}
+
+    identity = evaluator._build_execution_identity(sources_info, runtime_info, v0_stats, repeat_count=2)
+
+    assert identity["candidate_id"] == "V2-D1"
+    assert len(identity["execution_git_commit"]) == 40
+    assert isinstance(identity["git_worktree_clean"], bool)
+    assert identity["provider"]["provider_version"] == CANONICAL_V2_PROVIDER_VERSION
+    assert identity["model_inference_config"]["backend"] == CANONICAL_V2_BACKEND
+    assert "transformers_version" in identity["runtime_environment"]
+    assert "cuda_available" in identity["runtime_environment"]
+    assert len(identity["implementation_identities"]["structured_semantic_verifier_sha256"]) == 64
+    assert len(identity["implementation_identities"]["evaluate_verification_v2_development_sha256"]) == 64
+    assert len(identity["implementation_identities"]["existing_semantic_verifier_sha256"]) == 64
+    assert len(identity["prompt_identity"]["system_instruction_sha256"]) == 64
+    assert len(identity["schema_identity"]["structured_verification_json_schema_sha256"]) == 64
+
+
+def test_git_worktree_dirty_blocks_canonical_real_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify that a dirty git worktree raises DataValidationError in canonical real runs."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+        custom_provider=None,  # Real canonical mode
+    )
+
+    monkeypatch.setattr("scripts.evaluate_verification_v2_development.is_git_worktree_clean", lambda: False)
+
+    with pytest.raises(DataValidationError, match="Git worktree must be clean"):
+        evaluator._validate_canonical_config()
+
+
+def test_provider_version_drift_rejected(tmp_path: Path):
+    """Verify that provider version other than 4.47.1 is rejected for real canonical runs."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+        custom_provider=None,
+    )
+
+    class DriftingProvider(ChatModelProvider):
+        @property
+        def provider_name(self) -> str: return "transformers"
+        @property
+        def provider_version(self) -> str: return "4.50.0"
+        @property
+        def model_name(self) -> str: return CANONICAL_V2_MODEL_NAME
+        @property
+        def model_revision(self) -> str: return CANONICAL_V2_MODEL_REVISION
+        def complete(self, *, system_instruction: str, user_prompt: str) -> str: return "{}"
+
+    with pytest.raises(DataValidationError, match="Provider version mismatch"):
+        evaluator._validate_runtime_provider_identity(DriftingProvider())
+
+
+def test_v1_answer_level_canonical_baseline_recovery():
+    """Verify answer-level metrics calculation on V1 claim predictions."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    # Simulate 2 arms:
+    # Arm 1: 2 claims, both gold SUPPORTED, V1 predicted both SUPPORTED => Valid Retained
+    # Arm 2: 1 claim, gold CONTRADICTED, V1 predicted INSUFFICIENT => Invalid Caught
+    arm1_claims = [
+        _make_dummy_claim_target("q1", "PRIMARY", "C1", HumanEntailment.SUPPORTED),
+        _make_dummy_claim_target("q1", "PRIMARY", "C2", HumanEntailment.SUPPORTED),
+    ]
+    arm2_claims = [
+        _make_dummy_claim_target("q2", "PRIMARY", "C1", HumanEntailment.CONTRADICTED),
+    ]
+    arm1 = BenchmarkArmTarget(
+        slice_id="positive_control",
+        question_id="q1",
+        arm_id="PRIMARY",
+        historical_stop_reason="ans",
+        stratum=None,
+        question_text="Q1",
+        answer_response=AnswerResponse(
+            question="Q1",
+            answer="A1",
+            insufficient_evidence=False,
+            retrieval_strategy="hybrid_rerank",
+            trace_id="t1",
+            citations=[],
+        ),
+        evidence_list=[],
+        historical_verification={},
+        claims=arm1_claims,
+    )
+    arm2 = BenchmarkArmTarget(
+        slice_id="suspicious_forensic",
+        question_id="q2",
+        arm_id="PRIMARY",
+        historical_stop_reason="ans",
+        stratum=None,
+        question_text="Q2",
+        answer_response=AnswerResponse(
+            question="Q2",
+            answer="A2",
+            insufficient_evidence=False,
+            retrieval_strategy="hybrid_rerank",
+            trace_id="t2",
+            citations=[],
+        ),
+        evidence_list=[],
+        historical_verification={},
+        claims=arm2_claims,
+    )
+
+    preds = [
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C1", "v1_three_way_prediction": "SUPPORTED"},
+        {"question_id": "q1", "arm_id": "PRIMARY", "claim_id": "C2", "v1_three_way_prediction": "SUPPORTED"},
+        {"question_id": "q2", "arm_id": "PRIMARY", "claim_id": "C1", "v1_three_way_prediction": "INSUFFICIENT"},
+    ]
+
+    m = evaluator._compute_answer_level_metrics_from_preds([arm1, arm2], preds, pred_key="v1_three_way_prediction", supported_val="SUPPORTED")
+    assert m["total_answers"] == 2
+    assert m["valid_ground_truth_answers"] == 1
+    assert m["valid_answers_retained"] == 1
+    assert m["valid_answer_retention_rate"] == 1.0
+    assert m["invalid_ground_truth_answers"] == 1
+    assert m["invalid_answers_caught"] == 1
+    assert m["invalid_answer_catch_rate"] == 1.0
+    assert m["answer_level_accuracy"] == 1.0
+
+
+def test_answer_level_deltas_calculation():
+    """Verify delta calculation between V2 and V1 answer metrics."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    v1_ans = {
+        "valid_answer_retention_rate": 1.0,
+        "invalid_answer_catch_rate": 0.4667,
+        "answer_level_accuracy": 0.6364,
+    }
+    v2_ans = {
+        "valid_answer_retention_rate": 1.0,
+        "invalid_answer_catch_rate": 0.6667,
+        "answer_level_accuracy": 0.7727,
+    }
+
+    deltas = evaluator._compute_answer_level_deltas(v1_ans, v2_ans)
+    assert deltas["v2_vs_v1_valid_retention_delta"] == 0.0
+    assert deltas["v2_vs_v1_invalid_catch_delta"] == 0.2
+    assert deltas["v2_vs_v1_answer_accuracy_delta"] == 0.1363
 
 
 def test_holdout_access_regression_no_cli_args():
     """Verify that CLI parser does NOT accept any holdout arguments or Phase-A paths."""
     from scripts import evaluate_verification_v2_development
 
-    parser = argparse.ArgumentParser()
-    # Read script content to verify no holdout strings in CLI flags
     script_text = Path(evaluate_verification_v2_development.__file__).read_text(encoding="utf-8")
 
     forbidden_terms = [
@@ -378,6 +861,48 @@ def test_holdout_access_regression_no_preregister_import():
     assert not hasattr(mod, "CANONICAL_SELECTION_SALT")
     assert "preregister_verification_v2_holdout" not in dir(mod)
     assert not any("preregister_verification_v2_holdout" in str(v) for v in vars(mod).values())
+
+
+def test_production_v1_implementation_unchanged():
+    """Verify that ModelBackedCitationVerifier (V1) remains untouched and imports cleanly."""
+    v1_cls = ModelBackedCitationVerifier
+    assert hasattr(v1_cls, "verify")
+    assert hasattr(legal_agentic_rag.generation.semantic_verifier, "_SYSTEM_INSTRUCTION")
+
+
+def test_production_factory_remains_unwired_to_v2():
+    """Verify that production factory and RuleBasedCitationVerifier remain the production baseline."""
+    base_v0 = RuleBasedCitationVerifier()
+    resp = AnswerResponse(
+        question="Thời hạn cấp giấy phép là bao lâu?",
+        answer="Thời hạn cấp giấy phép là 15 ngày làm việc [E1].",
+        insufficient_evidence=False,
+        retrieval_strategy="hybrid_rerank",
+        trace_id="t1",
+        citations=[
+            Citation(
+                evidence_id="E1",
+                chunk_id="chunk_001",
+                document_id="doc_001",
+                document_title="Luật Đầu tư",
+                document_number="61/2020/QH14",
+                article_number="15",
+            )
+        ],
+    )
+    ev = Evidence(
+        evidence_id="E1",
+        chunk_id="chunk_001",
+        document_id="doc_001",
+        text="Thời hạn cấp giấy phép là 15 ngày làm việc kể từ ngày nhận đủ hồ sơ.",
+        document_title="Luật Đầu tư",
+        document_number="61/2020/QH14",
+        article_number="15",
+    )
+    res = base_v0.verify(resp, [ev])
+    assert res.is_valid is True
+    assert res.semantic_verification is None
+
 
 
 def test_end_to_end_mock_evaluation_flow(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -513,4 +1038,3 @@ def test_end_to_end_mock_evaluation_flow(tmp_path: Path, monkeypatch: pytest.Mon
     assert (tmp_path / "out" / "results" / "v2_dimension_diagnostics.json").is_file()
     assert (tmp_path / "out" / "results" / "v2_claim_predictions_pass1.jsonl").is_file()
     assert (tmp_path / "out" / "results" / "v2_claim_predictions_pass2.jsonl").is_file()
-
