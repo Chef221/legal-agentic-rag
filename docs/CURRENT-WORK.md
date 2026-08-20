@@ -355,9 +355,10 @@ The immediate next action is:
 1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
 2. **Phase B1A.2 Graph Equivalence Experiment COMPLETE**: Run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed `GRAPH_REDUNDANCY_PROVEN` with 22/22 seed match, 22/22 top-8 match, and score diffs within $10^{-6}$.
 3. **Phase B1B Structural Graph Removal VERIFIED & CLOSED**: Kaggle post-change equivalence verification (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size `14157 bytes`) yielded mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`). Confirmed 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40, candidate query, fusion limit, final top-k, and route plan passes, with 0 retrieval model errors. Competition graph is officially removed from runtime and build ([`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
-4. **Immediate Post-B1B Research Priority**: Candidate-pool / reranker audit (S20 vs H40).
+4. **Immediate Post-B1B Research Priority**: Candidate-pool / reranker audit (S20 vs H40) — Stage R1.
    - In Phase B1A.2, S20 vs H40 changed top-8 evidence in 17/22 relationship cases.
    - Research question: Does reranking the fused top 40 introduce distractors compared with reranking the fused top 20, or does the larger pool recover better evidence?
+   - Stage R1 protocol and tooling implemented in [`scripts/candidate_pool_reranker_audit.py`](file:///c:/legal-agentic-rag/scripts/candidate_pool_reranker_audit.py) and [`docs/26-S20-H40-CANDIDATE-POOL-RERANKER-AUDIT.md`](file:///c:/legal-agentic-rag/docs/26-S20-H40-CANDIDATE-POOL-RERANKER-AUDIT.md), awaiting reviewed Kaggle execution.
    - Invariant: H40 remains unpromoted. Do NOT claim H40 is superior. A separate controlled experiment is required.
 5. **Subsequent Planned Research Frontiers (Sequenced Order)**:
    - Priority B: Verification-correctness audit (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key cases `102047`, `147239`, `26541`, `95861`).
@@ -402,11 +403,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Phase B1B Structural Competition Graph Removal Closed — B1B_EQUIVALENCE_PASS)
+    0.50.7 (Phase B1B Closed — B1B_EQUIVALENCE_PASS; Stage R1 Candidate-Pool Audit Tooling Implemented)
 
 Active development frontier:
     Candidate-pool / reranker audit (S20 vs H40)
 
 Next action:
-    Design a controlled candidate-pool / reranker audit comparing S20 vs H40
+    External review of Stage R1 harness commit prior to Kaggle execution
 ```
