@@ -139,7 +139,16 @@ def _build_dummy_b1a2_bundle(
             ]
 
         if is_identical:
-            h40_final_hits = list(s20_final_hits)
+            h40_final_hits = [
+                {
+                    "rank": r,
+                    "chunk_id": f"chunk-{qid}-{r}",
+                    "document_id": f"doc-{qid}-{r}",
+                    "score": round(0.95 - (r * 0.01) + 1.5e-5, 8),
+                    "strategy": "hybrid_rerank",
+                }
+                for r in range(1, 9)
+            ]
         else:
             if alter_h40_final_ids and qid in alter_h40_final_ids:
                 h40_final_hits = [
@@ -147,7 +156,7 @@ def _build_dummy_b1a2_bundle(
                         "rank": r,
                         "chunk_id": f"altered-h40-{qid}-{r}",
                         "document_id": f"doc-{qid}-{r}",
-                        "score": round(0.95 - (r * 0.01), 8),
+                        "score": round(0.95 - (r * 0.01) + 1.5e-5, 8),
                         "strategy": "hybrid_rerank",
                     }
                     for r in range(1, 9)
@@ -158,7 +167,7 @@ def _build_dummy_b1a2_bundle(
                         "rank": r,
                         "chunk_id": f"chunk-{qid}-{r}",
                         "document_id": f"doc-{qid}-{r}",
-                        "score": round(0.95 - (r * 0.01), 8),
+                        "score": round(0.95 - (r * 0.01) + 1.5e-5, 8),
                         "strategy": "hybrid_rerank",
                     }
                     for r in range(1, 8)
@@ -459,12 +468,17 @@ def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) ->
         "question_id": "1",
         "reproduction_gates": {
             "seed_prefix_match": True,
-            "s20_chunks_match": True,
-            "s20_docs_match": True,
-            "s20_scores_match": True,
+            "shared_s20_chunk_sequence_match": True,
+            "shared_s20_document_sequence_match": True,
+            "shared_s20_vs_frozen_max_score_diff": 1.5e-5,
+            "legacy_s20_chunks_match": True,
+            "legacy_s20_docs_match": True,
+            "legacy_s20_scores_match": True,
+            "legacy_s20_max_score_diff": 1e-7,
             "h40_chunks_match": True,
             "h40_docs_match": True,
             "h40_scores_match": True,
+            "h40_max_score_diff": 1e-7,
             "branch_depth_fidelity": True,
         },
         "tail_entrants": [],
@@ -545,7 +559,8 @@ def test_09_recording_branch_retriever_captures_queries() -> None:
     assert resp.strategy == RetrievalStrategy.BM25
 
 
-def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> None:
+def test_10_single_case_audit_shared_scoring_and_legacy_probe(tmp_path: Path) -> None:
+    """Test that shared 40-candidate scoring and legacy S20 validation probe are executed."""
     bundle_dir = tmp_path / "bundle"
     shas = _build_dummy_b1a2_bundle(bundle_dir)
 
@@ -603,37 +618,54 @@ def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> N
 
     mock_pipeline.hybrid_retriever.search.side_effect = _mock_hybrid_search
 
-    scored_hits = [
-        RetrievalHit(
-            chunk_id=f"chunk-{qid}-{r}",
-            document_id=f"doc-{qid}-{r}",
-            rank=r,
-            score=round(0.95 - (r * 0.01), 8),
-            strategy=RetrievalStrategy.RERANK,
-            text="sample text",
+    # Simulate reranker:
+    # 40-candidate shared scoring produces scores matching frozen H40 (which has score 0.875 for tail-chunk-102047-25)
+    # But for S20 candidates in the 40-candidate call, scores have a tiny floating point delta (e.g. +1.5e-5) relative to frozen S20
+    # The 20-candidate legacy probe reproduces the exact frozen S20 scores (without delta)
+    def _mock_rerank(q, candidates):
+        cands = list(candidates)
+        if len(cands) == 40:
+            hits = [
+                RetrievalHit(
+                    chunk_id=c.chunk_id,
+                    document_id=c.document_id,
+                    rank=r,
+                    score=0.875 if "tail-chunk" in c.chunk_id else round(0.95 - (r * 0.01) + 1.5e-5, 8),
+                    strategy=RetrievalStrategy.RERANK,
+                    text="sample text",
+                )
+                for r, c in enumerate(cands, start=1)
+            ]
+        else:
+            hits = [
+                RetrievalHit(
+                    chunk_id=c.chunk_id,
+                    document_id=c.document_id,
+                    rank=r,
+                    score=round(0.95 - (r * 0.01), 8),
+                    strategy=RetrievalStrategy.RERANK,
+                    text="sample text",
+                )
+                for r, c in enumerate(cands, start=1)
+            ]
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
         )
-        for r in range(1, 41)
-    ]
-    mock_pipeline.reranker.rerank.return_value = RetrievalResponse(
-        query=RetrievalQuery(query_id=qid, original_question=q_text, normalized_question=q_text),
-        strategy=RetrievalStrategy.RERANK,
-        hits=scored_hits,
-        latency_ms=10.0,
-    )
+
+    mock_pipeline.reranker.rerank.side_effect = _mock_rerank
 
     case_res, case_met, reasons = run_case_candidate_pool_audit(
         mock_pipeline, qid, q_text, baseline
     )
 
     assert len(reasons) == 0
+    # Both sequence and legacy probe pass
+    assert case_res["reproduction_gates"]["seed_prefix_match"] is True
+    assert case_res["reproduction_gates"]["shared_s20_chunk_sequence_match"] is True
+    assert case_res["reproduction_gates"]["shared_s20_document_sequence_match"] is True
+    assert case_res["reproduction_gates"]["shared_s20_vs_frozen_max_score_diff"] > 1e-6  # Shared delta observed
+    assert case_res["reproduction_gates"]["legacy_s20_scores_match"] is True  # Legacy probe satisfied <= 1e-6
     assert case_res["reproduction_gates"]["branch_depth_fidelity"] is True
-    obs = case_res["branch_depth_observations"]
-    assert obs["sparse_query_count"] == 1
-    assert obs["dense_query_count"] == 1
-    assert obs["sparse_candidate_depths"] == [40]
-    assert obs["dense_candidate_depths"] == [40]
-    assert obs["all_sparse_depth_40"] is True
-    assert obs["all_dense_depth_40"] is True
 
 
 def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> None:
@@ -722,7 +754,8 @@ def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> 
 # ======================================================================
 
 
-def test_12_end_to_end_audit_pass_extracted_bundle(tmp_path: Path) -> None:
+def test_12_end_to_end_audit_pass_with_shared_scoring_delta(tmp_path: Path) -> None:
+    """Test full protocol PASS when shared 40-candidate scoring has floating point delta but legacy probe matches."""
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
@@ -755,21 +788,23 @@ def test_12_end_to_end_audit_pass_extracted_bundle(tmp_path: Path) -> None:
     mock_rerank = MagicMock()
     mock_rerank.model_name = "test_rerank"
 
-    def _score_for_chunk(cid: str) -> float:
+    def _score_for_chunk(cid: str, delta: float = 0.0) -> float:
         if "tail-chunk" in cid:
             return 0.875
         r = int(cid.split("-")[-1])
-        return round(0.95 - (r * 0.01), 8)
+        return round(0.95 - (r * 0.01) + delta, 8)
 
     def _mock_rerank(q, candidates):
-        values = list(candidates)
-        ordered_cands = sorted(values, key=lambda c: (-_score_for_chunk(c.chunk_id), c.rank, c.chunk_id))
+        cands = list(candidates)
+        # Apply 1.5e-5 delta only on 40-candidate shared call
+        delta = 1.5e-5 if len(cands) == 40 else 0.0
+        ordered_cands = sorted(cands, key=lambda c: (-_score_for_chunk(c.chunk_id, delta), c.rank, c.chunk_id))
         hits = [
             RetrievalHit(
                 chunk_id=c.chunk_id,
                 document_id=c.document_id,
                 rank=idx,
-                score=_score_for_chunk(c.chunk_id),
+                score=_score_for_chunk(c.chunk_id, delta),
                 strategy=RetrievalStrategy.RERANK,
                 text="sample text",
             )
@@ -849,10 +884,15 @@ def test_12_end_to_end_audit_pass_extracted_bundle(tmp_path: Path) -> None:
         assert verdict == "CANDIDATE_POOL_AUDIT_PASS", f"Reasons: {report.get('reasons')}"
         assert decision["audit_verified"] is True
         assert decision["h40_promotion_authorized"] is False
+        assert decision["summary"]["seed_prefix_passes"] == 22
+        assert decision["summary"]["shared_s20_sequence_passes"] == 22
+        assert decision["summary"]["legacy_s20_frozen_score_passes"] == 22
+        assert decision["summary"]["h40_frozen_score_passes"] == 22
         assert decision["summary"]["identical_top8_cases"] == 5
         assert decision["summary"]["changed_top8_cases"] == 17
         assert decision["summary"]["total_tail_entrants"] == 17
         assert decision["summary"]["branch_depth_passes"] == 22
+        assert decision["summary"]["shared_s20_max_numerical_delta_overall"] > 1e-6
 
         # Check evidence identity fields
         exec_ident = json.loads((out_dir / "execution" / "audit_execution_identity.json").read_text(encoding="utf-8"))
@@ -878,12 +918,13 @@ def test_12_end_to_end_audit_pass_extracted_bundle(tmp_path: Path) -> None:
             assert "execution/graphless_root_inventory.json" in names
 
 
-def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
+def test_13_drift_detected_when_legacy_s20_probe_diverges(tmp_path: Path) -> None:
+    """Test that drift is detected if legacy S20 probe fails the 1e-6 tolerance gate."""
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
     bundle_dir = tmp_path / "bundle"
-    shas = _build_dummy_b1a2_bundle(bundle_dir, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -911,21 +952,16 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
     mock_rerank = MagicMock()
     mock_rerank.model_name = "test_rerank"
 
-    def _score_for_chunk(cid: str) -> float:
-        if "tail-chunk" in cid:
-            return 0.875
-        r = int(cid.split("-")[-1])
-        return round(0.95 - (r * 0.01), 8)
-
-    def _mock_rerank(q, candidates):
-        values = list(candidates)
-        ordered_cands = sorted(values, key=lambda c: (-_score_for_chunk(c.chunk_id), c.rank, c.chunk_id))
+    # Legacy S20 probe returns scores deviating by 0.05 (> 1e-6)
+    def _mock_rerank_drift(q, candidates):
+        cands = list(candidates)
+        ordered_cands = sorted(cands, key=lambda c: (-0.95, c.rank, c.chunk_id))
         hits = [
             RetrievalHit(
                 chunk_id=c.chunk_id,
                 document_id=c.document_id,
                 rank=idx,
-                score=_score_for_chunk(c.chunk_id),
+                score=round(0.50 - (idx * 0.01), 8),  # Divergent scores
                 strategy=RetrievalStrategy.RERANK,
                 text="sample text",
             )
@@ -935,7 +971,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
             query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
         )
 
-    mock_rerank.rerank.side_effect = _mock_rerank
+    mock_rerank.rerank.side_effect = _mock_rerank_drift
 
     with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
@@ -947,7 +983,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
 
         mock_bm25 = MagicMock()
         mock_bm25.source_artifact_identity = ("legal_chunks", "1.0", "hash")
-        def _mock_bm25_search_drift(q):
+        def _mock_bm25_search(q):
             return RetrievalResponse(
                 query=q,
                 strategy=RetrievalStrategy.BM25,
@@ -964,7 +1000,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
                 ],
                 latency_ms=1.0,
             )
-        mock_bm25.search.side_effect = _mock_bm25_search_drift
+        mock_bm25.search.side_effect = _mock_bm25_search
         mock_bm25_cls.return_value = mock_bm25
 
         mock_vec = MagicMock()
@@ -974,7 +1010,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
         mock_vec.model_name = "test_model"
         mock_vec.model_revision = "rev"
         mock_vec.dimension = 384
-        def _mock_dense_search_drift(q, q_vec=None):
+        def _mock_dense_search(q, q_vec=None):
             return RetrievalResponse(
                 query=q,
                 strategy=RetrievalStrategy.DENSE,
@@ -991,7 +1027,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
                 ],
                 latency_ms=1.0,
             )
-        mock_vec.search.side_effect = _mock_dense_search_drift
+        mock_vec.search.side_effect = _mock_dense_search
         mock_vec_cls.return_value = mock_vec
 
         report, decision, verdict = run_candidate_pool_audit_protocol(
@@ -1046,3 +1082,321 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
         assert verdict == "INVALID_EXPERIMENT"
         assert decision["audit_verified"] is False
         assert decision["h40_promotion_authorized"] is False
+
+
+def test_15_drift_detected_when_shared_s20_chunk_sequence_diverges(tmp_path: Path) -> None:
+    """Test that drift is detected if shared S20 chunk or document sequence differs from frozen S20."""
+    source_root = tmp_path / "artifacts"
+    _setup_mock_staging_root(source_root)
+
+    # Baseline has altered S20 final IDs for case 0
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
+
+    dummy_dev = {qid: {"question": f"Văn bản {qid}"} for qid in EXPECTED_22_IDS}
+    for i in range(len(dummy_dev), CANONICAL_SOURCE_QUESTION_COUNT):
+        dummy_dev[f"extra_{i}"] = {"question": "extra"}
+    questions_file = tmp_path / "dev.json"
+    questions_file.write_text(json.dumps(dummy_dev), encoding="utf-8")
+    dev_sha = sha256_file(questions_file)
+
+    config = ApplicationConfig(artifacts=ArtifactConfig(root_path=source_root), online=OnlineConfig())
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(config.model_dump(mode="json")), encoding="utf-8")
+
+    out_dir = tmp_path / "output"
+
+    mock_emb = MagicMock()
+    mock_emb.provider_name = "sentence-transformers"
+    mock_emb.provider_version = "1.0"
+    mock_emb.model_name = "test_model"
+    mock_emb.model_revision = "rev"
+    mock_emb.dimension = 384
+
+    mock_rerank = MagicMock()
+    mock_rerank.model_name = "test_rerank"
+
+    def _score_for_chunk(cid: str) -> float:
+        if "tail-chunk" in cid:
+            return 0.875
+        r = int(cid.split("-")[-1])
+        return round(0.95 - (r * 0.01), 8)
+
+    def _mock_rerank(q, candidates):
+        cands = list(candidates)
+        ordered_cands = sorted(cands, key=lambda c: (-_score_for_chunk(c.chunk_id), c.rank, c.chunk_id))
+        hits = [
+            RetrievalHit(
+                chunk_id=c.chunk_id,
+                document_id=c.document_id,
+                rank=idx,
+                score=_score_for_chunk(c.chunk_id),
+                strategy=RetrievalStrategy.RERANK,
+                text="sample text",
+            )
+            for idx, c in enumerate(ordered_cands, start=1)
+        ]
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
+        )
+
+    mock_rerank.rerank.side_effect = _mock_rerank
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
+         patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
+         patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
+         patch("scripts.candidate_pool_reranker_audit.SentenceTransformerEmbeddingProvider", return_value=mock_emb), \
+         patch("scripts.candidate_pool_reranker_audit.CrossEncoderReranker", return_value=mock_rerank):
+
+        mock_bm25 = MagicMock()
+        mock_bm25.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        def _mock_bm25_search(q):
+            return RetrievalResponse(
+                query=q,
+                strategy=RetrievalStrategy.BM25,
+                hits=[
+                    RetrievalHit(
+                        chunk_id=f"chunk-{q.query_id}-{r}",
+                        document_id=f"doc-{q.query_id}-{r}",
+                        rank=r,
+                        score=1.0 / r,
+                        strategy=RetrievalStrategy.BM25,
+                        text="sample",
+                    )
+                    for r in range(1, q.candidate_k + 1)
+                ],
+                latency_ms=1.0,
+            )
+        mock_bm25.search.side_effect = _mock_bm25_search
+        mock_bm25_cls.return_value = mock_bm25
+
+        mock_vec = MagicMock()
+        mock_vec.source_artifact_identity = ("legal_chunks", "1.0", "hash")
+        mock_vec.embedding_provider_name = "sentence-transformers"
+        mock_vec.embedding_provider_version = "1.0"
+        mock_vec.model_name = "test_model"
+        mock_vec.model_revision = "rev"
+        mock_vec.dimension = 384
+        def _mock_dense_search(q, q_vec=None):
+            return RetrievalResponse(
+                query=q,
+                strategy=RetrievalStrategy.DENSE,
+                hits=[
+                    RetrievalHit(
+                        chunk_id=f"chunk-{q.query_id}-{r}",
+                        document_id=f"doc-{q.query_id}-{r}",
+                        rank=r,
+                        score=1.0 / r,
+                        strategy=RetrievalStrategy.DENSE,
+                        text="sample",
+                    )
+                    for r in range(1, q.candidate_k + 1)
+                ],
+                latency_ms=1.0,
+            )
+        mock_vec.search.side_effect = _mock_dense_search
+        mock_vec_cls.return_value = mock_vec
+
+        report, decision, verdict = run_candidate_pool_audit_protocol(
+            config_path=config_path,
+            manifest_path=manifest_file,
+            questions_path=questions_file,
+            baseline_evidence_path=bundle_dir,
+            output_dir=out_dir,
+        )
+
+        assert verdict == "CANDIDATE_POOL_DRIFT_DETECTED"
+        assert decision["audit_verified"] is False
+        assert decision["h40_promotion_authorized"] is False
+
+
+def test_16_legacy_s20_scores_never_influence_mechanics_diagnostics(tmp_path: Path) -> None:
+    """Verify that tail entrants, displaced candidates, cutoff margins, and rankings come ONLY from shared scores."""
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        baseline = load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
+
+    qid = "102047"
+    q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.query_understanding.enrich.return_value = RetrievalQuery(
+        query_id=qid,
+        original_question=q_text,
+        normalized_question=q_text,
+        top_k=8,
+        candidate_k=40,
+        query_analysis=QueryAnalysis(intent=QueryIntent.RELATIONSHIP),
+    )
+
+    rec_bm25 = RecordingBranchRetriever(MagicMock())
+    rec_dense = RecordingBranchRetriever(MagicMock())
+    mock_pipeline.recording_bm25 = rec_bm25
+    mock_pipeline.recording_dense = rec_dense
+
+    fused_hits = [
+        RetrievalHit(
+            chunk_id=f"chunk-{qid}-{r}",
+            document_id=f"doc-{qid}-{r}",
+            rank=r,
+            score=round(1.0 / (r + 10), 8),
+            strategy=RetrievalStrategy.HYBRID,
+            text="sample text",
+        )
+        for r in range(1, 41)
+    ]
+
+    def _mock_hybrid_search(q):
+        rec_bm25.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.BM25
+        ))
+        rec_dense.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.DENSE
+        ))
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.HYBRID, hits=fused_hits, latency_ms=5.0
+        )
+
+    mock_pipeline.hybrid_retriever.search.side_effect = _mock_hybrid_search
+
+    # Legacy probe returns totally different scores (-999.0), but shared 40-candidate scoring produces 0.95..
+    def _mock_rerank(q, candidates):
+        cands = list(candidates)
+        if len(cands) == 40:
+            hits = [
+                RetrievalHit(
+                    chunk_id=c.chunk_id,
+                    document_id=c.document_id,
+                    rank=r,
+                    score=0.875 if "tail-chunk" in c.chunk_id else round(0.95 - (r * 0.01) + 1.5e-5, 8),
+                    strategy=RetrievalStrategy.RERANK,
+                    text="sample text",
+                )
+                for r, c in enumerate(cands, start=1)
+            ]
+        else:
+            # Legacy probe call
+            hits = [
+                RetrievalHit(
+                    chunk_id=c.chunk_id,
+                    document_id=c.document_id,
+                    rank=r,
+                    score=-999.0,
+                    strategy=RetrievalStrategy.RERANK,
+                    text="sample text",
+                )
+                for r, c in enumerate(cands, start=1)
+            ]
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
+        )
+
+    mock_pipeline.reranker.rerank.side_effect = _mock_rerank
+
+    case_res, case_met, reasons = run_case_candidate_pool_audit(
+        mock_pipeline, qid, q_text, baseline
+    )
+
+    # All derived S20 hits must have score > 0.0 (from shared scoring), NEVER -999.0
+    for h in case_res["derived_s20_final_hits"]:
+        assert h["score"] > 0.0
+        assert h["score"] != -999.0
+
+    # Cutoff score must come from shared scoring (> 0.0)
+    assert case_res["score_cutoff_margin_diagnostics"]["s20_top8_cutoff_score"] > 0.0
+    assert case_res["score_cutoff_margin_diagnostics"]["s20_top8_cutoff_score"] != -999.0
+
+
+def test_17_call_counts_verification(tmp_path: Path) -> None:
+    """Verify exactly 1 top-level hybrid retrieval + 1 shared rerank + 1 legacy probe per case."""
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        baseline = load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
+
+    qid = "102047"
+    q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
+
+    mock_pipeline = MagicMock()
+    mock_pipeline.query_understanding.enrich.return_value = RetrievalQuery(
+        query_id=qid,
+        original_question=q_text,
+        normalized_question=q_text,
+        top_k=8,
+        candidate_k=40,
+        query_analysis=QueryAnalysis(intent=QueryIntent.RELATIONSHIP),
+    )
+
+    rec_bm25 = RecordingBranchRetriever(MagicMock())
+    rec_dense = RecordingBranchRetriever(MagicMock())
+    mock_pipeline.recording_bm25 = rec_bm25
+    mock_pipeline.recording_dense = rec_dense
+
+    fused_hits = [
+        RetrievalHit(
+            chunk_id=f"chunk-{qid}-{r}",
+            document_id=f"doc-{qid}-{r}",
+            rank=r,
+            score=round(1.0 / (r + 10), 8),
+            strategy=RetrievalStrategy.HYBRID,
+            text="sample text",
+        )
+        for r in range(1, 41)
+    ]
+
+    def _mock_hybrid_search(q):
+        rec_bm25.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.BM25
+        ))
+        rec_dense.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.DENSE
+        ))
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.HYBRID, hits=fused_hits, latency_ms=5.0
+        )
+
+    mock_pipeline.hybrid_retriever.search.side_effect = _mock_hybrid_search
+
+    def _mock_rerank(q, candidates):
+        cands = list(candidates)
+        hits = [
+            RetrievalHit(
+                chunk_id=c.chunk_id,
+                document_id=c.document_id,
+                rank=r,
+                score=0.875 if "tail-chunk" in c.chunk_id else round(0.95 - (r * 0.01), 8),
+                strategy=RetrievalStrategy.RERANK,
+                text="sample text",
+            )
+            for r, c in enumerate(cands, start=1)
+        ]
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.RERANK, hits=hits, latency_ms=10.0
+        )
+
+    mock_pipeline.reranker.rerank.side_effect = _mock_rerank
+
+    run_case_candidate_pool_audit(mock_pipeline, qid, q_text, baseline)
+
+    # Exactly 1 top-level hybrid retrieval
+    assert mock_pipeline.hybrid_retriever.search.call_count == 1
+
+    # Exactly 2 reranker calls: 1 shared (40 candidates) + 1 legacy validation probe (20 candidates)
+    assert mock_pipeline.reranker.rerank.call_count == 2
+    call_args_list = mock_pipeline.reranker.rerank.call_args_list
+    assert len(call_args_list[0][0][1]) == 40  # Shared mechanics call
+    assert len(call_args_list[1][0][1]) == 20  # Legacy validation probe call

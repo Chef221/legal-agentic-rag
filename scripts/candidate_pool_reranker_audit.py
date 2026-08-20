@@ -570,7 +570,7 @@ def run_case_candidate_pool_audit(
     question_text: str,
     baseline: FrozenB1A2Baseline,
 ) -> tuple[dict[str, object], dict[str, object], list[str]]:
-    """Execute single-pass hybrid retrieval and reranking for one case.
+    """Execute single-pass hybrid retrieval, shared reranking, and legacy S20 validation probe.
 
     Returns:
         (case_result, case_metrics, case_reasons)
@@ -670,7 +670,8 @@ def run_case_candidate_pool_audit(
             f"Case {question_id} fused40[:20] prefix does not match frozen B1A.2 s20 seed hits"
         )
 
-    # 3. Score the SAME fused40 candidate list once with CrossEncoder
+    # 3. SHARED MECHANICS SCORING PASS:
+    # Score the SAME fused40 candidate list once with CrossEncoder
     rerank_query = enriched_query.model_copy(
         update={
             "top_k": len(fused_hits_40),
@@ -695,7 +696,7 @@ def run_case_candidate_pool_audit(
             "reranker_score": round(h.score, 8),
         })
 
-    # 4. Derive S20 ranking:
+    # 4. Derive S20 ranking (Shared Mechanics):
     # Filter scored candidates to fused ranks 1..20, apply production tie-break (-score, fused_rank, chunk_id)
     s20_candidate_hits = fused_hits_40[:S20_CANDIDATE_LIMIT]
     s20_ordered_indices = sorted(
@@ -720,7 +721,7 @@ def run_case_candidate_pool_audit(
             "strategy": RetrievalStrategy.HYBRID_RERANK.value,
         })
 
-    # 5. Derive H40 ranking:
+    # 5. Derive H40 ranking (Shared Mechanics):
     # Use scored fused ranks 1..40, apply production tie-break (-score, fused_rank, chunk_id)
     h40_ordered_indices = sorted(
         range(len(fused_hits_40)),
@@ -744,39 +745,7 @@ def run_case_candidate_pool_audit(
             "strategy": RetrievalStrategy.HYBRID_RERANK.value,
         })
 
-    # Gate 2: Verify derived S20 top8 against frozen B1A.2 s20_arm.final_hits
-    expected_s20_finals = baseline.expected_s20_final_hits.get(question_id, [])
-    s20_chunks_match = [h["chunk_id"] for h in derived_s20_top8] == [h.chunk_id for h in expected_s20_finals]
-    s20_docs_match = [h["document_id"] for h in derived_s20_top8] == [h.document_id for h in expected_s20_finals]
-    s20_score_diffs = [
-        abs(h["score"] - exp.score)
-        for h, exp in zip(derived_s20_top8, expected_s20_finals, strict=False)
-    ]
-    s20_max_score_diff = max(s20_score_diffs) if s20_score_diffs else 0.0
-    s20_scores_match = s20_max_score_diff <= SCORE_ABS_TOLERANCE
-
-    if not (s20_chunks_match and s20_docs_match and s20_scores_match):
-        reasons.append(
-            f"Case {question_id} derived S20 final top8 differs from frozen B1A.2 (chunks={s20_chunks_match}, docs={s20_docs_match}, score_diff={s20_max_score_diff:.8f})"
-        )
-
-    # Gate 3: Verify derived H40 top8 against frozen B1A.2 h40_arm.final_hits
-    expected_h40_finals = baseline.expected_h40_final_hits.get(question_id, [])
-    h40_chunks_match = [h["chunk_id"] for h in derived_h40_top8] == [h.chunk_id for h in expected_h40_finals]
-    h40_docs_match = [h["document_id"] for h in derived_h40_top8] == [h.document_id for h in expected_h40_finals]
-    h40_score_diffs = [
-        abs(h["score"] - exp.score)
-        for h, exp in zip(derived_h40_top8, expected_h40_finals, strict=False)
-    ]
-    h40_max_score_diff = max(h40_score_diffs) if h40_score_diffs else 0.0
-    h40_scores_match = h40_max_score_diff <= SCORE_ABS_TOLERANCE
-
-    if not (h40_chunks_match and h40_docs_match and h40_scores_match):
-        reasons.append(
-            f"Case {question_id} derived H40 final top8 differs from frozen B1A.2 (chunks={h40_chunks_match}, docs={h40_docs_match}, score_diff={h40_max_score_diff:.8f})"
-        )
-
-    # 6. S20 vs H40 Diagnostics & Entrants Analysis
+    # 6. S20 vs H40 Diagnostics & Entrants Analysis (Strictly from Shared Scores)
     s20_top8_ids = [h["chunk_id"] for h in derived_s20_top8]
     h40_top8_ids = [h["chunk_id"] for h in derived_h40_top8]
 
@@ -832,6 +801,64 @@ def run_case_candidate_pool_audit(
         else None
     )
 
+    # 7. PROVENANCE REPRODUCTION GATES:
+    expected_s20_finals = baseline.expected_s20_final_hits.get(question_id, [])
+
+    # Shared S20 Sequence & Numerical Delta Check
+    shared_s20_chunk_sequence_match = [h["chunk_id"] for h in derived_s20_top8] == [h.chunk_id for h in expected_s20_finals]
+    shared_s20_document_sequence_match = [h["document_id"] for h in derived_s20_top8] == [h.document_id for h in expected_s20_finals]
+    shared_s20_score_diffs = [
+        abs(h["score"] - exp.score)
+        for h, exp in zip(derived_s20_top8, expected_s20_finals, strict=False)
+    ]
+    shared_s20_vs_frozen_max_score_diff = max(shared_s20_score_diffs) if shared_s20_score_diffs else 0.0
+
+    if not (shared_s20_chunk_sequence_match and shared_s20_document_sequence_match):
+        reasons.append(
+            f"Case {question_id} shared-score S20 sequence differs from frozen B1A.2 (chunks={shared_s20_chunk_sequence_match}, docs={shared_s20_document_sequence_match})"
+        )
+
+    # Legacy S20 Reproduction Probe (Observational / Provenance-only)
+    legacy_rerank_query = enriched_query.model_copy(
+        update={
+            "top_k": FINAL_TOP_K,
+            "candidate_k": BRANCH_CANDIDATE_DEPTH,
+            "requested_strategy": RetrievalStrategy.RERANK,
+        }
+    )
+    legacy_s20_resp = pipeline.reranker.rerank(legacy_rerank_query, s20_candidate_hits)
+    legacy_s20_final_hits = list(legacy_s20_resp.hits)[:FINAL_TOP_K]
+
+    legacy_s20_chunks_match = [h.chunk_id for h in legacy_s20_final_hits] == [h.chunk_id for h in expected_s20_finals]
+    legacy_s20_docs_match = [h.document_id for h in legacy_s20_final_hits] == [h.document_id for h in expected_s20_finals]
+    legacy_s20_score_diffs = [
+        abs(h.score - exp.score)
+        for h, exp in zip(legacy_s20_final_hits, expected_s20_finals, strict=False)
+    ]
+    legacy_s20_max_score_diff = max(legacy_s20_score_diffs) if legacy_s20_score_diffs else 0.0
+    legacy_s20_scores_match = legacy_s20_max_score_diff <= SCORE_ABS_TOLERANCE
+
+    if not (legacy_s20_chunks_match and legacy_s20_docs_match and legacy_s20_scores_match):
+        reasons.append(
+            f"Case {question_id} legacy S20 validation probe differs from frozen B1A.2 (chunks={legacy_s20_chunks_match}, docs={legacy_s20_docs_match}, score_diff={legacy_s20_max_score_diff:.8f})"
+        )
+
+    # Shared H40 Frozen Check
+    expected_h40_finals = baseline.expected_h40_final_hits.get(question_id, [])
+    h40_chunks_match = [h["chunk_id"] for h in derived_h40_top8] == [h.chunk_id for h in expected_h40_finals]
+    h40_docs_match = [h["document_id"] for h in derived_h40_top8] == [h.document_id for h in expected_h40_finals]
+    h40_score_diffs = [
+        abs(h["score"] - exp.score)
+        for h, exp in zip(derived_h40_top8, expected_h40_finals, strict=False)
+    ]
+    h40_max_score_diff = max(h40_score_diffs) if h40_score_diffs else 0.0
+    h40_scores_match = h40_max_score_diff <= SCORE_ABS_TOLERANCE
+
+    if not (h40_chunks_match and h40_docs_match and h40_scores_match):
+        reasons.append(
+            f"Case {question_id} derived H40 final top8 differs from frozen B1A.2 (chunks={h40_chunks_match}, docs={h40_docs_match}, score_diff={h40_max_score_diff:.8f})"
+        )
+
     # Build full case record
     case_result = {
         "question_id": question_id,
@@ -844,15 +871,38 @@ def run_case_candidate_pool_audit(
         "derived_h40_final_hits": derived_h40_top8,
         "reproduction_gates": {
             "seed_prefix_match": seed_prefix_match,
-            "s20_chunks_match": s20_chunks_match,
-            "s20_docs_match": s20_docs_match,
-            "s20_scores_match": s20_scores_match,
-            "s20_max_score_diff": s20_max_score_diff,
+            "shared_s20_chunk_sequence_match": shared_s20_chunk_sequence_match,
+            "shared_s20_document_sequence_match": shared_s20_document_sequence_match,
+            "shared_s20_vs_frozen_max_score_diff": shared_s20_vs_frozen_max_score_diff,
+            "legacy_s20_chunks_match": legacy_s20_chunks_match,
+            "legacy_s20_docs_match": legacy_s20_docs_match,
+            "legacy_s20_scores_match": legacy_s20_scores_match,
+            "legacy_s20_max_score_diff": legacy_s20_max_score_diff,
             "h40_chunks_match": h40_chunks_match,
             "h40_docs_match": h40_docs_match,
             "h40_scores_match": h40_scores_match,
             "h40_max_score_diff": h40_max_score_diff,
             "branch_depth_fidelity": branch_depth_fidelity,
+        },
+        "frozen_reproduction": {
+            "seed_prefix_match": seed_prefix_match,
+            "shared_s20_chunk_sequence_match": shared_s20_chunk_sequence_match,
+            "shared_s20_document_sequence_match": shared_s20_document_sequence_match,
+            "shared_s20_vs_frozen_max_score_diff": round(shared_s20_vs_frozen_max_score_diff, 8),
+            "legacy_s20_final_hits": [
+                {
+                    "rank": h.rank,
+                    "chunk_id": h.chunk_id,
+                    "document_id": h.document_id,
+                    "score": round(h.score, 8),
+                    "strategy": h.strategy.value if hasattr(h.strategy, "value") else str(h.strategy),
+                }
+                for h in legacy_s20_final_hits
+            ],
+            "legacy_s20_max_score_diff": round(legacy_s20_max_score_diff, 8),
+            "legacy_s20_scores_match": legacy_s20_scores_match,
+            "h40_max_score_diff": round(h40_max_score_diff, 8),
+            "h40_scores_match": h40_scores_match,
         },
         "s20_vs_h40_comparison": {
             "top8_identical": top8_identical,
@@ -886,6 +936,14 @@ def run_case_candidate_pool_audit(
         "displaced_s20_fused_ranks": [d["fused_rank"] for d in displaced_s20],
         "entrant_margin": entrant_margin,
         "branch_depth_fidelity": branch_depth_fidelity,
+        "seed_prefix_match": seed_prefix_match,
+        "shared_s20_chunk_sequence_match": shared_s20_chunk_sequence_match,
+        "shared_s20_document_sequence_match": shared_s20_document_sequence_match,
+        "shared_s20_vs_frozen_max_score_diff": round(shared_s20_vs_frozen_max_score_diff, 8),
+        "legacy_s20_scores_match": legacy_s20_scores_match,
+        "legacy_s20_max_score_diff": round(legacy_s20_max_score_diff, 8),
+        "h40_scores_match": h40_scores_match,
+        "h40_max_score_diff": round(h40_max_score_diff, 8),
     }
 
     return case_result, case_metrics, reasons
@@ -1095,9 +1153,11 @@ def run_candidate_pool_audit_protocol(
             "summary": {
                 "total_cases": 0,
                 "seed_prefix_passes": 0,
-                "s20_top8_passes": 0,
-                "h40_top8_passes": 0,
+                "shared_s20_sequence_passes": 0,
+                "legacy_s20_frozen_score_passes": 0,
+                "h40_frozen_score_passes": 0,
                 "branch_depth_passes": 0,
+                "shared_s20_max_numerical_delta_overall": 0.0,
                 "identical_top8_cases": 0,
                 "changed_top8_cases": 0,
                 "total_tail_entrants": 0,
@@ -1136,9 +1196,11 @@ def run_candidate_pool_audit_protocol(
             "summary": {
                 "total_cases": 0,
                 "seed_prefix_passes": 0,
-                "s20_top8_passes": 0,
-                "h40_top8_passes": 0,
+                "shared_s20_sequence_passes": 0,
+                "legacy_s20_frozen_score_passes": 0,
+                "h40_frozen_score_passes": 0,
                 "branch_depth_passes": 0,
+                "shared_s20_max_numerical_delta_overall": 0.0,
                 "identical_top8_cases": 0,
                 "changed_top8_cases": 0,
                 "total_tail_entrants": 0,
@@ -1154,8 +1216,9 @@ def run_candidate_pool_audit_protocol(
     case_metrics_list: list[dict[str, object]] = []
 
     seed_prefix_passes = 0
-    s20_top8_passes = 0
-    h40_top8_passes = 0
+    shared_s20_sequence_passes = 0
+    legacy_s20_frozen_score_passes = 0
+    h40_frozen_score_passes = 0
     branch_depth_passes = 0
 
     for qid in target_ids:
@@ -1175,17 +1238,22 @@ def run_candidate_pool_audit_protocol(
             if c_res["reproduction_gates"]["seed_prefix_match"]:
                 seed_prefix_passes += 1
             if (
-                c_res["reproduction_gates"]["s20_chunks_match"]
-                and c_res["reproduction_gates"]["s20_docs_match"]
-                and c_res["reproduction_gates"]["s20_scores_match"]
+                c_res["reproduction_gates"]["shared_s20_chunk_sequence_match"]
+                and c_res["reproduction_gates"]["shared_s20_document_sequence_match"]
             ):
-                s20_top8_passes += 1
+                shared_s20_sequence_passes += 1
+            if (
+                c_res["reproduction_gates"]["legacy_s20_chunks_match"]
+                and c_res["reproduction_gates"]["legacy_s20_docs_match"]
+                and c_res["reproduction_gates"]["legacy_s20_scores_match"]
+            ):
+                legacy_s20_frozen_score_passes += 1
             if (
                 c_res["reproduction_gates"]["h40_chunks_match"]
                 and c_res["reproduction_gates"]["h40_docs_match"]
                 and c_res["reproduction_gates"]["h40_scores_match"]
             ):
-                h40_top8_passes += 1
+                h40_frozen_score_passes += 1
             if c_res["reproduction_gates"]["branch_depth_fidelity"]:
                 branch_depth_passes += 1
 
@@ -1201,6 +1269,11 @@ def run_candidate_pool_audit_protocol(
         if case_results else {}
     )
 
+    shared_s20_max_numerical_delta_overall = (
+        max([float(c_res["reproduction_gates"]["shared_s20_vs_frozen_max_score_diff"]) for c_res in case_results])
+        if case_results else 0.0
+    )
+
     # 8. Decision Determination
     if (
         retrieval_model_error_count > 0
@@ -1210,8 +1283,9 @@ def run_candidate_pool_audit_protocol(
         verdict = "INVALID_EXPERIMENT"
     elif (
         seed_prefix_passes != EXPECTED_CASE_COUNT
-        or s20_top8_passes != EXPECTED_CASE_COUNT
-        or h40_top8_passes != EXPECTED_CASE_COUNT
+        or shared_s20_sequence_passes != EXPECTED_CASE_COUNT
+        or legacy_s20_frozen_score_passes != EXPECTED_CASE_COUNT
+        or h40_frozen_score_passes != EXPECTED_CASE_COUNT
         or aggregate_metrics.get("identical_top8_cases") != 5
         or aggregate_metrics.get("changed_top8_cases") != 17
     ):
@@ -1235,9 +1309,11 @@ def run_candidate_pool_audit_protocol(
             "expected_cases": EXPECTED_CASE_COUNT,
             "evaluated_cases": len(case_results),
             "seed_prefix_passes": seed_prefix_passes,
-            "s20_top8_passes": s20_top8_passes,
-            "h40_top8_passes": h40_top8_passes,
+            "shared_s20_sequence_passes": shared_s20_sequence_passes,
+            "legacy_s20_frozen_score_passes": legacy_s20_frozen_score_passes,
+            "h40_frozen_score_passes": h40_frozen_score_passes,
             "branch_depth_passes": branch_depth_passes,
+            "shared_s20_max_numerical_delta_overall": round(shared_s20_max_numerical_delta_overall, 8),
             "retrieval_model_error_count": retrieval_model_error_count,
         },
         "aggregate_metrics": aggregate_metrics,
@@ -1263,9 +1339,11 @@ def run_candidate_pool_audit_protocol(
         "summary": {
             "total_cases": len(case_results),
             "seed_prefix_passes": seed_prefix_passes,
-            "s20_top8_passes": s20_top8_passes,
-            "h40_top8_passes": h40_top8_passes,
+            "shared_s20_sequence_passes": shared_s20_sequence_passes,
+            "legacy_s20_frozen_score_passes": legacy_s20_frozen_score_passes,
+            "h40_frozen_score_passes": h40_frozen_score_passes,
             "branch_depth_passes": branch_depth_passes,
+            "shared_s20_max_numerical_delta_overall": round(shared_s20_max_numerical_delta_overall, 8),
             "identical_top8_cases": aggregate_metrics.get("identical_top8_cases", 0),
             "changed_top8_cases": aggregate_metrics.get("changed_top8_cases", 0),
             "total_tail_entrants": aggregate_metrics.get("total_tail_entrants", 0),
@@ -1446,9 +1524,11 @@ def main() -> int:
         s = decision["summary"]
         print(f"Total Cases:               {s.get('total_cases')}")
         print(f"Seed Prefix Passes:        {s.get('seed_prefix_passes')} / 22")
-        print(f"S20 Top-8 Passes:          {s.get('s20_top8_passes')} / 22")
-        print(f"H40 Top-8 Passes:          {s.get('h40_top8_passes')} / 22")
+        print(f"Shared S20 Sequence Passes:{s.get('shared_s20_sequence_passes')} / 22")
+        print(f"Legacy S20 Score Passes:   {s.get('legacy_s20_frozen_score_passes')} / 22")
+        print(f"H40 Score Passes:          {s.get('h40_frozen_score_passes')} / 22")
         print(f"Branch Depth Passes:       {s.get('branch_depth_passes')} / 22")
+        print(f"Shared S20 Max Delta:      {s.get('shared_s20_max_numerical_delta_overall')}")
         print(f"Identical Top-8 Cases:     {s.get('identical_top8_cases')} (expected 5)")
         print(f"Changed Top-8 Cases:       {s.get('changed_top8_cases')} (expected 17)")
         print(f"Total Tail Entrants:       {s.get('total_tail_entrants')}")

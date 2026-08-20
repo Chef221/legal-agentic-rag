@@ -53,24 +53,28 @@ flowchart TD
     F40 --> S20_POOL[S20 Candidate Pool\nExact Prefix Fused 1..20]
     F40 --> H40_POOL[H40 Candidate Pool\nFull Fused 1..40]
     
-    F40 --> CE[Single CrossEncoder Scoring Pass\nScore all 40 candidates once]
+    F40 --> CE[Single Shared CrossEncoder Scoring Pass\nScore all 40 candidates once]
     
     CE --> S20_SORT[Apply Production Tie-break on S20 Pool\n(-score, fused_rank, chunk_id)]
     CE --> H40_SORT[Apply Production Tie-break on H40 Pool\n(-score, fused_rank, chunk_id)]
     
-    S20_SORT --> S20_TOP8[Derived S20 Final Top-8]
-    H40_SORT --> H40_TOP8[Derived H40 Final Top-8]
+    S20_SORT --> S20_TOP8[Derived Shared S20 Final Top-8]
+    H40_SORT --> H40_TOP8[Derived Shared H40 Final Top-8]
     
     S20_TOP8 --> DIAG[Mechanics & Churn Diagnostics\nTail Entrants, Displacements, Margins]
     H40_TOP8 --> DIAG
+
+    F40 -.-> S20_PROBE[Legacy S20 Reproduction Probe\nScore exact 20 candidates once]
+    S20_PROBE -.-> FROZEN_S20_GATE[Frozen S20 Score Gate <= 1e-6]
 ```
 
-### Protocol Invariants:
-1. **Single Branch Search & Fusion**: Hybrid retrieval is called exactly once with `top_k=40, candidate_k=40`. Both arms share the exact same fused ranking.
+### Protocol Invariants & Separation of Mechanics from Frozen Validation:
+1. **Single Branch Search & Fusion**: Hybrid retrieval is called exactly once per case with `top_k=40, candidate_k=40`. Both arms share the exact same fused ranking.
 2. **Real Branch Depth Observations**: `RecordingBranchRetriever` wrappers record every branch query. Every sparse query and dense query must have `top_k=40, candidate_k=40`.
-3. **Shared Scoring**: Cross-encoder scoring is executed once on the 40 fused candidates. A candidate's score is identical regardless of whether it is evaluated under S20 or H40.
+3. **Shared Mechanics Scoring Pass**: Cross-encoder scoring is executed once on the 40 fused candidates (`fused40`). All candidate-pool diagnostics (tail entrants, displacements, cutoff margins, and derived S20/H40 rankings) are computed **strictly from these shared scores**.
 4. **Exact Production Tie-Breaking**: Sorting for both candidate pools uses `(-score, fused_rank, chunk_id)`.
-5. **Graphless & Generator-Free**: Online runtime loads exactly 3 serving artifacts (`legal_chunks`, `bm25_index`, `vector_index`). `graph/` and `relationships/` are absent. Qwen and generation are not invoked.
+5. **Observational Legacy S20 Validation Probe**: In the initial Stage R1 Kaggle pre-verdict run, all 22 S20 cases preserved exact chunk and document sequence, but cross-encoder logits exhibited tiny GPU floating-point variations (~1.4e-6 to 1.6e-5) because evaluating 40 candidates in batches of `32 + 8` (`batch_size=32`) alters layer norm and attention padding relative to evaluating a single batch of 20 candidates. To verify historical frozen S20 reproduction without compromising the single-pass 40-candidate scientific design, a separate observational 20-candidate legacy S20 probe is executed solely to verify that historical scores reproduce within $|score\_diff| \le 10^{-6}$. This probe never feeds candidate-pool diagnostics.
+6. **Graphless & Generator-Free**: Online runtime loads exactly 3 serving artifacts (`legal_chunks`, `bm25_index`, `vector_index`). `graph/` and `relationships/` are absent. Qwen and generation are not invoked.
 
 ---
 
@@ -89,10 +93,11 @@ Execution must pass strict reproduction gates against historical frozen baseline
 ### Fail-Closed Reproduction Gates:
 1. **Mandatory B1A.2 Baseline Verification**: Exact ZIP SHA-256 (for canonical ZIP) or exact 8-member package hashes (for extracted bundle), internal results SHA-256, execution commit, run-summary results SHA-256, and verdict `GRAPH_REDUNDANCY_PROVEN` are verified.
 2. **Seed Prefix Invariance**: Current `fused40[:20]` chunk sequence must **exactly match** frozen B1A.2 `s20_arm.seed_hits` chunk sequence for all 22 cases.
-3. **S20 Top-8 Reproduction**: Derived S20 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `s20_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
-4. **H40 Top-8 Reproduction**: Derived H40 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `h40_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
-5. **Real Branch-Depth Fidelity**: 22/22 cases must execute branch queries with candidate depth 40 and top-k 40.
-6. **Historical Divergence Reproduction**: Must reproduce exactly 5 identical top-8 cases and 17 changed top-8 cases.
+3. **Shared S20 Sequence Reproduction**: Derived shared S20 final top-8 chunk IDs and document IDs must **exactly match** frozen B1A.2 `s20_arm.final_hits` for all 22 cases (numerical batch-shape delta is recorded as a diagnostic).
+4. **Legacy S20 Score Reproduction**: Observational 20-candidate legacy probe must match frozen B1A.2 `s20_arm.final_hits` chunk IDs, document IDs, and scores within $|score\_diff| \le 10^{-6}$ for all 22 cases.
+5. **H40 Top-8 Reproduction**: Derived H40 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `h40_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
+6. **Real Branch-Depth Fidelity**: 22/22 cases must execute branch queries with candidate depth 40 and top-k 40.
+7. **Historical Divergence Reproduction**: Must reproduce exactly 5 identical top-8 cases and 17 changed top-8 cases.
 
 ---
 
@@ -100,8 +105,8 @@ Execution must pass strict reproduction gates against historical frozen baseline
 
 | Verdict | Meaning | Authority / Next Action |
 |---|---|---|
-| **`CANDIDATE_POOL_AUDIT_PASS`** | Protocol executed cleanly, frozen B1A.2 mechanics reproduced (22/22 seed match, 22/22 S20 top-8 match, 22/22 H40 top-8 match, 22/22 branch depth fidelity, 5 identical / 17 changed), candidate-pool churn characterized. | `"h40_promotion_authorized": false`. H40 remains in Attempt 2. Proceed to Priority B verification audit. |
-| **`CANDIDATE_POOL_DRIFT_DETECTED`** | Execution completed with 0 model errors, but derived S20/H40 hits diverged from frozen baseline expectations. | Protocol halted. Investigate ranking or retrieval drift. |
+| **`CANDIDATE_POOL_AUDIT_PASS`** | Protocol executed cleanly, frozen B1A.2 mechanics reproduced (22/22 seed match, 22/22 shared S20 sequence match, 22/22 legacy S20 score match $\le 10^{-6}$, 22/22 H40 score match $\le 10^{-6}$, 22/22 branch depth fidelity, 5 identical / 17 changed), candidate-pool churn characterized. | `"h40_promotion_authorized": false`. H40 remains in Attempt 2. Proceed to Priority B verification audit. |
+| **`CANDIDATE_POOL_DRIFT_DETECTED`** | Execution completed with 0 model errors, but derived S20/H40 hits or legacy S20 validation probe diverged from frozen baseline expectations. | Protocol halted. Investigate ranking or retrieval drift. |
 | **`INVALID_EXPERIMENT`** | Artifact corruption, SHA mismatch, missing baseline summary, branch depth violation, or $\ge 1$ `retrieval:model_error`. | Protocol invalidated. Fix runtime environment. |
 
 ---
@@ -112,8 +117,18 @@ Execution must pass strict reproduction gates against historical frozen baseline
 - `branch_depth_observations`: real count and candidate depths of sparse and dense queries for this case.
 - `fused_candidates_40`: 40 fused items with fused rank, chunk ID, doc ID, RRF score, BM25 rank/contribution, dense rank/contribution.
 - `cross_encoder_scored_candidates_40`: 40 items sorted by cross-encoder score with reranker rank, fused rank, chunk ID, doc ID, score.
-- `derived_s20_final_hits`: Final top-8 hits derived from fused 1..20.
-- `derived_h40_final_hits`: Final top-8 hits derived from fused 1..40.
+- `derived_s20_final_hits`: Final top-8 hits derived from fused 1..20 using shared 40-candidate scores.
+- `derived_h40_final_hits`: Final top-8 hits derived from fused 1..40 using shared 40-candidate scores.
+- `frozen_reproduction`:
+  - `seed_prefix_match`: boolean
+  - `shared_s20_chunk_sequence_match`: boolean
+  - `shared_s20_document_sequence_match`: boolean
+  - `shared_s20_vs_frozen_max_score_diff`: float
+  - `legacy_s20_final_hits`: top-8 hits from 20-candidate legacy probe
+  - `legacy_s20_max_score_diff`: float
+  - `legacy_s20_scores_match`: boolean ($\le 10^{-6}$)
+  - `h40_max_score_diff`: float
+  - `h40_scores_match`: boolean ($\le 10^{-6}$)
 - `s20_vs_h40_comparison`: `top8_identical`, `overlap_count`, `jaccard`, `s20_only_chunks`, `h40_only_chunks`.
 - `tail_entrants`: For each H40-only chunk entering top-8: chunk ID, doc ID, fused rank (21..40), reranker rank, reranker score, fused rank bucket (`21-25`, `26-30`, `31-35`, `36-40`).
 - `displaced_s20_candidates`: For each displaced S20 candidate: chunk ID, doc ID, fused rank (1..20), S20 reranker rank, reranker score.
@@ -474,9 +489,11 @@ print(f"Audit Verified:             {decision.get('audit_verified')}")
 print(f"H40 Promotion Authorized:   {decision.get('h40_promotion_authorized')} (MUST BE FALSE)")
 print(f"Total Cases Evaluated:      {summary.get('total_cases')} / 22")
 print(f"Seed Prefix Passes:         {summary.get('seed_prefix_passes')} / 22")
-print(f"S20 Top-8 Passes:           {summary.get('s20_top8_passes')} / 22")
-print(f"H40 Top-8 Passes:           {summary.get('h40_top8_passes')} / 22")
+print(f"Shared S20 Sequence Passes: {summary.get('shared_s20_sequence_passes')} / 22")
+print(f"Legacy S20 Score Passes:    {summary.get('legacy_s20_frozen_score_passes')} / 22 (<= 1e-6)")
+print(f"H40 Score Passes:           {summary.get('h40_frozen_score_passes')} / 22 (<= 1e-6)")
 print(f"Branch Depth Passes:        {summary.get('branch_depth_passes')} / 22")
+print(f"Shared S20 Max Delta:       {summary.get('shared_s20_max_numerical_delta_overall')}")
 print(f"Identical Top-8 Cases:      {summary.get('identical_top8_cases')} (expected 5)")
 print(f"Changed Top-8 Cases:        {summary.get('changed_top8_cases')} (expected 17)")
 print(f"Total Tail Entrants:        {summary.get('total_tail_entrants')}")
@@ -489,8 +506,9 @@ assert decision["audit_verified"] is True, "FATAL: audit_verified must be True"
 assert decision["h40_promotion_authorized"] is False, "FATAL: h40_promotion_authorized must be False"
 assert summary["total_cases"] == 22, "FATAL: Must evaluate exactly 22 cases"
 assert summary["seed_prefix_passes"] == 22, "FATAL: Seed prefix match failed"
-assert summary["s20_top8_passes"] == 22, "FATAL: S20 top-8 reproduction failed"
-assert summary["h40_top8_passes"] == 22, "FATAL: H40 top-8 reproduction failed"
+assert summary["shared_s20_sequence_passes"] == 22, "FATAL: Shared S20 sequence reproduction failed"
+assert summary["legacy_s20_frozen_score_passes"] == 22, "FATAL: Legacy S20 frozen score reproduction failed"
+assert summary["h40_frozen_score_passes"] == 22, "FATAL: H40 frozen score reproduction failed"
 assert summary["branch_depth_passes"] == 22, "FATAL: Branch depth fidelity failed"
 assert summary["identical_top8_cases"] == 5, "FATAL: Identical top-8 case count mismatch"
 assert summary["changed_top8_cases"] == 17, "FATAL: Changed top-8 case count mismatch"
