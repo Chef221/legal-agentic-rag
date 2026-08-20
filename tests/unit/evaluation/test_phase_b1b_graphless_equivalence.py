@@ -10,7 +10,7 @@ import json
 import os
 from pathlib import Path
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 import zipfile
 
 import pytest
@@ -979,35 +979,66 @@ def test_25_build_observed_relationship_retrieval_stack_real_signatures(tmp_path
         online=OnlineConfig(),
     )
 
-    with patch("scripts.phase_b1b_graphless_equivalence.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
-         patch("scripts.phase_b1b_graphless_equivalence.NumpyVectorBackend") as mock_vec_cls, \
-         patch("scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider") as mock_emb_cls, \
-         patch("scripts.phase_b1b_graphless_equivalence.CrossEncoderReranker") as mock_rerank_cls:
+    with patch(
+        "scripts.phase_b1b_graphless_equivalence.SQLiteFTS5BM25Backend",
+        autospec=True,
+    ) as mock_bm25_cls, patch(
+        "scripts.phase_b1b_graphless_equivalence.NumpyVectorBackend",
+        autospec=True,
+    ) as mock_vec_cls, patch(
+        "scripts.phase_b1b_graphless_equivalence.SentenceTransformerEmbeddingProvider",
+        autospec=True,
+    ) as mock_emb_cls, patch(
+        "scripts.phase_b1b_graphless_equivalence.CrossEncoderReranker",
+        autospec=True,
+    ) as mock_rerank_cls:
 
-        mock_bm25_inst = MagicMock()
-        mock_bm25_inst.source_artifact_identity = ("legal_chunks", "1.0", "hash")
-        mock_bm25_cls.return_value = mock_bm25_inst
+        mock_bm25_inst = mock_bm25_cls.return_value
+        type(mock_bm25_inst).source_artifact_identity = PropertyMock(
+            return_value=("legal_chunks", "1.0", "hash")
+        )
 
-        mock_vec_inst = MagicMock()
-        mock_vec_inst.source_artifact_identity = ("legal_chunks", "1.0", "hash")
-        mock_vec_inst.embedding_provider_name = "sentence-transformers"
-        mock_vec_inst.embedding_provider_version = "1.0"
-        mock_vec_inst.model_name = "test_model"
-        mock_vec_inst.model_revision = "rev"
-        mock_vec_inst.dimension = 384
-        mock_vec_cls.return_value = mock_vec_inst
+        mock_vec_inst = mock_vec_cls.return_value
+        type(mock_vec_inst).source_artifact_identity = PropertyMock(
+            return_value=("legal_chunks", "1.0", "hash")
+        )
+        type(mock_vec_inst).embedding_provider_name = PropertyMock(
+            return_value="sentence-transformers"
+        )
+        type(mock_vec_inst).embedding_provider_version = PropertyMock(
+            return_value="1.0"
+        )
+        type(mock_vec_inst).model_name = PropertyMock(
+            return_value="test_model"
+        )
+        type(mock_vec_inst).model_revision = PropertyMock(
+            return_value="rev"
+        )
+        type(mock_vec_inst).dimension = PropertyMock(
+            return_value=384
+        )
 
-        mock_emb_inst = MagicMock()
-        mock_emb_inst.provider_name = "sentence-transformers"
-        mock_emb_inst.provider_version = "1.0"
-        mock_emb_inst.model_name = "test_model"
-        mock_emb_inst.model_revision = "rev"
-        mock_emb_inst.dimension = 384
-        mock_emb_cls.return_value = mock_emb_inst
+        mock_emb_inst = mock_emb_cls.return_value
+        type(mock_emb_inst).provider_name = PropertyMock(
+            return_value="sentence-transformers"
+        )
+        type(mock_emb_inst).provider_version = PropertyMock(
+            return_value="1.0"
+        )
+        type(mock_emb_inst).model_name = PropertyMock(
+            return_value="test_model"
+        )
+        type(mock_emb_inst).model_revision = PropertyMock(
+            return_value="rev"
+        )
+        type(mock_emb_inst).dimension = PropertyMock(
+            return_value=384
+        )
 
-        mock_rerank_inst = MagicMock()
-        mock_rerank_inst.model_name = "test_reranker"
-        mock_rerank_cls.return_value = mock_rerank_inst
+        mock_rerank_inst = mock_rerank_cls.return_value
+        type(mock_rerank_inst).model_name = PropertyMock(
+            return_value="test_reranker"
+        )
 
         rel_tool, rec_cand, rec_bm25, rec_dense = build_observed_relationship_retrieval_stack(config)
 
