@@ -2443,3 +2443,20 @@ reports are reviewed.
 - runtime config evidence self-identity verified across disk and ZIP archive;
 - H40 remains strictly unpromoted (`h40_promotion_authorized = false`); Stage R1 closed with mechanical verdict `CANDIDATE_POOL_AUDIT_PASS`;
 - next active research frontier established as **Priority B — Verification-correctness audit**.
+
+## 71. Milestone 51.6 — Priority B: Controlled V0 vs V1 Semantic-Verifier Benchmark Execution, Closure, and Holdout Governance
+
+**Status:** Completed & Closed (Authoritative run archive: `verification-semantic-benchmark-evidence.zip` SHA-256: `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`, size `17,290 bytes`, Verdict: `VERIFIER_BENCHMARK_PASS`, Decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`, Commit: `d3aac626400cbe31ed0ed5ad109762fcb78d737d`)
+
+- completed forensic packet materialization (Task B-FORENSIC-0, 4 questions, 8 historical arms, 100% chunk lookups, 100% verifier replay fidelity);
+- completed human forensic label freezing (Task B-FORENSIC-1A, `verification-human-forensic-labels-v1.json`, 11 claims: 2 SUPPORTED, 5 CONTRADICTED, 4 INSUFFICIENT);
+- completed positive-control packet sampling and materialization (Task B-FORENSIC-1B, `verification-positive-control-review-packets-v1.zip`, 16 PRIMARY + 8 RESERVE candidates across 4 strata);
+- completed human positive-control label freezing (Task B-FORENSIC-1C, `verification-positive-control-human-labels-v1.json`, 27 claims: 16 SUPPORTED, 2 CONTRADICTED, 9 INSUFFICIENT); composite benchmark established at 38 claims (18 SUPPORTED, 7 CONTRADICTED, 13 INSUFFICIENT);
+- implemented and hardened offline benchmark harness in `scripts/evaluate_verification_semantic_benchmark.py` and `tests/unit/evaluation/test_verification_semantic_benchmark.py` (28 unit tests, fail-closed SHA-256 source assertions, exact 22/22 V0 replay validation, 2-pass deterministic stability evaluation, observational provider call/retry logging, runtime execution identity persistence);
+- executed canonical benchmark on Kaggle Tesla T4 (`d3aac626400cbe31ed0ed5ad109762fcb78d737d`): 0 model errors, 2 structured retries, 38/38 deterministic stable claims across passes, mechanical verdict `VERIFIER_BENCHMARK_PASS`;
+- empirical outcome: V1 achieved 60.53% claim accuracy (vs V0 47.37%), 88.89% supported retention, 35.0% negative catch rate, $+5$ net correctness delta (+7 fixes, -2 regressions), and 63.64% answer accuracy (retaining 7/7 valid answers, catching 7/15 invalid answers);
+- diagnostic failure modes: V1 caught 80% of actor inversions and 55.6% of wrong documents, but missed 100% of condition inversions/omissions, wrong articles, and quantity errors, and caught only 12.5% of scope overgeneralizations;
+- formal decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED` (`semantic_verifier_promotion_authorized = false` remains in effect);
+- dataset lifecycle: 38-claim composite dataset permanently burned as DEVELOPMENT DATA (`verification_benchmark_v1_role = "development_after_first_evaluation"`);
+- holdout governance: 8 positive-control reserves cannot be repurposed as a secret promotion holdout; pre-registered fresh holdout strategy required before future V2 promotion;
+- active frontier advances to pre-registering fresh holdout protocol and exploring V2 verifier design hypotheses.

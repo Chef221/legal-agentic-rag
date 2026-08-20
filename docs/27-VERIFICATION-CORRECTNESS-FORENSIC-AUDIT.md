@@ -590,9 +590,197 @@ print(f"SHA-256: {sha}")
 
 ---
 
-### 9.8 Implementation Status
+### 9.8 Implementation & Execution Closure Status
 
-- **Status**: `VERIFIER BENCHMARK HARNESS IMPLEMENTED & HARDENED — REAL MODEL EXECUTION PENDING REVIEW`
-- **Preflight Mechanical Verdict**: `VERIFIER_BENCHMARK_READY`
-- **V0 Exact Replay Status**: `22/22 arms passed with 100% fidelity`
+- **Status**: `CONTROLLED V0 vs V1 SEMANTIC VERIFIER BENCHMARK COMPLETED & CLOSED`
+- **Execution Commit**: `d3aac626400cbe31ed0ed5ad109762fcb78d737d`
+- **Canonical Evidence Archive**: `verification-semantic-benchmark-evidence.zip` (SHA-256 `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`, size `17,290` bytes, `8` members)
+- **Mechanical Execution Verdict**: `VERIFIER_BENCHMARK_PASS`
+- **Formal Decision**: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`
 - **Production Status**: Semantic verification remains disabled; `semantic_verifier_promotion_authorized = false`.
+
+---
+
+## 10. Controlled V0 vs V1 Semantic-Verifier Benchmark Execution, Results, and Closure
+
+### 10.1 Canonical Execution Metadata & Evidence Identity
+
+The controlled offline benchmark comparing the deterministic `RuleBasedCitationVerifier` (V0) and the pre-existing `ModelBackedCitationVerifier` (V1) was executed on Kaggle GPU under the exact canonical execution environment:
+
+| Property | Value |
+| :--- | :--- |
+| **Execution Git Commit** | `d3aac626400cbe31ed0ed5ad109762fcb78d737d` |
+| **Package Version** | `0.50.7` |
+| **V1 Model** | `Qwen/Qwen2.5-3B-Instruct` |
+| **Model Revision** | `a1d308dfcc03e09da285d49d912439a655a571e8` |
+| **Provider** | `TransformersChatProvider` (`transformers==4.47.1`, `torch==2.11.0+cpu`/CUDA) |
+| **Execution Hardware** | Tesla T4 / CUDA |
+| **Repeat Count** | `2` (Pass 1 = Metrics, Pass 2 = Deterministic Stability) |
+| **Execution Health** | `0` model errors, `2` structured output retries |
+| **Deterministic Stability** | `38 / 38` stable claims (`0` unstable predictions across passes) |
+| **Mechanical Benchmark Verdict** | **`VERIFIER_BENCHMARK_PASS`** |
+| **Evidence Archive** | `verification-semantic-benchmark-evidence.zip` |
+| **Evidence Archive SHA-256** | `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6` |
+| **Evidence Archive Size** | `17,290` bytes (`8` members) |
+
+> [!IMPORTANT]
+> **Execution Correctness vs Production Promotion**:
+> The mechanical verdict **`VERIFIER_BENCHMARK_PASS`** certifies that the offline benchmark executed with 100% provenance fidelity, exact V0 replay, zero model failures, and perfect deterministic stability across passes. It **does NOT** constitute authorization for production promotion.
+
+---
+
+### 10.2 Empirical Comparison: V0 Rule-Based vs V1 Semantic Verifier
+
+#### 1. Claim-Level Binary Performance (38 Frozen Claims: 18 Supported, 20 Negative)
+
+| Metric | V0 Rule-Based Baseline | V1 Candidate (`Qwen2.5-3B`) | Delta (V1 vs V0) |
+| :--- | :---: | :---: | :---: |
+| **True Positives (TP)** | `18` | `16` | $-2$ (false rejections introduced) |
+| **False Positives (FP)** | `20` | `13` | $-7$ (semantic negatives caught) |
+| **True Negatives (TN)** | `0` | `7` | $+7$ |
+| **False Negatives (FN)** | `0` | `2` | $+2$ |
+| **Supported Retention (Recall)** | **`100.0%`** ($18/18$) | **`88.89%`** ($16/18$) | $-11.11\%$ |
+| **Negative Catch Rate (Specificity)** | **`0.0%`** ($0/20$) | **`35.0%`** ($7/20$) | $+35.0\%$ |
+| **Binary Accuracy** | **`47.37%`** ($18/38$) | **`60.53%`** ($23/38$) | $+13.16\%$ |
+| **Precision** | **`47.37%`** ($18/38$) | **`55.17%`** ($16/29$) | $+7.80\%$ |
+| **F1 Score** | `0.6429` | `0.6809` | $+0.0380$ |
+| **Balanced Accuracy** | `50.0%` | `61.94%` | $+11.94\%$ |
+
+#### 2. V1 Three-Way Semantic Classification Matrix
+
+| Human Truth $\backslash$ V1 Predicted | SUPPORTED | CONTRADICTED | INSUFFICIENT | Human Total | Class Recall | Class Precision | Class F1 |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **SUPPORTED** | **16** | 1 | 1 | 18 | `88.89%` | `55.17%` | `0.6809` |
+| **CONTRADICTED** | 5 | **1** | 1 | 7 | `14.29%` | `33.33%` | `0.2000` |
+| **INSUFFICIENT** | 8 | 1 | **4** | 13 | `30.77%` | `66.67%` | `0.4211` |
+| **Predicted Total** | 29 | 3 | 6 | **38** | — | — | — |
+| **Macro Average** | — | — | — | — | **`44.65%`** | **`51.72%`** | **`0.4340`** |
+
+*Overall Three-Way Accuracy*: **`55.26%`** ($21/38$).
+
+#### 3. Paired Claim-Level Deltas (V0 vs V1)
+
+| Paired Category | Count | Interpretation |
+| :--- | :---: | :--- |
+| **Both Correct** | `16` | Human-supported claims correctly accepted by both V0 and V1 |
+| **V0 Only Correct** | `2` | V1 regressed on supported claims (falsely rejected) |
+| **V1 Only Correct** | `7` | V1 fixed V0 errors (caught semantic negatives that V0 accepted lexically) |
+| **Both Wrong** | `13` | Human-negative claims falsely accepted by both V0 and V1 |
+| **V1 Fixed V0 Error Count** | `7` | Positive fixes on negative claims |
+| **V1 Regressed from V0 Correct** | `2` | Regressions on supported claims |
+| **V0 Total Correct** | `18` | Pre-semantic baseline |
+| **V1 Total Correct** | `23` | Post-semantic candidate |
+| **Net Correctness Delta** | **`+5`** | Net claim correctness gain ($23 - 18$) |
+
+#### 4. Answer-Level Metrics (22 Historical Benchmark Arms: 7 Valid, 15 Invalid)
+
+Answer validity is evaluated strictly under the *all-claims-supported* invariant (an answer is valid if and only if all constituent claims are supported by cited evidence):
+
+| Answer Metric | V0 Rule-Based Baseline | V1 Candidate (`Qwen2.5-3B`) | Delta |
+| :--- | :---: | :---: | :---: |
+| **Total Evaluated Arms** | `22` | `22` | $0$ |
+| **Human Valid Arms** | `7` | `7` | $0$ |
+| **Human Invalid Arms** | `15` | `15` | $0$ |
+| **True Positives (TP)** | `7` | `7` | $0$ |
+| **False Positives (FP)** | `15` | `8` | $-7$ (invalid answers caught) |
+| **True Negatives (TN)** | `0` | `7` | $+7$ |
+| **False Negatives (FN)** | `0` | `0` | $0$ |
+| **Supported Answer Retention** | **`100.0%`** ($7/7$) | **`100.0%`** ($7/7$) | $0.0\%$ |
+| **Invalid Answer Catch Rate** | **`0.0%`** ($0/15$) | **`46.67%`** ($7/15$) | $+46.67\%$ |
+| **Answer Binary Accuracy** | **`31.82%`** ($7/22$) | **`63.64%`** ($14/22$) | $+31.82\%$ |
+
+---
+
+### 10.3 Error-Mechanism Diagnostic Breakdown
+
+Evaluating V1 negative-claim catch rates across the frozen forensic error tags reveals the specific strengths and failure modes of the pre-existing prompt/model:
+
+| Error Tag | Negative Claims with Tag | V1 Caught Count | V1 Catch Rate | Diagnostic Interpretation |
+| :--- | :---: | :---: | :---: | :--- |
+| **`ACTOR_ROLE_INVERTED`** | 5 | 4 | **`80.0%`** | Strong sensitivity to subject/object inversions in Vietnamese legal relations |
+| **`WRONG_DOCUMENT`** | 9 | 5 | **`55.56%`** | Moderate ability to reject text sourced from completely ungrounded documents |
+| **`OTHER`** | 5 | 1 | **`20.0%`** | Low catch rate on general semantic misalignments |
+| **`SCOPE_OVERGENERALIZED`** | 8 | 1 | **`12.5%`** | Severe weakness: accepts narrow conditional rules framed as universal law |
+| **`CONDITION_INVERTED`** | 1 | 0 | **`0.0%`** | Failed to detect inverted conditional prerequisites |
+| **`CONDITION_OMITTED`** | 2 | 0 | **`0.0%`** | Failed to detect omitted conditional qualifiers |
+| **`WRONG_ARTICLE`** | 4 | 0 | **`0.0%`** | Failed to detect cross-article mismatch within the same statute |
+| **`QUANTITY_ERROR`** | 2 | 0 | **`0.0%`** | Failed to distinguish distinct legal durations/monetary thresholds |
+
+> [!NOTE]
+> **Diagnostic Sample Context**: These tag-level metrics represent diagnostic sample counts across the 20 negative claims in the composite benchmark, not population prevalence estimates across the entire corpus.
+
+---
+
+### 10.4 Formal Decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`
+
+**Formal Decision**: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`
+**Promotion Authorization**: `semantic_verifier_promotion_authorized = false` (Strict Invariant Preserved)
+
+#### Technical Rationale:
+1. **Material but Insufficient Gain**: While V1 improves net claim correctness by $+5$ claims and increases invalid answer catch rate from $0.0\%$ to $46.67\%$, it still allows **$65.0\%$ of negative claims** ($13/20$) and **$53.33\%$ of invalid answers** ($8/15$) to pass through undetected into production output.
+2. **Supported Claim Regressions**: V1 introduces $2$ false rejections out of $18$ valid human claims ($11.11\%$ regression rate on gold supported text), risking unnecessary abstentions or retries on correct legal answers.
+3. **Weak Fine-Grained Discrimination**: Three-way classification recall on negative claims is severely deficient (`CONTRADICTED` recall is $14.29\%$, `INSUFFICIENT` recall is $30.77\%$), indicating the model frequently defaults to predicting `SUPPORTED` whenever topical vocabulary overlaps.
+4. **Blindness to Critical Legal Failure Modes**: V1 exhibited a $0.0\%$ catch rate on condition omissions/inversions, wrong-article miscitations, and quantity/duration errors, and only $12.5\%$ on scope overgeneralizations.
+5. **Fail-Closed Principle**: In a legal question-answering system, hallucinated conditions or misattributed articles can cause severe legal misinformation. An unproven semantic verifier cannot be enabled in production.
+
+---
+
+### 10.5 Dataset Lifecycle & Governance: 38 Claims Frozen as Development Data
+
+The 38-claim benchmark served its primary purpose: providing an unbiased, un-overfitted evaluation of the pre-existing V1 implementation.
+
+> [!IMPORTANT]
+> **Post-Evaluation Role Transition**:
+> - Role: `verification_benchmark_v1_role = "development_after_first_evaluation"`.
+> - Because empirical error modes, per-claim predictions, and failure tags are now fully exposed, **the composite 38-claim dataset is permanently classified as DEVELOPMENT DATA**.
+> - If prompt engineering, few-shot examples, fine-tuning, threshold adjustments, or post-processing rules are developed targeting these failure modes, the 38 claims **MUST NOT** be used as final promotion evidence for the tuned V2 system.
+> - Final promotion of any future V2 verifier strictly requires an independently sampled, previously unseen **Fresh Holdout**.
+
+---
+
+### 10.6 Prohibition on Reusing Current Control Reserves as a Secret Holdout
+
+The 8 positive-control reserve cases (`27503`, `31317`, `33177`, `85651`, `112105`, `112833`, `130283`, `137453`) were pre-registered in Milestone 51 for mechanical packet replacement only.
+
+- **Rule**: They MUST NOT be silently repurposed as a secret promotion holdout for V2 after having observed V1 benchmark results.
+- **Rationale**: Repurposing reserve items post-hoc without prior pre-registration violates rigorous experimental integrity.
+
+---
+
+### 10.7 Next Frontier: Fresh V2 Holdout Pre-Registration Protocol
+
+Prior to undertaking any V2 verifier tuning or prompt engineering, the strategy for selecting a clean, uncompromised holdout must be pre-registered:
+
+#### 1. Mandatory Contamination Exclusion List
+The fresh holdout selection MUST strictly exclude all 28 QIDs that have been exposed to human scrutiny or forensic review:
+- **4 Suspicious Forensic QIDs**: `102047`, `147239`, `26541`, `95861`
+- **16 Positive-Control Primary QIDs**: `75171`, `150131`, `30405`, `36801`, `116877`, `15181`, `5967`, `139413`, `34351`, `31883`, `40489`, `155139`, `108497`, `4031`, `103983`, `140693`
+- **8 Positive-Control Reserve QIDs**: `27503`, `31317`, `33177`, `85651`, `112105`, `112833`, `130283`, `137453`
+- **All other manually audited QIDs** from Priority B investigations.
+
+#### 2. Proposed Holdout Structure
+- **A. Generalization Slice (16 Questions)**:
+  - Sampled deterministically from the remaining $\approx 764$ untouched Phase-A `answer_verified` records.
+  - Selected using salted SHA-256 (`verification-v2-holdout-gen-v1:{question_id}`) with a fixed salt defined **before** V2 development.
+  - Stratified evenly across 4 machine-telemetry strata:
+    - 4 Single-claim clean (`A_SINGLE_CLAIM_CLEAN`)
+    - 4 Multi-claim clean (`B_MULTI_CLAIM_CLEAN`)
+    - 4 Numeric-bearing (`C_NUMERIC`)
+    - 4 Negation/Modality (`D_NEGATION_MODALITY`)
+- **B. Semantic Stress Slice (Optional Pre-Registered Set)**:
+  - Targeted questions selected via purely pre-declared machine-detectable textual rules (e.g. conditional conjunction presence, explicit duration/currency units, complex multi-actor clauses).
+  - Explicitly evaluated and reported separately from generalization accuracy.
+  - Selection must NEVER use model predictions or LLM correctness judges.
+
+---
+
+### 10.8 V2 Development Hypotheses (Document Only — No Implementation in This Task)
+
+Based on the empirical diagnostic results of the V1 benchmark, the future V2 semantic verifier research direction must investigate:
+
+1. **Conditional Logic Formulation**: Explicitly prompting the verifier to distinguish necessary/sufficient conditions ($X \implies Y$) from unconditional assertions ($Y$), ensuring legal exceptions and prerequisites are verified.
+2. **Actor / Action / Object Entity Roles**: Enhancing structured extraction to ensure that legal rights, duties, and prohibitions are mapped to the correct legal subject and governing body.
+3. **Evidence Sufficiency & Strict Insufficient Discrimination**: Guiding the model to output `INSUFFICIENT` when evidence discusses the same general topic or legal code but fails to state the exact proposition asserted in the claim.
+4. **Article & Source Specificity**: Penalizing claims that cite Article $N$ when the supporting rule is located in Article $M$ or another decree.
+5. **Quantity & Temporal Semantics**: Moving beyond token matching to enforce semantic alignment on statutory deadlines, validity periods, administrative fees, and numerical thresholds.
+6. **Scope Boundary Enforcement**: Preventing narrow procedural rules (e.g. specific to state-owned enterprises or foreign workers) from being validated as universal legal mandates.

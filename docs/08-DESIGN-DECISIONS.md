@@ -2820,3 +2820,27 @@ Kaggle execution (reviewed commit `9a5b708c2769425dbd65731feb8ede96975b5b46`, ca
 3. **Production S20 Routing Preserved**: Production Attempt 1 routing remains strictly bound to `relationship_rerank_search` (S20). Attempt 2 remains `rerank_search` (H40).
 4. **Verification Fidelity**: 22/22 seed prefix passes, 22/22 shared S20 sequence passes, 22/22 legacy S20 frozen score passes ($\le 10^{-6}$), 22/22 H40 frozen score passes ($\le 10^{-6}$), 22/22 branch depth passes, and 0 retrieval model errors verified.
 5. **Next Active Research Frontier**: The active development frontier advances to **Priority B — Verification-correctness audit**.
+
+---
+
+## D118 — Controlled V0 vs V1 Semantic-Verifier Benchmark Verdict, Non-Promotion Decision, and 38-Claim Development Status
+
+**Status:** Accepted (Verdict: `VERIFIER_BENCHMARK_PASS`, Decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`)
+
+**Context:**
+Milestone 51 Priority B conducted the first controlled offline benchmark comparing the deterministic `RuleBasedCitationVerifier` (V0) against the pre-existing `ModelBackedCitationVerifier` (V1, `Qwen/Qwen2.5-3B-Instruct`) over the frozen 38-claim composite human-labeled dataset (18 `SUPPORTED`, 7 `CONTRADICTED`, 13 `INSUFFICIENT`).
+The benchmark was executed on Kaggle GPU under execution commit `d3aac626400cbe31ed0ed5ad109762fcb78d737d` with evidence archived in `verification-semantic-benchmark-evidence.zip` (SHA-256 `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`, size 17,290 bytes, 8 members).
+
+**Empirical Summary:**
+1. **Mechanical Execution**: `VERIFIER_BENCHMARK_PASS` (0 model errors, 2 structured output retries, 38/38 stable claims across 2 passes, 22/22 exact V0 replay passes).
+2. **Claim-Level Binary**: V1 achieved 60.53% accuracy (vs V0 47.37%), 88.89% supported retention (16/18), 35.0% negative catch rate (7/20), precision 55.17%, F1 0.6809, balanced accuracy 61.94%.
+3. **Paired Deltas**: 16 both correct, 2 V0-only correct (regressions), 7 V1-only correct (fixes), 13 both wrong; net correctness delta $+5$ claims.
+4. **Answer-Level**: V1 achieved 63.64% accuracy (vs V0 31.82%), 100.0% valid answer retention (7/7), 46.67% invalid answer catch rate (7/15).
+5. **Diagnostic Failure Modes**: V1 exhibited 80% catch on actor role inversions and 55.6% on wrong documents, but 0% catch on condition omissions/inversions, wrong articles, and quantity errors, and only 12.5% on scope overgeneralizations. Three-way `CONTRADICTED` recall was 14.29% and `INSUFFICIENT` recall was 30.77%.
+
+**Decisions & Invariants:**
+1. **Formal Non-Promotion of Existing V1**: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`. The existing V1 implementation remains strictly unpromoted in production (`semantic_verifier_promotion_authorized = false`).
+2. **Production Baseline Preserved**: `RuleBasedCitationVerifier` (V0) remains the active verification engine in the production answering pipeline.
+3. **38-Claim Benchmark Burned as Development Data**: The 38-claim composite dataset is permanently transitioned to `verification_benchmark_v1_role = "development_after_first_evaluation"`. It may be used for diagnostic error analysis and training, but MUST NOT serve as final promotion evidence for any future tuned V2 verifier.
+4. **Prohibition of Repurposing Control Reserves**: The 8 positive-control reserve cases (`27503`, `31317`, `33177`, `85651`, `112105`, `112833`, `130283`, `137453`) cannot be repurposed as a secret promotion holdout.
+5. **Mandatory Fresh Holdout Pre-Registration**: Any future V2 semantic verifier evaluation requires a fresh, independently sampled holdout drawn from the $\approx 764$ untouched Phase-A records with explicit exclusion of all 28 previously audited QIDs.
