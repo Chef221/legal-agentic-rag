@@ -1022,20 +1022,37 @@ class V2DevelopmentBenchmarkEvaluator:
             return self._custom_provider
 
         cfg = SemanticVerificationConfig(
-            enabled=True,
             backend=CANONICAL_V2_BACKEND,
             model_name=CANONICAL_V2_MODEL_NAME,
             model_revision=CANONICAL_V2_MODEL_REVISION,
             device=self._device,
             torch_dtype=CANONICAL_V2_TORCH_DTYPE,
-            temperature=CANONICAL_V2_TEMPERATURE,
+            local_files_only=False,
+            timeout_seconds=CANONICAL_V2_TIMEOUT_SECONDS,
             max_input_tokens=CANONICAL_V2_MAX_INPUT_TOKENS,
             max_output_tokens=CANONICAL_V2_MAX_OUTPUT_TOKENS,
             max_structured_output_retries=self._max_structured_output_retries,
-            timeout_seconds=CANONICAL_V2_TIMEOUT_SECONDS,
-            local_files_only=False,
         )
-        return TransformersChatProvider(cfg.as_generation_config())
+        generation_cfg = cfg.as_generation_config()
+
+        if (
+            generation_cfg.backend != CANONICAL_V2_BACKEND
+            or generation_cfg.model_name != CANONICAL_V2_MODEL_NAME
+            or generation_cfg.model_revision != CANONICAL_V2_MODEL_REVISION
+            or generation_cfg.device != CANONICAL_V2_DEVICE
+            or generation_cfg.torch_dtype != CANONICAL_V2_TORCH_DTYPE
+            or generation_cfg.local_files_only is not False
+            or generation_cfg.timeout_seconds != CANONICAL_V2_TIMEOUT_SECONDS
+            or generation_cfg.max_input_tokens != CANONICAL_V2_MAX_INPUT_TOKENS
+            or generation_cfg.max_output_tokens != CANONICAL_V2_MAX_OUTPUT_TOKENS
+            or generation_cfg.max_structured_output_retries != CANONICAL_V2_MAX_STRUCTURED_RETRIES
+            or generation_cfg.temperature != 0.0
+        ):
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: GenerationConfig invariants failed: {generation_cfg}"
+            )
+
+        return TransformersChatProvider(generation_cfg)
 
     def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
         """Validate that provider runtime identity strictly matches canonical constants."""

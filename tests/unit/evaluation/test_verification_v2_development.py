@@ -9,10 +9,13 @@ import importlib
 import json
 from pathlib import Path
 import sys
+from unittest.mock import patch
 import zipfile
 
+from pydantic import ValidationError
 import pytest
 
+from legal_agentic_rag.configuration.online import GenerationConfig, SemanticVerificationConfig
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
 from legal_agentic_rag.generation.citation_verifier import RuleBasedCitationVerifier
@@ -814,6 +817,103 @@ def test_provider_version_drift_rejected(tmp_path: Path):
 
     with pytest.raises(DataValidationError, match="Provider version mismatch"):
         evaluator._validate_runtime_provider_identity(DriftingProvider())
+
+
+def test_semantic_verification_config_contract_supported_fields_succeed():
+    """Verify that canonical supported fields construct SemanticVerificationConfig and as_generation_config correctly."""
+    cfg = SemanticVerificationConfig(
+        backend=CANONICAL_V2_BACKEND,
+        model_name=CANONICAL_V2_MODEL_NAME,
+        model_revision=CANONICAL_V2_MODEL_REVISION,
+        device="cuda",
+        torch_dtype="float16",
+        local_files_only=False,
+        timeout_seconds=180.0,
+        max_input_tokens=8192,
+        max_output_tokens=512,
+        max_structured_output_retries=1,
+    )
+    gen_cfg = cfg.as_generation_config()
+    assert isinstance(gen_cfg, GenerationConfig)
+    assert gen_cfg.backend == "transformers"
+    assert gen_cfg.model_name == "Qwen/Qwen2.5-3B-Instruct"
+    assert gen_cfg.model_revision == "a1d308dfcc03e09da285d49d912439a655a571e8"
+    assert gen_cfg.device == "cuda"
+    assert gen_cfg.torch_dtype == "float16"
+    assert gen_cfg.local_files_only is False
+    assert gen_cfg.timeout_seconds == 180.0
+    assert gen_cfg.max_input_tokens == 8192
+    assert gen_cfg.max_output_tokens == 512
+    assert gen_cfg.max_structured_output_retries == 1
+    assert gen_cfg.temperature == 0.0
+
+
+def test_semantic_verification_config_rejects_unsupported_enabled():
+    """Verify that passing enabled to SemanticVerificationConfig is rejected by Pydantic extra=forbid."""
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        SemanticVerificationConfig(
+            enabled=True,
+            backend=CANONICAL_V2_BACKEND,
+            model_name=CANONICAL_V2_MODEL_NAME,
+            model_revision=CANONICAL_V2_MODEL_REVISION,
+            device="cuda",
+            torch_dtype="float16",
+        )
+
+
+def test_semantic_verification_config_rejects_unsupported_temperature():
+    """Verify that passing temperature to SemanticVerificationConfig is rejected by Pydantic extra=forbid."""
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        SemanticVerificationConfig(
+            temperature=0.0,
+            backend=CANONICAL_V2_BACKEND,
+            model_name=CANONICAL_V2_MODEL_NAME,
+            model_revision=CANONICAL_V2_MODEL_REVISION,
+            device="cuda",
+            torch_dtype="float16",
+        )
+
+
+def test_init_v2_provider_real_config_path_and_generation_config_invariants(tmp_path: Path):
+    """Verify that _init_v2_provider executes real config construction and passes valid GenerationConfig without loading model."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+        device="cuda",
+        repeat_count=2,
+        custom_provider=None,
+    )
+
+    with patch(
+        "scripts.evaluate_verification_v2_development.TransformersChatProvider",
+        autospec=True,
+    ) as mock_provider_cls:
+        provider = evaluator._init_v2_provider()
+
+        # Assert TransformersChatProvider was instantiated with exactly one GenerationConfig
+        mock_provider_cls.assert_called_once()
+        call_args = mock_provider_cls.call_args
+        assert len(call_args.args) == 1
+        gen_cfg = call_args.args[0]
+        assert isinstance(gen_cfg, GenerationConfig)
+
+        # Assert all canonical generation config fields
+        assert gen_cfg.backend == "transformers"
+        assert gen_cfg.model_name == "Qwen/Qwen2.5-3B-Instruct"
+        assert gen_cfg.model_revision == "a1d308dfcc03e09da285d49d912439a655a571e8"
+        assert gen_cfg.device == "cuda"
+        assert gen_cfg.torch_dtype == "float16"
+        assert gen_cfg.local_files_only is False
+        assert gen_cfg.temperature == 0.0
+        assert gen_cfg.max_input_tokens == 8192
+        assert gen_cfg.max_output_tokens == 512
+        assert gen_cfg.timeout_seconds == 180.0
+        assert gen_cfg.max_structured_output_retries == 1
+
 
 
 def test_cell5_report_schema_keys_mapping():

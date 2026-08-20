@@ -935,6 +935,8 @@ def derive_claim_semantic_label(assessment: StructuredClaimAssessmentDraft) -> S
 - **Dataset Role:** The 38 claims are permanently designated `verification_benchmark_v1_role = "development_after_first_evaluation"`.
 - **Holdout Status:** The fresh V2 promotion holdout remains strictly sealed in `verification-v2-holdout-review-packets-v1.zip` and MUST NOT be accessed during development.
 - **Production Status:** `RuleBasedCitationVerifier` (V0) remains active in production. `semantic_verifier_promotion_authorized = false` remains in effect.
+- **Execution Governance Note (Commit `2c3863b`):** An initial Kaggle execution attempt on commit `2c3863b` failed during harness startup inside `_init_v2_provider()` due to passing unsupported extra fields (`enabled`, `temperature`) to `SemanticVerificationConfig` (`extra="forbid"`). The failure occurred prior to provider/model loading (0 model inferences, 0 claim predictions, 0 holdout accesses). The scientific candidate V2-D1 was not evaluated or burned; the upcoming run will be the first true semantic evaluation of V2-D1.
+
 
 ---
 
