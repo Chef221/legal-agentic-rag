@@ -108,12 +108,9 @@ def test_official_build_persists_valid_artifacts_and_resumes(tmp_path: Path) -> 
     assert first.resumed is False
     assert resumed.resumed is True
     assert resumed.validation_report.is_valid is True
-    assert (root / "relationships" / "relationships.jsonl").read_text(
-        encoding="utf-8"
-    ) == ""
-    graph = json.loads((root / "graph" / "graph.json").read_text(encoding="utf-8"))
-    assert graph["relationships"] == []
-    assert graph["document_ids"] == ["1", "2"]
+    assert (root / "normalized_documents" / "manifest.json").is_file()
+    assert (root / "cleaned_documents" / "manifest.json").is_file()
+    assert (root / "audit" / "corpus_audit.json").is_file()
 
 
 def test_official_build_can_stop_after_parser_and_chunker_then_resume(
@@ -169,12 +166,17 @@ def test_official_build_recovers_a_partially_persisted_corpus_stage(
     root = tmp_path / "artifacts"
     _corpus(source)
     config = _config(root)
-    with pytest.raises(RuntimeError, match="graph interrupted"):
-        CompetitionOfflineBuildRuntime(
+
+    class _InterruptedRuntime(CompetitionOfflineBuildRuntime):
+        def _persist_or_validate_audit(self, audit):  # type: ignore[no-untyped-def]
+            del audit
+            raise RuntimeError("audit interrupted")
+
+    with pytest.raises(RuntimeError, match="audit interrupted"):
+        _InterruptedRuntime(
             config,
             source,
             embedding_provider=_EmbeddingProvider(),
-            graph_backend=_InterruptedGraph(),
         ).build()
 
     result = CompetitionOfflineBuildRuntime(

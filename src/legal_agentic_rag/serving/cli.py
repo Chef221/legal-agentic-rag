@@ -31,6 +31,7 @@ from legal_agentic_rag.evaluation import (
 )
 from legal_agentic_rag.indexing.vector import prepare_vector_serving_metadata
 from legal_agentic_rag.runtime import (
+    COMPETITION_REQUIRED_ARTIFACT_TYPES,
     ArtifactSetValidator,
     OnlineRuntimeFactory,
     persist_build_validation_report,
@@ -147,9 +148,15 @@ def validate_main() -> None:
     arguments = _validation_parser().parse_args()
     config = load_application_config(arguments.config)
     configure_logging(config.logging)
+    required_artifact_types = (
+        COMPETITION_REQUIRED_ARTIFACT_TYPES
+        if arguments.profile == "competition"
+        else None
+    )
     report = ArtifactSetValidator(
         config.artifacts,
         config.build_validation,
+        required_artifact_types=required_artifact_types,
     ).validate()
     _LOGGER.info(
         "validation_command_completed",
@@ -157,6 +164,7 @@ def validate_main() -> None:
             "artifact_count": len(report.artifact_results),
             "is_full_corpus": report.is_full_corpus,
             "is_valid": report.is_valid,
+            "profile": arguments.profile,
         },
     )
     if not report.is_valid:
@@ -331,6 +339,16 @@ def _evaluation_parser() -> argparse.ArgumentParser:
 
 def _validation_parser() -> argparse.ArgumentParser:
     parser = _parser("Validate legal RAG artifacts")
+    parser.add_argument(
+        "--profile",
+        choices=["full", "competition"],
+        default="full",
+        help=(
+            "Artifact validation profile: 'full' requires all 8 artifacts including "
+            "relationships and graph; 'competition' requires the 6 active competition "
+            "artifacts without graph/relationships."
+        ),
+    )
     parser.add_argument(
         "--persist",
         action="store_true",

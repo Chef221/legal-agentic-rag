@@ -2405,10 +2405,26 @@ reports are reviewed.
 
 ## 67. Milestone 51.2 — Phase B1A: Paired Graph-Routing Behavioral Ablation
 
-**Status:** Infrastructure Ready / Kaggle Execution Pending (Runbook: `docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md`)
+**Status:** Completed & Inconclusive (METEOR delta: -0.00020, ROUGE-L delta: +0.00270; conflated graph traversal with candidate-k expansion 20->40).
 
-- **Objective**: Establish the exact empirical, counterfactual quality and reliability delta of executing `hybrid_rerank` directly at `candidate_k = 40` versus the current zero-edge `graph_search` route on the exact 22 relationship-matching questions identified in the Phase-A census;
-- **Scope**: Run paired evaluation on the 22 cases holding all other parameters fixed (BM25, Multilingual-E5-Small, RRF constant 60, cross-encoder reranker, pretrained `Qwen/Qwen2.5-3B-Instruct`, claim verification, generation limits);
-- **Primary Metric**: Paired $\Delta\text{METEOR}$ (mean, median, 95% bootstrap confidence interval);
-- **Secondary Metrics**: Paired $\Delta\text{ROUGE-L}$, win/tie/loss distribution, `answer_verified` vs `generation_failed` rates, execution latency;
-- **Pre-condition**: No graph code deletion, router redesign, or pipeline changes in Phase A; Phase B1A implementation to be executed as an independent controlled milestone.
+## 68. Milestone 51.3 — Phase B1A.2: Graph Equivalence and Candidate-Pool Isolation
+
+**Status:** Completed & Closed (Authoritative run: `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`, Verdict: `GRAPH_REDUNDANCY_PROVEN`)
+
+- isolated zero-edge graph traversal from candidate-pool depth by comparing ARM G (graph shell, top 20 seeds) against ARM S20 (direct seed rerank, top 20 seeds) and diagnostic ARM H40 (hybrid rerank, top 40 candidates);
+- confirmed 22/22 seed hit matches, 22/22 final top-8 matches, and 22/22 score tolerance passes ($\le 10^{-6}$) between G and S20;
+- confirmed 0 graph edges, 0 traversal steps, proving the competition graph traversal is entirely redundant;
+- confirmed H40 differs in 17/22 cases, proving H40 is non-equivalent and must not replace S20 in Attempt 1;
+- authorized Phase B1B structural graph removal.
+
+## 69. Milestone 51.4 — Phase B1B: Structural Competition Graph Removal
+
+**Status:** B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING (Runbook: `docs/25-PHASE-B1B-GRAPH-REMOVAL.md`)
+
+- package version bumped to `0.50.7`;
+- removed `ToolName.GRAPH_SEARCH` from online agent capabilities; added `ToolName.RELATIONSHIP_RERANK_SEARCH` with `RelationshipSeedRerankingRetriever` preserving exact S20 candidate isolation;
+- routed `QueryIntent.RELATIONSHIP` across 3 attempts: Attempt 1 (`relationship_rerank_search` -> S20), Attempt 2 (`rerank_search` -> H40), Attempt 3 (`hybrid_search`);
+- reduced online runtime manifest requirement to exact 3 artifacts (`legal_chunks`, `bm25_index`, `vector_index`);
+- removed relationship mapping and graph index construction from offline competition build profile;
+- preserved generic graph capabilities (`KEEP_GENERIC_ONLY`) in generic library packages;
+- added comprehensive 32-point unit test suite and Kaggle post-change verification tooling.

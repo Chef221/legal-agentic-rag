@@ -10,6 +10,7 @@ from legal_agentic_rag.runtime.artifact_store import (
     stream_model_artifact,
 )
 from legal_agentic_rag.runtime.build_validation import (
+    COMPETITION_REQUIRED_ARTIFACT_TYPES,
     ArtifactSetValidator,
     persist_build_validation_report,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "load_model_artifact",
     "ModelArtifactWriter",
     "ArtifactSetValidator",
+    "COMPETITION_REQUIRED_ARTIFACT_TYPES",
     "CompetitionOfflineBuildRuntime",
     "OnlineRuntime",
     "OnlineRuntimeFactory",

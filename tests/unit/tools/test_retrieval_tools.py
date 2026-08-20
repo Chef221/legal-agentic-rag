@@ -58,14 +58,14 @@ def test_fixed_retrieval_tools_route_exactly_five_public_strategies() -> None:
         ToolName.DENSE_SEARCH,
         ToolName.HYBRID_SEARCH,
         ToolName.RERANK_SEARCH,
-        ToolName.GRAPH_SEARCH,
+        ToolName.RELATIONSHIP_RERANK_SEARCH,
     ]
     assert [response.strategy for response in responses] == [
         RetrievalStrategy.BM25,
         RetrievalStrategy.DENSE,
         RetrievalStrategy.HYBRID,
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.HYBRID_RERANK,
     ]
     assert all(isinstance(tool, TypedTool) for tool in tools)
     assert all(tool.description for tool in tools)

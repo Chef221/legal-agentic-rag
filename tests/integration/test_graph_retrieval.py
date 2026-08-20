@@ -8,7 +8,7 @@ import numpy as np
 from legal_agentic_rag.configuration import RetrievalConfig
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.reranking import CrossEncoderReranker
-from legal_agentic_rag.retrieval import FixedRetriever
+from legal_agentic_rag.retrieval import GraphExpandedRetriever, HybridRetriever
 from legal_agentic_rag.schemas import (
     ArtifactManifest,
     ArtifactType,
@@ -124,19 +124,22 @@ def test_fixed_graph_strategy_reloads_graph_and_reranks_related_chunk(
     loaded_graph = AdjacencyGraphBackend()
     loaded_graph.load(destination, graph_manifest)
     chunk_manifest = _manifest(ArtifactType.LEGAL_CHUNKS, 2, "chunks-hash")
-    retriever = FixedRetriever(
+    hybrid = HybridRetriever(
         _FilteredBranch(RetrievalStrategy.BM25),
         _FilteredBranch(RetrievalStrategy.DENSE),
+    )
+    retriever = GraphExpandedRetriever(
+        hybrid,
+        loaded_graph,
+        CrossEncoderReranker(
+            model_loader=lambda config: _SemanticModel()
+        ),
+        chunk_manifest,
         RetrievalConfig(
             graph_seed_chunk_k=1,
             graph_seed_document_k=1,
             graph_related_document_k=1,
         ),
-        reranker=CrossEncoderReranker(
-            model_loader=lambda config: _SemanticModel()
-        ),
-        graph_backend=loaded_graph,
-        chunk_manifest=chunk_manifest,
     )
 
     response = retriever.search(

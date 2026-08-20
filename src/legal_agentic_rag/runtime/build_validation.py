@@ -38,6 +38,14 @@ _ARTIFACT_DIRECTORIES: tuple[tuple[ArtifactType, str], ...] = (
     (ArtifactType.VECTOR_INDEX, "vector_directory"),
     (ArtifactType.GRAPH_INDEX, "graph_directory"),
 )
+COMPETITION_REQUIRED_ARTIFACT_TYPES: tuple[ArtifactType, ...] = (
+    ArtifactType.NORMALIZED_DOCUMENTS,
+    ArtifactType.CLEANED_DOCUMENTS,
+    ArtifactType.LEGAL_BLOCKS,
+    ArtifactType.LEGAL_CHUNKS,
+    ArtifactType.BM25_INDEX,
+    ArtifactType.VECTOR_INDEX,
+)
 
 
 class ArtifactSetValidator:
@@ -48,10 +56,16 @@ class ArtifactSetValidator:
         artifacts: ArtifactConfig,
         policy: BuildValidationConfig,
         *,
+        required_artifact_types: tuple[ArtifactType, ...] | None = None,
         clock: Clock | None = None,
     ) -> None:
         self._artifacts = artifacts
         self._policy = policy
+        self._required_artifact_types = (
+            required_artifact_types
+            if required_artifact_types is not None
+            else tuple(t for t, _ in _ARTIFACT_DIRECTORIES)
+        )
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def validate(self) -> BuildValidationReport:
@@ -73,6 +87,8 @@ class ArtifactSetValidator:
         artifact_results: dict[str, ArtifactValidationResult] = {}
         manifests: dict[ArtifactType, ArtifactManifest] = {}
         for artifact_type, directory_field in _ARTIFACT_DIRECTORIES:
+            if artifact_type not in self._required_artifact_types:
+                continue
             directory = self._artifacts.directory(directory_field)
             manifest = self._load_artifact_manifest(
                 directory,
@@ -92,7 +108,7 @@ class ArtifactSetValidator:
 
         lineage_errors = self._validate_lineage(manifests)
         errors.extend(lineage_errors)
-        if not lineage_errors and len(manifests) == len(_ARTIFACT_DIRECTORIES):
+        if not lineage_errors and len(manifests) == len(self._required_artifact_types):
             passed_checks.append("artifact_lineage")
 
         is_full_corpus = self._is_full_corpus(dataset_manifest)
@@ -394,19 +410,17 @@ class ArtifactSetValidator:
         self,
         manifests: dict[ArtifactType, ArtifactManifest],
     ) -> list[str]:
-        if len(manifests) != len(_ARTIFACT_DIRECTORIES):
+        if len(manifests) != len(self._required_artifact_types):
             return ["artifact set is incomplete"]
         normalized = manifests[ArtifactType.NORMALIZED_DOCUMENTS]
         cleaned = manifests[ArtifactType.CLEANED_DOCUMENTS]
         blocks = manifests[ArtifactType.LEGAL_BLOCKS]
         chunks = manifests[ArtifactType.LEGAL_CHUNKS]
-        relationships = manifests[ArtifactType.RELATIONSHIP_MAPPING]
         bm25 = manifests[ArtifactType.BM25_INDEX]
         vector = manifests[ArtifactType.VECTOR_INDEX]
-        graph = manifests[ArtifactType.GRAPH_INDEX]
         errors: list[str] = []
 
-        expectations = (
+        expectations: list[tuple[ArtifactManifest, str, ArtifactManifest]] = [
             (cleaned, "source_processing_config_hash", normalized),
             (blocks, "source_processing_config_hash", cleaned),
             (chunks, "source_processing_config_hash", blocks),
@@ -415,20 +429,33 @@ class ArtifactSetValidator:
                 "runtime_normalized_processing_config_hash",
                 normalized,
             ),
-            (relationships, "source_processing_config_hash", normalized),
             (bm25, "source_processing_config_hash", chunks),
             (vector, "source_processing_config_hash", chunks),
-            (
-                graph,
-                "source_document_processing_config_hash",
-                normalized,
-            ),
-            (
-                graph,
-                "source_relationship_processing_config_hash",
-                relationships,
-            ),
-        )
+        ]
+        if ArtifactType.RELATIONSHIP_MAPPING in self._required_artifact_types:
+            relationships = manifests[ArtifactType.RELATIONSHIP_MAPPING]
+            expectations.append(
+                (relationships, "source_processing_config_hash", normalized)
+            )
+        if ArtifactType.GRAPH_INDEX in self._required_artifact_types:
+            graph = manifests[ArtifactType.GRAPH_INDEX]
+            expectations.append(
+                (
+                    graph,
+                    "source_document_processing_config_hash",
+                    normalized,
+                )
+            )
+            if ArtifactType.RELATIONSHIP_MAPPING in self._required_artifact_types:
+                relationships = manifests[ArtifactType.RELATIONSHIP_MAPPING]
+                expectations.append(
+                    (
+                        graph,
+                        "source_relationship_processing_config_hash",
+                        relationships,
+                    )
+                )
+
         for consumer, metadata_key, source in expectations:
             if (
                 consumer.metadata.get(metadata_key)
@@ -439,21 +466,30 @@ class ArtifactSetValidator:
                     f"{source.artifact_type.value}"
                 )
 
-        count_expectations = (
+        count_expectations: list[tuple[object, object, str]] = [
             (cleaned.record_count, normalized.record_count, "cleaned documents"),
             (bm25.record_count, chunks.record_count, "BM25 chunks"),
             (vector.record_count, chunks.record_count, "vector chunks"),
-            (
-                graph.metadata.get("node_count"),
-                normalized.record_count,
-                "graph nodes",
-            ),
-            (
-                graph.record_count,
-                relationships.record_count,
-                "graph relationships",
-            ),
-        )
+        ]
+        if ArtifactType.GRAPH_INDEX in self._required_artifact_types:
+            graph = manifests[ArtifactType.GRAPH_INDEX]
+            count_expectations.append(
+                (
+                    graph.metadata.get("node_count"),
+                    normalized.record_count,
+                    "graph nodes",
+                )
+            )
+            if ArtifactType.RELATIONSHIP_MAPPING in self._required_artifact_types:
+                relationships = manifests[ArtifactType.RELATIONSHIP_MAPPING]
+                count_expectations.append(
+                    (
+                        graph.record_count,
+                        relationships.record_count,
+                        "graph relationships",
+                    )
+                )
+
         for actual, expected, label in count_expectations:
             if actual != expected:
                 errors.append(f"{label} count differs from its source artifact")

@@ -356,7 +356,6 @@ def test_agent_retry_is_capped_at_two() -> None:
     assert config.max_supported_claim_salvages == 0
     assert config.strategy_order == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
         RetrievalStrategy.HYBRID,
     ]
     with pytest.raises(ValidationError):

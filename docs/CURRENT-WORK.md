@@ -44,7 +44,7 @@ Current remote `main` snapshot:
 
 Current source/package version:
 
-- `0.50.6` (Phase-A Census Closure & ToolError Contract Hardening)
+- `0.50.7` (Phase B1B Structural Competition Graph Removal)
 
 ---
 
@@ -353,16 +353,17 @@ Do not commit:
 
 The immediate next action is:
 
-1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md). Baseline score: METEOR `0.0980790959`, ROUGE-L `0.1871225729` on historical engineering benchmark `development.json`.
-2. **Phase B1A Infrastructure Ready / Kaggle Execution Pending**: All B1A case manifests (`configs/phase-b1a-graph-routing-cases.json`), candidate configs (`configs/phase-b1a-graph-routing-ablation-kaggle.example.json`), automated tooling (`scripts/phase_b1a_graph_routing_ablation.py`), unit tests (`tests/unit/evaluation/test_phase_b1a_ablation.py`), and runbook (`docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md`) are complete and verified.
-3. **Execute Phase B1A Paired Graph-Routing Ablation**: Run the controlled counterfactual ablation on Kaggle dual T4 following the K1-K10 runbook cells, evaluating BASE vs CANDIDATE on the exact 22 relationship-matching questions.
-4. **Phase B1B (Structural Graph Deletion)**: STRICTLY NOT AUTHORIZED until B1A results pass the pre-registered decision gate. Production graph behavior remains unchanged.
-5. **Preserve Production Reliability**: Keep pretrained `Qwen/Qwen2.5-3B-Instruct` within the frozen M49.6 reliability pipeline as the active generator.
+1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
+2. **Phase B1A.2 Graph Equivalence Experiment COMPLETE**: Run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed `GRAPH_REDUNDANCY_PROVEN` with 22/22 seed match, 22/22 top-8 match, and score diffs within $10^{-6}$.
+3. **Phase B1B Structural Graph Removal IMPLEMENTED**: Graph path removed from competition online path and offline build; S20 seed-rerank behavior preserved via `RelationshipSeedRerankingRetriever`; generic graph capability retained outside competition path (`KEEP_GENERIC_ONLY`).
+4. **Phase B1B Status**: `B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING` (Runbook: [`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
+5. **Execute Phase B1B Post-Change Verification**: Run post-change equivalence verification on Kaggle dual T4 following the runbook cells in [`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md).
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase B1A.2?** Resolved: Graph traversal proved redundant on UIT DSC competition corpus (0 edges, 0 steps). S20 matches G perfectly across all 22 cases. H40 diverges on 17/22 cases and is preserved as a separate second route.
 - **What happened in Phase-A Census?** Resolved: 991/991 benchmark questions completed. 806 answer_verified (81.33%), 177 generation_failed, 7 citation_verification_failed, 10 generator model errors. All 22 relationship queries routed to GRAPH_SEARCH and terminated on Attempt 1.
 - **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed lexical gain on ROUGE-L, but collapsed in free-generation health (70% cap reached, 90% repetition loops). Conclusively rejected.
 - **What happened in M50-C2?** Resolved: C2 reduced capacity ($r=4$, LR $10^{-5}$, targets $\{q, v\}$, 921K params) and canonicalized EOS. Step 100 failed SCREEN617 holdout evaluation across generation health and semantic criteria. Conclusively rejected.
@@ -395,11 +396,12 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.6 (Phase A closed; ToolError contract hardened; M49.6 fallback preserved)
+    0.50.7 (Phase B1B Structural Competition Graph Removal Implemented)
 
 Active development frontier:
-    Phase B1A: INFRASTRUCTURE READY / EXPERIMENT PENDING (Runbook: docs/23-PHASE-B1A-GRAPH-ROUTING-ABLATION.md)
+    Phase B1B: B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING
+    (Runbook: docs/25-PHASE-B1B-GRAPH-REMOVAL.md)
 
 Next action:
-    Execute Phase B1A paired counterfactual ablation on Kaggle dual T4
+    Execute Phase B1B post-change equivalence verification on Kaggle dual T4
 ```

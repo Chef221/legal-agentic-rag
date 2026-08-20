@@ -13,7 +13,7 @@ Không đọc riêng README rồi sửa code. Tùy vai trò, hãy theo lộ trì
 
 | Hạng mục | Trạng thái |
 |---|---|
-| Code | `0.50.6`; public reference baseline remains `0.43.1` at `96e6d5a`, reliability baseline is M49.6 at `9b0cd0b` |
+| Code | `0.50.7`; public reference baseline remains `0.43.1` at `96e6d5a`, reliability baseline is M49.6 at `9b0cd0b` |
 | Corpus | 8.532 context chính thức, competition-only |
 | Retrieval units | 330.768 legal chunks, exact E5 window tối đa 512 token |
 | Index | SQLite FTS5 BM25 + exact dense vector 384 chiều |
@@ -34,7 +34,7 @@ selected-contexts.zip
   → official adapter/audit/cleaner
   → legal parser
   → exact-token legal chunker
-  → BM25 + E5 vector + zero-edge graph
+  → BM25 + E5 vector indexes
   → manifests/checksums/validation
 
 public-official.json

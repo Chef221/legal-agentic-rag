@@ -24,7 +24,7 @@ Scorer BTC được mô tả tại
 | Parser, chunker, BM25, vector index | Đã triển khai và có test fixture |
 | Official BTC corpus build | Đã build 330.768 chunk, BM25, vector và serving metadata |
 | Hybrid RRF và reranker | Đã triển khai |
-| Graph backend/retrieval | Đã triển khai generic; official graph hiện bắt buộc rỗng vì BTC chưa cung cấp relationships |
+| Graph backend/retrieval | Generic giữ lại (`KEEP_GENERIC_ONLY`); đã loại bỏ khỏi online/offline competition pipeline theo Phase B1B |
 | Grounded generation, grading, verification | Đã triển khai |
 | Bounded deterministic Agent | Đã triển khai, không phải autonomous/multi-agent |
 | API và local UI | Đã triển khai |
@@ -107,7 +107,7 @@ Số liệu được đo từ working tree ngày 2026-08-08:
 
 | Chỉ số | Giá trị |
 |---|---:|
-| Project version | `0.49.3` (M49.3 deterministic numeric-claim salvage) |
+| Project version | `0.50.7` (Phase B1B Structural Competition Graph Removal) |
 | Minimum Python | `3.11` |
 | Build backend | `setuptools` |
 | Source Python files | 140 |

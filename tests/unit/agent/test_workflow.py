@@ -172,7 +172,7 @@ def test_agent_rewrites_changes_strategy_and_stops_on_second_success() -> None:
     assert result.state.current_query == _query().original_question
     assert retriever.calls == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.HYBRID,
     ]
     assert [item.attempt_number for item in result.state.retrieval_history] == [
         1,
@@ -183,8 +183,15 @@ def test_agent_rewrites_changes_strategy_and_stops_on_second_success() -> None:
 def test_agent_enforces_max_retry_and_returns_abstention() -> None:
     """Three failed context grades terminate at the fixed two-retry cap."""
     retriever = _SequencedRetriever()
+    config = AgentConfig(
+        strategy_order=[
+            RetrievalStrategy.HYBRID_RERANK,
+            RetrievalStrategy.BM25,
+            RetrievalStrategy.HYBRID,
+        ]
+    )
 
-    result = _workflow(retriever).run(_query())
+    result = _workflow(retriever, config=config).run(_query())
 
     assert result.stop_reason == AgentStopReason.MAX_RETRY_REACHED
     assert result.response.insufficient_evidence is True
@@ -192,7 +199,7 @@ def test_agent_enforces_max_retry_and_returns_abstention() -> None:
     assert len(result.state.retrieval_history) == 3
     assert retriever.calls == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.BM25,
         RetrievalStrategy.HYBRID,
     ]
 

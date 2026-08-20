@@ -27,7 +27,7 @@ class ToolName(StrEnum):
     DENSE_SEARCH = "dense_search"
     HYBRID_SEARCH = "hybrid_search"
     RERANK_SEARCH = "rerank_search"
-    GRAPH_SEARCH = "graph_search"
+    RELATIONSHIP_RERANK_SEARCH = "relationship_rerank_search"
     CONTEXT_GRADING = "context_grading"
     ANSWER_GENERATION = "answer_generation"
     CITATION_VERIFICATION = "citation_verification"

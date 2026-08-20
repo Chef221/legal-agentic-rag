@@ -26,7 +26,7 @@ _STRATEGIES: dict[ToolName, RetrievalStrategy] = {
     ToolName.DENSE_SEARCH: RetrievalStrategy.DENSE,
     ToolName.HYBRID_SEARCH: RetrievalStrategy.HYBRID,
     ToolName.RERANK_SEARCH: RetrievalStrategy.HYBRID_RERANK,
-    ToolName.GRAPH_SEARCH: RetrievalStrategy.GRAPH,
+    ToolName.RELATIONSHIP_RERANK_SEARCH: RetrievalStrategy.HYBRID_RERANK,
 }
 
 _DESCRIPTIONS: dict[ToolName, str] = {
@@ -42,8 +42,8 @@ _DESCRIPTIONS: dict[ToolName, str] = {
     ToolName.RERANK_SEARCH: (
         "Retrieve hybrid candidates and apply the configured cross-encoder."
     ),
-    ToolName.GRAPH_SEARCH: (
-        "Expand text-retrieval seeds through bounded legal-document relationships."
+    ToolName.RELATIONSHIP_RERANK_SEARCH: (
+        "Retrieve seed-limited hybrid candidates and apply the configured cross-encoder for relationship queries."
     ),
 }
 
@@ -119,7 +119,40 @@ def fixed_retrieval_tools(
     timeout_seconds: float = 30.0,
 ) -> list[RetrievalTool]:
     """Create the five approved fixed retrieval tools."""
-    return [
-        RetrievalTool(name, retriever, timeout_seconds=timeout_seconds)
-        for name in _STRATEGIES
-    ]
+    tools: list[RetrievalTool] = []
+    for name in (
+        ToolName.BM25_SEARCH,
+        ToolName.DENSE_SEARCH,
+        ToolName.HYBRID_SEARCH,
+        ToolName.RERANK_SEARCH,
+    ):
+        tools.append(
+            RetrievalTool(name, retriever, timeout_seconds=timeout_seconds)
+        )
+
+    relationship_retriever: _Retriever
+    if (
+        hasattr(retriever, "relationship_reranker")
+        and getattr(retriever, "relationship_reranker") is not None
+    ):
+        relationship_retriever = getattr(retriever, "relationship_reranker")
+    elif hasattr(retriever, "search_relationship_rerank"):
+        class _RelationshipRetrieverAdapter:
+            def __init__(self, target: _Retriever) -> None:
+                self._target = target
+
+            def search(self, query: RetrievalQuery) -> RetrievalResponse:
+                return getattr(self._target, "search_relationship_rerank")(query)
+
+        relationship_retriever = _RelationshipRetrieverAdapter(retriever)
+    else:
+        relationship_retriever = retriever
+
+    tools.append(
+        RetrievalTool(
+            ToolName.RELATIONSHIP_RERANK_SEARCH,
+            relationship_retriever,
+            timeout_seconds=timeout_seconds,
+        )
+    )
+    return tools

@@ -29,7 +29,6 @@ from legal_agentic_rag.generation import (
     build_generation_components,
 )
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
-from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
 from legal_agentic_rag.reranking import CrossEncoderReranker
 from legal_agentic_rag.retrieval import (
@@ -226,15 +225,10 @@ class OnlineRuntimeFactory:
             self._directory("vector_directory"),
             expected_type=ArtifactType.VECTOR_INDEX,
         )
-        graph_manifest = load_artifact_manifest(
-            self._directory("graph_directory"),
-            expected_type=ArtifactType.GRAPH_INDEX,
-        )
         self._validate_manifests(
             chunk_manifest,
             bm25_manifest,
             vector_manifest,
-            graph_manifest,
         )
         if not deep_validation:
             validate_startup_report(
@@ -244,7 +238,6 @@ class OnlineRuntimeFactory:
                     chunk_manifest,
                     bm25_manifest,
                     vector_manifest,
-                    graph_manifest,
                 ),
             )
         _LOGGER.info(
@@ -284,17 +277,6 @@ class OnlineRuntimeFactory:
             "online_vector_load_completed",
             extra={"latency_ms": (perf_counter() - vector_started) * 1000},
         )
-        graph_started = perf_counter()
-        _LOGGER.info("online_graph_load_started")
-        graph = AdjacencyGraphBackend(
-            self._config.offline.graph_index,
-            verify_integrity_on_load=deep_validation,
-        )
-        graph.load(self._directory("graph_directory"), graph_manifest)
-        _LOGGER.info(
-            "online_graph_load_completed",
-            extra={"latency_ms": (perf_counter() - graph_started) * 1000},
-        )
 
         dense = DenseRetriever(self._embedding_provider, vector)
         query_understanding = QueryUnderstandingService(
@@ -309,8 +291,6 @@ class OnlineRuntimeFactory:
             ),
             reranker=self._reranker,
             reranker_config=self._config.online.reranker,
-            graph_backend=graph,
-            chunk_manifest=chunk_manifest,
         )
         registry = build_fixed_tool_registry(
             retriever=retriever,
@@ -350,7 +330,6 @@ class OnlineRuntimeFactory:
                 chunk_manifest,
                 bm25_manifest,
                 vector_manifest,
-                graph_manifest,
             )
         }
         _LOGGER.info(
@@ -397,10 +376,9 @@ class OnlineRuntimeFactory:
         chunks: ArtifactManifest,
         bm25: ArtifactManifest,
         vector: ArtifactManifest,
-        graph: ArtifactManifest,
     ) -> None:
         validate_competition_artifact_lineage(
-            (chunks, bm25, vector, graph),
+            (chunks, bm25, vector),
             self._config.competition,
         )
         expected_source = (
@@ -418,19 +396,6 @@ class OnlineRuntimeFactory:
                 raise ArtifactCompatibilityError(
                     "Text index does not originate from runtime legal chunks"
                 )
-        normalized_hash = chunks.metadata.get(
-            "runtime_normalized_processing_config_hash"
-        )
-        if (
-            not isinstance(normalized_hash, str)
-            or graph.metadata.get(
-                "source_document_processing_config_hash"
-            )
-            != normalized_hash
-        ):
-            raise ArtifactCompatibilityError(
-                "Graph and legal chunks do not share normalized-document lineage"
-            )
 
     def _directory(self, field_name: str) -> Path:
         return self._config.artifacts.directory(field_name)

@@ -17,6 +17,7 @@ class RetrievalConfig(BaseModel):
     candidate_k: int = Field(default=100, gt=0)
     default_strategy: RetrievalStrategy = RetrievalStrategy.HYBRID
     rrf_constant: int = Field(default=60, gt=0)
+    relationship_rerank_fusion_k: int = Field(default=20, gt=0, le=100)
     graph_hop_limit: int = Field(default=1, ge=1, le=2)
     graph_seed_chunk_k: int = Field(default=20, gt=0, le=100)
     graph_seed_document_k: int = Field(default=5, gt=0, le=100)
@@ -389,7 +390,6 @@ class AgentConfig(BaseModel):
     strategy_order: list[RetrievalStrategy] = Field(
         default_factory=lambda: [
             RetrievalStrategy.HYBRID_RERANK,
-            RetrievalStrategy.GRAPH,
             RetrievalStrategy.HYBRID,
         ],
         min_length=1,

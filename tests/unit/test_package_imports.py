@@ -26,4 +26,4 @@ def test_package_imports_without_backend_side_effects() -> None:
     import legal_agentic_rag.serving
     import legal_agentic_rag.tools
 
-    assert legal_agentic_rag.__version__ == "0.50.6"
+    assert legal_agentic_rag.__version__ == "0.50.7"

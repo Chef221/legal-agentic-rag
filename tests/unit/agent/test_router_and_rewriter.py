@@ -58,19 +58,19 @@ def test_router_respects_attempt_limit_and_configured_order() -> None:
     """Zero retries yields exactly one deterministic registered strategy."""
     config = AgentConfig(
         max_retry=0,
-        strategy_order=[RetrievalStrategy.GRAPH, RetrievalStrategy.HYBRID],
+        strategy_order=[RetrievalStrategy.HYBRID_RERANK, RetrievalStrategy.HYBRID],
     )
     routes = DeterministicStrategyRouter(config).plan(
         _query(),
-        {ToolName.GRAPH_SEARCH, ToolName.HYBRID_SEARCH},
+        {ToolName.RERANK_SEARCH, ToolName.HYBRID_SEARCH},
     )
 
     assert len(routes) == 1
-    assert routes[0].strategy == RetrievalStrategy.GRAPH
+    assert routes[0].strategy == RetrievalStrategy.HYBRID_RERANK
 
 
-def test_router_prioritizes_graph_for_relationship_queries() -> None:
-    """An explicit amendment/effect query starts with bounded graph retrieval."""
+def test_router_prioritizes_relationship_rerank_for_relationship_queries() -> None:
+    """An explicit amendment/effect query starts with relationship seed reranking."""
     query = _query().model_copy(
         update={
             "query_analysis": QueryAnalysis(
@@ -83,14 +83,19 @@ def test_router_prioritizes_graph_for_relationship_queries() -> None:
     routes = DeterministicStrategyRouter().plan(
         query,
         {
-            ToolName.GRAPH_SEARCH,
+            ToolName.RELATIONSHIP_RERANK_SEARCH,
             ToolName.RERANK_SEARCH,
             ToolName.HYBRID_SEARCH,
         },
     )
 
+    assert [route.tool_name for route in routes] == [
+        ToolName.RELATIONSHIP_RERANK_SEARCH,
+        ToolName.RERANK_SEARCH,
+        ToolName.HYBRID_SEARCH,
+    ]
     assert [route.strategy for route in routes] == [
-        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.HYBRID_RERANK,
         RetrievalStrategy.HYBRID_RERANK,
         RetrievalStrategy.HYBRID,
     ]

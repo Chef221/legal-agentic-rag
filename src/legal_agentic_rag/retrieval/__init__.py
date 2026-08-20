@@ -10,7 +10,10 @@ from legal_agentic_rag.retrieval.multi_query import (
 from legal_agentic_rag.retrieval.query_understanding import (
     QueryUnderstandingService,
 )
-from legal_agentic_rag.retrieval.rerank import RerankingRetriever
+from legal_agentic_rag.retrieval.rerank import (
+    RelationshipSeedRerankingRetriever,
+    RerankingRetriever,
+)
 from legal_agentic_rag.retrieval.rrf import reciprocal_rank_fusion
 
 __all__ = [
@@ -20,6 +23,7 @@ __all__ = [
     "HybridRetriever",
     "QueryBranchResult",
     "QueryUnderstandingService",
+    "RelationshipSeedRerankingRetriever",
     "RerankingRetriever",
     "fuse_query_branches",
     "reciprocal_rank_fusion",

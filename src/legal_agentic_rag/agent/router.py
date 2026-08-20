@@ -21,7 +21,6 @@ _STRATEGY_TO_TOOL: dict[RetrievalStrategy, ToolName] = {
     RetrievalStrategy.DENSE: ToolName.DENSE_SEARCH,
     RetrievalStrategy.HYBRID: ToolName.HYBRID_SEARCH,
     RetrievalStrategy.HYBRID_RERANK: ToolName.RERANK_SEARCH,
-    RetrievalStrategy.GRAPH: ToolName.GRAPH_SEARCH,
 }
 
 
@@ -55,48 +54,74 @@ class DeterministicStrategyRouter:
             raise InvalidUserInputError(
                 "The requested strategy is not available to the Agent"
             )
-        strategies = [
-            *([requested] if requested is not None else []),
-            *self._strategy_order(query),
+        candidate_routes = [
+            *(
+                [RetrievalRoute(requested, _STRATEGY_TO_TOOL[requested])]
+                if requested is not None
+                else []
+            ),
+            *self._candidate_routes(query),
         ]
         routes: list[RetrievalRoute] = []
-        seen: set[RetrievalStrategy] = set()
-        for strategy in strategies:
-            if strategy in seen:
+        seen: set[RetrievalRoute] = set()
+        for route in candidate_routes:
+            if route in seen:
                 continue
-            seen.add(strategy)
-            tool_name = _STRATEGY_TO_TOOL[strategy]
-            if tool_name in registered_tools:
-                routes.append(RetrievalRoute(strategy, tool_name))
+            seen.add(route)
+            if route.tool_name in registered_tools:
+                routes.append(route)
             if len(routes) >= self._config.max_retry + 1:
                 break
         return routes
 
-    def _strategy_order(
+    def _candidate_routes(
         self,
         query: RetrievalQuery,
-    ) -> list[RetrievalStrategy]:
+    ) -> list[RetrievalRoute]:
         analysis = query.query_analysis
+        default_routes = [
+            RetrievalRoute(strategy, _STRATEGY_TO_TOOL[strategy])
+            for strategy in self._config.strategy_order
+            if strategy in _STRATEGY_TO_TOOL
+        ]
         if (
             not self._query_config.adaptive_routing_enabled
             or analysis is None
         ):
-            return self._config.strategy_order
+            return default_routes
         if analysis.intent == QueryIntent.RELATIONSHIP:
             adaptive = [
-                RetrievalStrategy.GRAPH,
-                RetrievalStrategy.HYBRID_RERANK,
-                RetrievalStrategy.HYBRID,
+                RetrievalRoute(
+                    RetrievalStrategy.HYBRID_RERANK,
+                    ToolName.RELATIONSHIP_RERANK_SEARCH,
+                ),
+                RetrievalRoute(
+                    RetrievalStrategy.HYBRID_RERANK,
+                    ToolName.RERANK_SEARCH,
+                ),
+                RetrievalRoute(
+                    RetrievalStrategy.HYBRID,
+                    ToolName.HYBRID_SEARCH,
+                ),
             ]
         elif (
             analysis.has_explicit_legal_reference
             or analysis.intent == QueryIntent.QUANTITATIVE
         ):
             adaptive = [
-                RetrievalStrategy.HYBRID_RERANK,
-                RetrievalStrategy.BM25,
-                RetrievalStrategy.HYBRID,
+                RetrievalRoute(
+                    RetrievalStrategy.HYBRID_RERANK,
+                    ToolName.RERANK_SEARCH,
+                ),
+                RetrievalRoute(
+                    RetrievalStrategy.BM25,
+                    ToolName.BM25_SEARCH,
+                ),
+                RetrievalRoute(
+                    RetrievalStrategy.HYBRID,
+                    ToolName.HYBRID_SEARCH,
+                ),
             ]
         else:
             adaptive = []
-        return [*adaptive, *self._config.strategy_order]
+        return [*adaptive, *default_routes]

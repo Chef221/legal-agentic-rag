@@ -17,22 +17,16 @@ from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.contracts import (
     BM25Backend,
     EmbeddingProvider,
-    GraphBackend,
     VectorBackend,
 )
 from legal_agentic_rag.embeddings import SentenceTransformerEmbeddingProvider
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
-from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend, VectorIndexBuilder
 from legal_agentic_rag.offline.chunking import LegalChunker
 from legal_agentic_rag.offline.chunking.tokenizer import EmbeddingModelTokenizer
 from legal_agentic_rag.offline.document_processing import StreamingDocumentProcessor
 from legal_agentic_rag.offline.parsing import LegalStructureParser
-from legal_agentic_rag.offline.relationships import (
-    load_relationship_artifact,
-    persist_relationship_artifact,
-)
 from legal_agentic_rag.runtime.artifact_store import (
     load_artifact_manifest,
     load_dataset_manifest,
@@ -41,6 +35,7 @@ from legal_agentic_rag.runtime.artifact_store import (
     stream_model_artifact,
 )
 from legal_agentic_rag.runtime.build_validation import (
+    COMPETITION_REQUIRED_ARTIFACT_TYPES,
     ArtifactSetValidator,
     persist_build_validation_report,
 )
@@ -75,7 +70,6 @@ class CompetitionOfflineBuildRuntime:
         embedding_provider: EmbeddingProvider | None = None,
         bm25_backend: BM25Backend | None = None,
         vector_backend: VectorBackend | None = None,
-        graph_backend: GraphBackend | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._config = config
@@ -84,7 +78,6 @@ class CompetitionOfflineBuildRuntime:
         self._embedding_provider = embedding_provider
         self._bm25 = bm25_backend
         self._vector = vector_backend
-        self._graph = graph_backend
         self._clock = clock or (lambda: datetime.now(UTC))
 
     def build(
@@ -243,45 +236,6 @@ class CompetitionOfflineBuildRuntime:
             "cleaned_documents_directory",
         )
         self._persist_or_validate_audit(result.audit)
-        relationship_manifest = self._empty_relationship_manifest(
-            result.normalized_manifest
-        )
-        relationships_directory = self._directory("relationships_directory")
-        if relationships_directory.exists():
-            relationships, stored_relationships = load_relationship_artifact(
-                source=relationships_directory,
-                supplied_manifest=load_artifact_manifest(
-                    relationships_directory,
-                    expected_type=ArtifactType.RELATIONSHIP_MAPPING,
-                ),
-            )
-            if relationships or not self._same_manifest_identity(
-                stored_relationships, relationship_manifest
-            ):
-                raise ArtifactCompatibilityError(
-                    "Official empty relationship artifact is incompatible"
-                )
-            relationship_manifest = stored_relationships
-        else:
-            relationship_manifest = persist_relationship_artifact(
-                relationships=[],
-                destination=relationships_directory,
-                manifest=relationship_manifest,
-            )
-        graph_directory = self._directory("graph_directory")
-        if graph_directory.exists():
-            self._validate_graph_stage()
-        else:
-            graph = self._graph or AdjacencyGraphBackend(
-                self._config.offline.graph_index
-            )
-            graph.build(
-                result.normalized_documents,
-                [],
-                document_manifest=result.normalized_manifest,
-                relationship_manifest=relationship_manifest,
-            )
-            graph.persist(graph_directory)
 
     def _build_document_stage(self) -> None:
         blocks_directory = self._directory("legal_blocks_directory")
@@ -393,7 +347,10 @@ class CompetitionOfflineBuildRuntime:
                 ) from error
         else:
             report = ArtifactSetValidator(
-                self._config.artifacts, self._config.build_validation
+                self._config.artifacts,
+                self._config.build_validation,
+                required_artifact_types=COMPETITION_REQUIRED_ARTIFACT_TYPES,
+                clock=self._clock,
             ).validate()
             persist_build_validation_report(
                 report,
@@ -423,17 +380,6 @@ class CompetitionOfflineBuildRuntime:
             raise ArtifactCompatibilityError("Official corpus audit is invalid") from error
         if audit.dataset_revision != source_revision:
             raise ArtifactCompatibilityError("Official corpus audit revision changed")
-        relationships_directory = self._directory("relationships_directory")
-        relationships, _ = load_relationship_artifact(
-            source=relationships_directory,
-            supplied_manifest=load_artifact_manifest(
-                relationships_directory,
-                expected_type=ArtifactType.RELATIONSHIP_MAPPING,
-            ),
-        )
-        if relationships:
-            raise ArtifactCompatibilityError("Official relationship artifact is not empty")
-        self._validate_graph_stage()
 
     def _validate_bm25_stage(self) -> None:
         destination = self._directory("bm25_directory")
@@ -463,18 +409,6 @@ class CompetitionOfflineBuildRuntime:
             self._config.offline.vector_index
         )
         backend.load(destination, manifest)
-
-    def _validate_graph_stage(self) -> None:
-        destination = self._directory("graph_directory")
-        manifest = load_artifact_manifest(
-            destination, expected_type=ArtifactType.GRAPH_INDEX
-        )
-        graph = self._graph or AdjacencyGraphBackend(
-            self._config.offline.graph_index
-        )
-        graph.load(destination, manifest)
-        if graph.manifest.record_count != 0:
-            raise ArtifactCompatibilityError("Official graph must have zero edges")
 
     def _validate_model_artifact(self, field: str, artifact_type: ArtifactType) -> None:
         load_artifact_manifest(
@@ -518,39 +452,6 @@ class CompetitionOfflineBuildRuntime:
             return
         directory.mkdir(exist_ok=True)
         self._write_json_atomic(path, audit.model_dump(mode="json"))
-
-    def _empty_relationship_manifest(
-        self, normalized_manifest: ArtifactManifest
-    ) -> ArtifactManifest:
-        processing_hash = canonical_sha256(
-            {
-                "source_processing_config_hash": (
-                    normalized_manifest.processing_config_hash
-                ),
-                "operation": "official_no_relationship_fields",
-            }
-        )
-        return ArtifactManifest(
-            schema_version="1.0",
-            artifact_type=ArtifactType.RELATIONSHIP_MAPPING,
-            artifact_version="1.0",
-            dataset_name=normalized_manifest.dataset_name,
-            dataset_revision=normalized_manifest.dataset_revision,
-            created_at=normalized_manifest.created_at,
-            record_count=0,
-            processing_config_hash=processing_hash,
-            code_version=__version__,
-            metadata={
-                "source_artifact_type": ArtifactType.NORMALIZED_DOCUMENTS.value,
-                "source_artifact_version": normalized_manifest.artifact_version,
-                "source_processing_config_hash": (
-                    normalized_manifest.processing_config_hash
-                ),
-                "source_record_count": normalized_manifest.record_count,
-                "relationship_fields_present": False,
-                "issue_count": 0,
-            },
-        )
 
     @staticmethod
     def _same_manifest_identity(

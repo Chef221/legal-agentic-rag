@@ -6,7 +6,10 @@ import logging
 from time import perf_counter
 from typing import Protocol
 
-from legal_agentic_rag.configuration.online import RerankerConfig
+from legal_agentic_rag.configuration.online import (
+    RerankerConfig,
+    RetrievalConfig,
+)
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.exceptions import RetrievalError
 from legal_agentic_rag.retrieval.rerank_validation import (
@@ -127,4 +130,70 @@ class RerankingRetriever:
             latency_ms=latency_ms,
             warnings=list(dict.fromkeys(warnings)),
             artifact_versions=candidate_response.artifact_versions,
+        )
+
+
+class RelationshipSeedRerankingRetriever:
+    """Retrieve seed-limited hybrid candidates and rerank them to final top-k."""
+
+    def __init__(
+        self,
+        candidate_retriever: _CandidateRetriever,
+        reranker: Reranker,
+        retrieval_config: RetrievalConfig | None = None,
+        reranker_config: RerankerConfig | None = None,
+    ) -> None:
+        self._candidate_retriever = candidate_retriever
+        self._reranking_retriever = RerankingRetriever(
+            candidate_retriever,
+            reranker,
+            reranker_config,
+        )
+        self._retrieval_config = retrieval_config or RetrievalConfig()
+        self._reranker_config = reranker_config or RerankerConfig()
+
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        """Return the source identity of the underlying candidate retriever."""
+        return self._candidate_retriever.source_artifact_identity
+
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        """Run seed-limited hybrid candidate retrieval and rerank to final top-k."""
+        if query.requested_strategy not in (
+            None,
+            RetrievalStrategy.HYBRID_RERANK,
+        ):
+            raise RetrievalError(
+                "Relationship seed reranking retriever received an incompatible request"
+            )
+        if query.candidate_k > self._reranker_config.max_candidates:
+            raise RetrievalError("Query candidate-k exceeds the reranker limit")
+
+        maximum_seed_slots = (
+            query.candidate_k - 1 if query.candidate_k > 1 else 1
+        )
+        fusion_limit = min(
+            self._retrieval_config.relationship_rerank_fusion_k,
+            maximum_seed_slots,
+        )
+        candidate_query = query.model_copy(
+            update={
+                "top_k": fusion_limit,
+                "requested_strategy": RetrievalStrategy.HYBRID,
+            }
+        )
+        candidate_response = self._candidate_retriever.search(candidate_query)
+        if (
+            candidate_response.strategy != RetrievalStrategy.HYBRID
+            or candidate_response.query.query_id != query.query_id
+            or len(candidate_response.hits) > fusion_limit
+        ):
+            raise RetrievalError(
+                "Candidate retriever returned an incompatible response"
+            )
+        return self._reranking_retriever.rerank_candidates(
+            query.model_copy(
+                update={"requested_strategy": RetrievalStrategy.HYBRID_RERANK}
+            ),
+            candidate_response,
         )

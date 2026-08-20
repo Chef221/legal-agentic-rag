@@ -2762,3 +2762,42 @@ In the 991-question census, the graph-routed subgroup achieved an 81.82% `answer
 1. **Observational vs Causal**: The graph and non-graph subgroups evaluated entirely distinct legal questions with different complexities, references, and vocabularies.
 2. **Prohibition of Causal Quality Inferences**: The repository strictly forbids claiming that graph retrieval is superior or inferior based on observational subgroup averages.
 3. **Controlled Counterfactual Standard**: All future routing and retrieval architectural evaluations must use paired counterfactual comparisons where the exact same questions are evaluated under candidate versus control pipelines.
+
+---
+
+## D115 — Phase B1A.2 Graph Redundancy and Candidate Pool Isolation Verdict
+
+**Status:** Accepted
+
+**Context:**
+Phase B1A.2 evaluated the 22 canonical relationship questions under three isolated arms:
+- **ARM G**: Current graph path (branch depth 40 -> RRF top 20 -> zero-edge graph traversal -> cross-encoder rerank 20 -> final top 8).
+- **ARM S20**: Seed-equivalent direct path (branch depth 40 -> RRF top 20 -> NO graph -> cross-encoder rerank 20 -> final top 8).
+- **ARM H40**: Diagnostic standard hybrid-rerank path (branch depth 40 -> RRF top 40 -> cross-encoder rerank 40 -> final top 8).
+
+Canonical run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed:
+1. G vs S20: 22/22 seed match (100.0%), 22/22 final top-8 match (100.0%), 22/22 score tolerance passes ($\le 10^{-6}$).
+2. Traversal verification: 0 graph records, 0 edges, 0 yielded steps, 1 traversal call/case.
+3. Diagnostic H40: 17/22 cases differed in top-8 results (mean overlap 6.4091/8).
+4. Official verdict: **`GRAPH_REDUNDANCY_PROVEN`**.
+
+---
+
+## D116 — Phase B1B Structural Competition Graph Removal and S20 Preservation
+
+**Status:** Accepted
+
+**Context:**
+Authorized by verdict `GRAPH_REDUNDANCY_PROVEN` from Phase B1A.2, Phase B1B removes the zero-edge graph traversal mechanism from the UIT DSC competition online path and offline build while preserving exact S20 retrieval behavior.
+
+**Decisions & Invariants:**
+1. **Tool Surface**: `ToolName.GRAPH_SEARCH` is removed from active online agent capabilities; `ToolName.RELATIONSHIP_RERANK_SEARCH` (`"relationship_rerank_search"`) is introduced.
+2. **Strategy Preservation**: `relationship_rerank_search` emits `RetrievalStrategy.HYBRID_RERANK`. No new public retrieval strategy enum is created.
+3. **Candidate Pool Isolation (S20)**: `RelationshipSeedRerankingRetriever` executes branch candidate depth 40, hybrid fusion limit $\le 20$, cross-encoder rerank limit $\le 20$, final top 8.
+4. **Adaptive Relationship Routing**: Query intent `RELATIONSHIP` plans:
+   - Attempt 1: `(HYBRID_RERANK, relationship_rerank_search)` (S20)
+   - Attempt 2: `(HYBRID_RERANK, rerank_search)` (H40)
+   - Attempt 3: `(HYBRID, hybrid_search)`
+5. **Online Runtime Artifact Set**: Exactly 3 active artifacts (`legal_chunks`, `bm25_index`, `vector_index`). Startup does not require or validate `graph/` or `relationships/`.
+6. **Offline Competition Build**: Produces exactly 6 artifacts (`normalized_documents`, `cleaned_documents`, `legal_blocks`, `legal_chunks`, `bm25_index`, `vector_index`).
+7. **Generic Graph Infrastructure (`KEEP_GENERIC_ONLY`)**: Generic graph contracts, implementations, and tests remain intact outside the competition path.
