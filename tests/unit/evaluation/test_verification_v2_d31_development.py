@@ -462,3 +462,96 @@ def test_selection_gate_keep_d3_if_no_gain(mock_sources, tmp_path):
     )
     assert decision_report["development_evaluation_decision"] == "KEEP_D3"
     assert decision_report["d31_supersedes_d3"] is False
+
+
+# Test 12: Evidence Package Canonical Member Inventory Contract
+def test_evidence_package_canonical_member_inventory(mock_sources, tmp_path):
+    out_dir = tmp_path / "out"
+    pkg_zip = tmp_path / "evidence_pkg.zip"
+
+    evaluator = V2D31DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=mock_sources["forensic_packets"],
+        forensic_labels_path=mock_sources["forensic_labels"],
+        control_packets_path=mock_sources["control_packets"],
+        control_labels_path=mock_sources["control_labels"],
+        v1_evidence_path=mock_sources["v1_evidence"],
+        d3_evidence_path=mock_sources["d3_evidence"],
+        output_dir=out_dir,
+        package_zip=pkg_zip,
+    )
+
+    report = {"schema_version": "1.0", "verdict": "V2_D31_DEVELOPMENT_BENCHMARK_PASS"}
+    decision_report = {"schema_version": "1.0", "development_evaluation_decision": "KEEP_D3"}
+    dim_diagnostics = {"schema_version": "1.0", "artifact_type": "v2_d31_dimension_diagnostics"}
+    exec_id = {"schema_version": "1.0", "candidate_id": CANONICAL_CANDIDATE_ID}
+
+    evaluator._write_reports(
+        report=report,
+        decision_report=decision_report,
+        dim_diagnostics=dim_diagnostics,
+        v0_claim_preds=[{"claim_id": "C1"}],
+        v1_claim_preds=[{"claim_id": "C1"}],
+        d3_claim_preds=[{"claim_id": "C1"}],
+        pass1_claim_preds=[{"question_id": "Q1", "arm_id": "A1", "claim_id": "C1", "human_label": "SUPPORTED", "v2_d31_three_way_prediction": "SUPPORTED"}],
+        pass2_claim_preds=[{"question_id": "Q1", "arm_id": "A1", "claim_id": "C1", "human_label": "SUPPORTED", "v2_d31_three_way_prediction": "SUPPORTED"}],
+        exec_identity=exec_id,
+        provider=None,
+        is_preflight=False,
+    )
+
+    assert pkg_zip.is_file()
+    with zipfile.ZipFile(pkg_zip, "r") as zf:
+        members = set(zf.namelist())
+
+    expected_members = {
+        "execution/v2_d31_development_source_identity.json",
+        "results/v2_d31_development_report.json",
+        "results/v2_d31_development_decision_report.json",
+        "results/v2_d31_dimension_diagnostics.json",
+        "results/v0_claim_predictions.jsonl",
+        "results/v1_claim_predictions.jsonl",
+        "results/v2_d3_claim_predictions.jsonl",
+        "results/v2_d31_claim_predictions_pass1.jsonl",
+        "results/v2_d31_claim_predictions_pass2.jsonl",
+        "results/v2_d31_claim_comparisons.jsonl",
+    }
+    for m in expected_members:
+        assert m in members, f"Expected canonical archive member '{m}' missing"
+
+
+# Test 13: Preflight Report D3 Baseline Metrics Contract
+def test_preflight_expected_d3_baseline_metrics_contract(mock_sources, tmp_path):
+    evaluator = V2D31DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=mock_sources["forensic_packets"],
+        forensic_labels_path=mock_sources["forensic_labels"],
+        control_packets_path=mock_sources["control_packets"],
+        control_labels_path=mock_sources["control_labels"],
+        v1_evidence_path=mock_sources["v1_evidence"],
+        d3_evidence_path=mock_sources["d3_evidence"],
+        output_dir=tmp_path / "out",
+        preflight_only=True,
+    )
+
+    targets = [
+        BenchmarkClaimTarget("s1", "Q1", "A1", "C1", "T", HumanEntailment.SUPPORTED, [], None, "s"),
+    ]
+    d3_preds = [
+        {"question_id": "Q1", "arm_id": "A1", "claim_id": "C1", "v2_d3_binary_prediction": "ACCEPT", "v2_d3_three_way_prediction": "SUPPORTED"},
+    ]
+
+    report = evaluator._build_preflight_report(
+        sources_info={},
+        exec_identity={},
+        arm_targets=[],
+        claim_targets=targets,
+        v0_fidelity_stats={"v0_replay_100_percent_fidelity": True},
+        v0_arm_results={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        d3_claim_preds=d3_preds,
+    )
+
+    assert report["verdict"] == "V2_D31_DEVELOPMENT_BENCHMARK_READY"
+    assert report["model_run_executed"] is False
+    assert "d3_comparison_metrics" in report
+    assert "d3_claim_binary" in report["d3_comparison_metrics"]
