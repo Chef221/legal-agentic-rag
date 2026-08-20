@@ -15,6 +15,7 @@ import zipfile
 
 import pytest
 
+import legal_agentic_rag
 from legal_agentic_rag.configuration.online import GenerationConfig
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
@@ -38,6 +39,7 @@ from scripts.evaluate_verification_semantic_benchmark import (
     HumanEntailment,
     ObservationalChatModelProviderWrapper,
     SemanticVerifierBenchmarkRunner,
+    get_git_commit,
     sha256_file,
     sha256_text,
 )
@@ -49,32 +51,42 @@ class FakeChatModelProvider(ChatModelProvider):
     def __init__(
         self,
         *,
+        provider_name: str = "transformers",
+        provider_version: str = "4.47.1",
+        model_name: str = CANONICAL_V1_MODEL_NAME,
+        model_revision: str = CANONICAL_V1_MODEL_REVISION,
         default_label: str = "supported",
         labels_by_claim_id: dict[str, str] | None = None,
         fail_on_attempt: int = 0,
         unstable_on_pass: int = 0,
+        calls_per_complete: int = 1,
     ) -> None:
+        self._provider_name = provider_name
+        self._provider_version = provider_version
+        self._model_name = model_name
+        self._model_revision = model_revision
         self._default_label = default_label
         self._labels_by_claim_id = labels_by_claim_id or {}
         self._fail_on_attempt = fail_on_attempt
         self._unstable_on_pass = unstable_on_pass
+        self._calls_per_complete = calls_per_complete
         self._call_count = 0
 
     @property
     def provider_name(self) -> str:
-        return "fake_test_provider"
+        return self._provider_name
 
     @property
     def provider_version(self) -> str:
-        return "1.0.0"
+        return self._provider_version
 
     @property
     def model_name(self) -> str:
-        return CANONICAL_V1_MODEL_NAME
+        return self._model_name
 
     @property
     def model_revision(self) -> str:
-        return CANONICAL_V1_MODEL_REVISION
+        return self._model_revision
 
     def complete(self, *, system_instruction: str, user_prompt: str) -> str:
         self._call_count += 1
@@ -189,6 +201,7 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
                     "invalid_citations": [],
                     "claim_coverage_score": 1.0,
                     "claim_verifications": claims_list,
+                    "claim_level_verification_performed": True,
                     "errors": [],
                     "warnings": ["semantic_entailment_not_verified"],
                 },
@@ -298,6 +311,7 @@ def _create_mock_benchmark_environment(tmp_path: Path) -> dict[str, Path]:
                     "invalid_citations": [],
                     "claim_coverage_score": 1.0,
                     "claim_verifications": claims_list,
+                    "claim_level_verification_performed": True,
                     "errors": [],
                     "warnings": ["semantic_entailment_not_verified"],
                 },
@@ -669,3 +683,158 @@ def test_20_observational_wrapper_call_history(tmp_path: Path) -> None:
     assert calls_file.is_file()
     lines = calls_file.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) >= 44  # 22 arms * 2 passes
+
+
+# ----------------------------------------------------------------------
+# NEW FIX TESTS (FIX 1 to FIX 7)
+# ----------------------------------------------------------------------
+
+
+def test_21_canonical_execution_identity_contains_complete_runtime_identity(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+    report = _run_runner_with_patched_env(env)
+
+    identity_file = env["output_dir"] / "execution" / "verifier_benchmark_execution_identity.json"
+    assert identity_file.is_file()
+    ident = json.loads(identity_file.read_text(encoding="utf-8"))
+
+    # Required fields
+    assert ident["schema_version"] == "1.0"
+    assert ident["benchmark_name"] == "controlled_v0_vs_v1_semantic_verifier_benchmark"
+    assert "execution_git_commit" in ident
+    assert len(ident["execution_git_commit"]) == 40
+    assert ident["package_version"] == legal_agentic_rag.__version__
+    assert "sources" in ident
+    assert "v1_semantic_config" in ident
+    assert ident["v1_semantic_config"]["backend"] == "transformers"
+    assert ident["v1_semantic_config"]["model_name"] == CANONICAL_V1_MODEL_NAME
+    assert "provider_identity" in ident
+    assert "runtime_versions" in ident
+    assert "implementation_sha256" in ident
+    assert ident["repeat_count"] == 2
+    assert ident["semantic_verifier_promotion_authorized"] is False
+    assert "v0_replay_stats" in ident
+    assert ident["v0_replay_stats"]["v0_replay_100_percent_fidelity"] is True
+
+
+def test_22_package_zip_contains_complete_execution_identity(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+    report = _run_runner_with_patched_env(env)
+
+    zip_path = env["package_zip"]
+    assert zip_path.is_file()
+
+    with zipfile.ZipFile(zip_path, "r") as z:
+        assert "execution/verifier_benchmark_execution_identity.json" in z.namelist()
+        ident_bytes = z.read("execution/verifier_benchmark_execution_identity.json")
+        ident = json.loads(ident_bytes.decode("utf-8"))
+
+        assert ident["execution_git_commit"]
+        assert len(ident["execution_git_commit"]) == 40
+        assert ident["package_version"] == legal_agentic_rag.__version__
+        assert ident["provider_identity"]["model_name"] == CANONICAL_V1_MODEL_NAME
+        assert ident["runtime_versions"]["legal_agentic_rag"] == legal_agentic_rag.__version__
+        assert ident["repeat_count"] == 2
+        assert ident["semantic_verifier_promotion_authorized"] is False
+
+
+def test_23_unknown_or_malformed_git_commit_rejected() -> None:
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="UNKNOWN_COMMIT\n")
+        with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: Failed to retrieve valid 40-character Git commit"):
+            get_git_commit()
+
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="abc123not40chars\n")
+        with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: Failed to retrieve valid 40-character Git commit"):
+            get_git_commit()
+
+
+def test_24_actual_provider_identity_drift_rejected(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+    runner = SemanticVerifierBenchmarkRunner(
+        forensic_packets_path=env["forensic_packets"],
+        forensic_labels_path=env["forensic_labels"],
+        control_packets_path=env["control_packets"],
+        control_labels_path=env["control_labels"],
+        output_dir=env["output_dir"],
+        custom_provider=None,
+    )
+
+    # Provider name drift
+    bad_prov = FakeChatModelProvider(provider_name="ollama")
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider_name must be 'transformers'"):
+        runner._validate_runtime_provider_identity(bad_prov)
+
+    # Model name drift
+    bad_prov = FakeChatModelProvider(model_name="unauthorized-model")
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider model_name must be"):
+        runner._validate_runtime_provider_identity(bad_prov)
+
+    # Model revision drift
+    bad_prov = FakeChatModelProvider(model_revision="unauthorized-revision")
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider model_revision must be"):
+        runner._validate_runtime_provider_identity(bad_prov)
+
+
+def test_25_v0_claim_level_verification_performed_mismatch_rejected(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+
+    # Corrupt historical claim_level_verification_performed to False
+    pkt_data = json.loads((tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").read_text(encoding="utf-8"))
+    pkt_data["historical_arm"]["historical_verification"]["claim_level_verification_performed"] = False
+    (tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").write_text(json.dumps(pkt_data), encoding="utf-8")
+
+    with zipfile.ZipFile(env["control_packets"], "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(tmp_path / "control_bundle"):
+            for file in files:
+                fp = Path(root) / file
+                z.write(fp, arcname=fp.relative_to(tmp_path / "control_bundle").as_posix())
+
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay claim_level_verification_performed mismatch"):
+        _run_runner_with_patched_env(env)
+
+
+def test_26_historical_semantic_verification_unexpectedly_present_rejected(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+
+    # Inject unexpected semantic_verification into historical record
+    pkt_data = json.loads((tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").read_text(encoding="utf-8"))
+    pkt_data["historical_arm"]["historical_verification"]["semantic_verification"] = {"assessments": []}
+    (tmp_path / "control_bundle" / "positive_control_packets" / "75171.json").write_text(json.dumps(pkt_data), encoding="utf-8")
+
+    with zipfile.ZipFile(env["control_packets"], "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(tmp_path / "control_bundle"):
+            for file in files:
+                fp = Path(root) / file
+                z.write(fp, arcname=fp.relative_to(tmp_path / "control_bundle").as_posix())
+
+    with pytest.raises(DataValidationError, match="INVALID_VERIFIER_BENCHMARK_PROVENANCE: Historical V0 record contains unexpected semantic_verification"):
+        _run_runner_with_patched_env(env)
+
+
+def test_27_structured_output_retry_observability_accounting(tmp_path: Path) -> None:
+    env = _create_mock_benchmark_environment(tmp_path)
+    # Fail on attempt 1 of arm 1 (causes retry on arm 1)
+    provider = FakeChatModelProvider(fail_on_attempt=1)
+    report = _run_runner_with_patched_env(env, provider=provider)
+
+    assert report["execution_metadata"]["structured_retry_count"] >= 1
+    assert report["execution_metadata"]["total_provider_calls"] >= 45  # 44 normal + 1 retry
+
+
+def test_28_excessive_calls_for_arm_triggers_execution_error(tmp_path: Path) -> None:
+    """If provider makes > 2 calls for one arm, it must raise execution error."""
+    env = _create_mock_benchmark_environment(tmp_path)
+
+    class MultiCallFakeProvider(FakeChatModelProvider):
+        def complete(self, *, system_instruction: str, user_prompt: str) -> str:
+            # Fake 3 calls per complete
+            self._call_count += 3
+            return json.dumps({"assessments": [{"claim_id": "C1", "label": "supported"}]})
+
+    provider = MultiCallFakeProvider()
+    report = _run_runner_with_patched_env(env, provider=provider)
+
+    assert report["verdict"] == "SEMANTIC_VERIFIER_EXECUTION_ERROR"
+    assert report["execution_metadata"]["model_error_count"] > 0

@@ -11,6 +11,7 @@ Invariants:
 - Exact 100% V0 RuleBasedCitationVerifier replay required across all 22 historical arms
 - V1 ModelBackedCitationVerifier evaluated without prompt modification or few-shot tuning
 - TransformersChatProvider constructed via SemanticVerificationConfig.as_generation_config()
+- Runtime Git commit verified as a valid 40-character hexadecimal SHA
 - Repeat count = 2 for deterministic stability measurement
 - Model execution errors never count as correct rejections (TN)
 - Observational wrapper records call counts, structured output retries, and completion SHA-256s
@@ -102,7 +103,7 @@ def sha256_text(text: str) -> str:
 
 
 def get_git_commit() -> str:
-    """Retrieve current Git HEAD commit hash."""
+    """Retrieve current Git HEAD commit hash, validating 40-character hexadecimal format."""
     try:
         res = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -110,9 +111,14 @@ def get_git_commit() -> str:
             text=True,
             check=True,
         )
-        return res.stdout.strip()
-    except Exception:
-        return "UNKNOWN_COMMIT"
+        commit = res.stdout.strip()
+        if len(commit) == 40 and all(c in "0123456789abcdefABCDEF" for c in commit):
+            return commit
+        raise ValueError(f"Invalid Git commit hash format: '{commit}'")
+    except Exception as exc:
+        raise DataValidationError(
+            f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Failed to retrieve valid 40-character Git commit: {exc}"
+        ) from exc
 
 
 class HumanEntailment(StrEnum):
@@ -283,6 +289,13 @@ class SemanticVerifierBenchmarkRunner:
                 v0_arm_results=v0_arm_results,
                 v1_arm_results=None,
             )
+            runtime_identity = self._collect_runtime_identity(provider=None)
+            execution_identity = self._build_execution_identity(
+                sources_info=sources_info,
+                runtime_identity=runtime_identity,
+                v0_replay_stats=v0_replay_stats,
+                repeat_count=self._repeat_count,
+            )
             report = {
                 "schema_version": "1.0",
                 "verdict": "VERIFIER_BENCHMARK_READY",
@@ -295,9 +308,10 @@ class SemanticVerifierBenchmarkRunner:
                     "v0_claim_binary": v0_binary_metrics,
                     "v0_answer_level": v0_answer_metrics["v0_answer_metrics"],
                 },
+                "execution_identity": execution_identity,
             }
             self._write_outputs(
-                sources_info=sources_info,
+                execution_identity=execution_identity,
                 report=report,
                 v0_claim_preds=v0_claim_preds,
                 v1_pass1_preds=[],
@@ -313,6 +327,8 @@ class SemanticVerifierBenchmarkRunner:
 
         # 5. Initialize V1 Semantic Provider (using real GenerationConfig) & Observational Wrapper
         raw_provider = self._init_v1_provider()
+        self._validate_runtime_provider_identity(raw_provider)
+
         obs_provider = ObservationalChatModelProviderWrapper(raw_provider)
         v1_verifier = ModelBackedCitationVerifier(
             base_verifier=v0_verifier,
@@ -361,26 +377,31 @@ class SemanticVerifierBenchmarkRunner:
 
         # 10. Build Full Benchmark Report & Decision Report
         runtime_identity = self._collect_runtime_identity(obs_provider)
+        execution_identity = self._build_execution_identity(
+            sources_info=sources_info,
+            runtime_identity=runtime_identity,
+            v0_replay_stats=v0_replay_stats,
+            repeat_count=self._repeat_count,
+        )
+
         report, decision_report, comparisons = self._build_reports(
             verdict=verdict,
-            sources_info=sources_info,
+            execution_identity=execution_identity,
             stability_info=stability_info,
             metrics_report=metrics_report,
             v0_claim_preds=v0_claim_preds,
             v1_pass1_preds=v1_passes_claim_preds[0],
             all_claim_targets=all_claim_targets,
             model_error_count=model_error_count,
-            runtime_identity=runtime_identity,
-            v0_replay_stats=v0_replay_stats,
             total_provider_calls=obs_provider.total_calls,
             structured_retry_count=sum(
-                1 for t in arm_observational_traces if t.get("retry_occurred")
+                t.get("retry_count_for_arm", 0) for t in arm_observational_traces
             ),
         )
 
         # 11. Write Materialized Outputs
         self._write_outputs(
-            sources_info=sources_info,
+            execution_identity=execution_identity,
             report=report,
             v0_claim_preds=v0_claim_preds,
             v1_pass1_preds=v1_passes_claim_preds[0],
@@ -448,7 +469,6 @@ class SemanticVerifierBenchmarkRunner:
     def _validate_canonical_config(self) -> None:
         """Fail-closed assertion of exact canonical V1 model execution parameters."""
         if self._custom_provider is not None:
-            # Custom provider is allowed for unit testing
             return
 
         if self._model_name != CANONICAL_V1_MODEL_NAME:
@@ -490,6 +510,35 @@ class SemanticVerifierBenchmarkRunner:
         if self._repeat_count != CANONICAL_REPEAT_COUNT:
             raise DataValidationError(
                 f"INVALID_VERIFIER_BENCHMARK_CONFIG: repeat_count must be {CANONICAL_REPEAT_COUNT}, got {self._repeat_count}"
+            )
+
+    def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
+        """Fail-closed assertion of actual runtime provider identity."""
+        if self._custom_provider is not None:
+            return
+
+        p_name = getattr(provider, "provider_name", "unknown")
+        if p_name != "transformers":
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider_name must be 'transformers', got {p_name}"
+            )
+
+        p_model = getattr(provider, "model_name", "unknown")
+        if p_model != CANONICAL_V1_MODEL_NAME:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider model_name must be {CANONICAL_V1_MODEL_NAME}, got {p_model}"
+            )
+
+        p_rev = getattr(provider, "model_revision", "unknown")
+        if p_rev != CANONICAL_V1_MODEL_REVISION:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider model_revision must be {CANONICAL_V1_MODEL_REVISION}, got {p_rev}"
+            )
+
+        p_ver = getattr(provider, "provider_version", "unknown")
+        if not p_ver or p_ver == "unknown":
+            raise DataValidationError(
+                "INVALID_VERIFIER_BENCHMARK_CONFIG: Runtime provider_version must be established"
             )
 
     def _load_and_bind_benchmark_targets(
@@ -669,7 +718,18 @@ class SemanticVerifierBenchmarkRunner:
             if res.is_valid != hist.get("is_valid"):
                 raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay is_valid mismatch on {key}")
 
-            # 2. Exact valid and invalid citation IDs and order
+            # 2. Exact claim_level_verification_performed
+            hist_claim_level = hist.get("claim_level_verification_performed")
+            if hist_claim_level is not None and res.claim_level_verification_performed != hist_claim_level:
+                raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay claim_level_verification_performed mismatch on {key}")
+
+            # 3. Exact absence of semantic verification in historical V0
+            if res.semantic_verification is not None:
+                raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay produced unexpected semantic_verification on {key}")
+            if hist.get("semantic_verification") is not None:
+                raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Historical V0 record contains unexpected semantic_verification on {key}")
+
+            # 4. Exact valid and invalid citation IDs and order
             hist_valid_cits = [c["evidence_id"] for c in hist.get("valid_citations", [])]
             res_valid_cits = [c.evidence_id for c in res.valid_citations]
             if res_valid_cits != hist_valid_cits:
@@ -680,12 +740,12 @@ class SemanticVerifierBenchmarkRunner:
             if res_invalid_cits != hist_invalid_cits:
                 raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay invalid_citations mismatch on {key}")
 
-            # 3. Exact claim_coverage_score within tolerance
+            # 5. Exact claim_coverage_score within tolerance
             hist_coverage = hist.get("claim_coverage_score", 1.0)
             if not math.isclose(res.claim_coverage_score, hist_coverage, rel_tol=1e-5, abs_tol=1e-5):
                 raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay claim_coverage_score mismatch on {key}")
 
-            # 4. Exact claim_verifications count and order
+            # 6. Exact claim_verifications count and order
             hist_claims = hist.get("claim_verifications", [])
             if len(res.claim_verifications) != len(hist_claims):
                 raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay claim count mismatch on {key}: res={len(res.claim_verifications)}, hist={len(hist_claims)}")
@@ -708,7 +768,7 @@ class SemanticVerifierBenchmarkRunner:
                 if not math.isclose(rc.lexical_support_score, hc.get("lexical_support_score", 0.0), rel_tol=1e-5, abs_tol=1e-5):
                     raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay lexical score mismatch on {key} ({rc.claim_id})")
 
-            # 5. Exact top-level errors and warnings
+            # 7. Exact top-level errors and warnings
             if res.errors != hist.get("errors", []):
                 raise DataValidationError(f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: V0 replay top errors mismatch on {key}")
             if res.warnings != hist.get("warnings", []):
@@ -776,7 +836,6 @@ class SemanticVerifierBenchmarkRunner:
     ) -> tuple[list[dict[str, Any]], dict[str, CitationVerificationResult], int, list[dict[str, Any]]]:
         """Execute one complete pass of V1 semantic verification with call observability."""
         claim_predictions: list[dict[str, Any]] = []
-        arm_results: dict[str, CitationVerificationResult] = []
         arm_traces: list[dict[str, Any]] = []
         arm_results_map: dict[str, CitationVerificationResult] = {}
         error_count = 0
@@ -791,13 +850,21 @@ class SemanticVerifierBenchmarkRunner:
 
                 call_count_after = provider.total_calls
                 calls_for_arm = call_count_after - call_count_before
+
+                if calls_for_arm > 2:
+                    raise ModelError(
+                        f"SEMANTIC_VERIFIER_EXECUTION_ERROR: calls_for_arm ({calls_for_arm}) exceeded maximum allowed (2) on {key}"
+                    )
+
                 retry_occurred = (calls_for_arm == 2)
+                retry_count_for_arm = max(0, calls_for_arm - 1)
 
                 arm_traces.append({
                     "pass_number": pass_number,
                     "arm_key": key,
                     "provider_calls_count": calls_for_arm,
                     "retry_occurred": retry_occurred,
+                    "retry_count_for_arm": retry_count_for_arm,
                 })
 
                 sem_res = res.semantic_verification
@@ -838,6 +905,10 @@ class SemanticVerifierBenchmarkRunner:
             except Exception as exc:
                 _LOGGER.error("Model verification error on %s: %s", key, exc)
                 error_count += 1
+                calls_for_arm = provider.total_calls - call_count_before
+                retry_occurred = (calls_for_arm >= 2)
+                retry_count_for_arm = max(0, calls_for_arm - 1)
+
                 arm_results_map[key] = CitationVerificationResult(
                     is_valid=False,
                     valid_citations=[],
@@ -847,8 +918,9 @@ class SemanticVerifierBenchmarkRunner:
                 arm_traces.append({
                     "pass_number": pass_number,
                     "arm_key": key,
-                    "provider_calls_count": provider.total_calls - call_count_before,
-                    "retry_occurred": False,
+                    "provider_calls_count": calls_for_arm,
+                    "retry_occurred": retry_occurred,
+                    "retry_count_for_arm": retry_count_for_arm,
                     "error": str(exc),
                 })
                 for claim_target in arm.claims:
@@ -1246,7 +1318,7 @@ class SemanticVerifierBenchmarkRunner:
         }
 
     def _collect_runtime_identity(
-        self, provider: ObservationalChatModelProviderWrapper
+        self, provider: ObservationalChatModelProviderWrapper | None
     ) -> dict[str, Any]:
         """Collect runtime identity including Git commit, file hashes, and dependencies."""
         transformers_ver = "unknown"
@@ -1272,13 +1344,18 @@ class SemanticVerifierBenchmarkRunner:
         trans_prov_file = src_root / "legal_agentic_rag" / "generation" / "transformers_provider.py"
         harness_file = Path(__file__).resolve()
 
+        p_name = provider.provider_name if provider else CANONICAL_V1_BACKEND
+        p_ver = provider.provider_version if provider else transformers_ver
+        p_model = provider.model_name if provider else CANONICAL_V1_MODEL_NAME
+        p_rev = provider.model_revision if provider else CANONICAL_V1_MODEL_REVISION
+
         return {
             "git_commit": get_git_commit(),
             "package_version": legal_agentic_rag.__version__,
-            "provider_name": provider.provider_name,
-            "provider_version": provider.provider_version,
-            "provider_model_name": provider.model_name,
-            "provider_model_revision": provider.model_revision,
+            "provider_name": p_name,
+            "provider_version": p_ver,
+            "provider_model_name": p_model,
+            "provider_model_revision": p_rev,
             "transformers_version": transformers_ver,
             "torch_version": torch_ver,
             "cuda_device_name": cuda_device,
@@ -1288,19 +1365,68 @@ class SemanticVerifierBenchmarkRunner:
             "semantic_verifier_promotion_authorized": False,
         }
 
+    def _build_execution_identity(
+        self,
+        *,
+        sources_info: dict[str, Any],
+        runtime_identity: dict[str, Any],
+        v0_replay_stats: dict[str, Any],
+        repeat_count: int,
+    ) -> dict[str, Any]:
+        """Build authoritative execution identity structure shared across artifacts."""
+        return {
+            "schema_version": "1.0",
+            "benchmark_name": "controlled_v0_vs_v1_semantic_verifier_benchmark",
+            "created_at": datetime.now(UTC).isoformat(),
+            "execution_git_commit": runtime_identity.get("git_commit", "unknown"),
+            "package_version": runtime_identity.get("package_version", legal_agentic_rag.__version__),
+            "sources": sources_info,
+            "v1_semantic_config": {
+                "backend": CANONICAL_V1_BACKEND,
+                "model_name": CANONICAL_V1_MODEL_NAME,
+                "model_revision": CANONICAL_V1_MODEL_REVISION,
+                "device": CANONICAL_V1_DEVICE,
+                "torch_dtype": CANONICAL_V1_TORCH_DTYPE,
+                "local_files_only": False,
+                "temperature": CANONICAL_V1_TEMPERATURE,
+                "max_input_tokens": CANONICAL_V1_MAX_INPUT_TOKENS,
+                "max_output_tokens": CANONICAL_V1_MAX_OUTPUT_TOKENS,
+                "max_structured_output_retries": CANONICAL_V1_MAX_STRUCTURED_RETRIES,
+                "verification_timeout_seconds": CANONICAL_V1_TIMEOUT_SECONDS,
+            },
+            "provider_identity": {
+                "provider_name": runtime_identity.get("provider_name", "unknown"),
+                "provider_version": runtime_identity.get("provider_version", "unknown"),
+                "model_name": runtime_identity.get("provider_model_name", "unknown"),
+                "model_revision": runtime_identity.get("provider_model_revision", "unknown"),
+            },
+            "runtime_versions": {
+                "legal_agentic_rag": runtime_identity.get("package_version", legal_agentic_rag.__version__),
+                "transformers": runtime_identity.get("transformers_version", "unknown"),
+                "torch": runtime_identity.get("torch_version", "unknown"),
+                "cuda_device_name": runtime_identity.get("cuda_device_name", "none"),
+            },
+            "implementation_sha256": {
+                "semantic_verifier.py": runtime_identity.get("semantic_verifier_file_sha256", "unknown"),
+                "transformers_provider.py": runtime_identity.get("transformers_provider_file_sha256", "unknown"),
+                "evaluate_verification_semantic_benchmark.py": runtime_identity.get("benchmark_harness_file_sha256", "unknown"),
+            },
+            "repeat_count": repeat_count,
+            "semantic_verifier_promotion_authorized": False,
+            "v0_replay_stats": v0_replay_stats,
+        }
+
     def _build_reports(
         self,
         *,
         verdict: str,
-        sources_info: dict[str, Any],
+        execution_identity: dict[str, Any],
         stability_info: dict[str, Any],
         metrics_report: dict[str, Any],
         v0_claim_preds: list[dict[str, Any]],
         v1_pass1_preds: list[dict[str, Any]],
         all_claim_targets: list[BenchmarkClaimTarget],
         model_error_count: int,
-        runtime_identity: dict[str, Any],
-        v0_replay_stats: dict[str, Any],
         total_provider_calls: int,
         structured_retry_count: int,
     ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
@@ -1343,16 +1469,15 @@ class SemanticVerifierBenchmarkRunner:
             "verdict": verdict,
             "semantic_verifier_promotion_authorized": False,
             "evaluation_scope": "offline_controlled_forensic_benchmark",
+            "execution_identity": execution_identity,
             "execution_metadata": {
-                "created_at": datetime.now(UTC).isoformat(),
+                "created_at": execution_identity["created_at"],
                 "repeat_count": self._repeat_count,
                 "model_error_count": model_error_count,
                 "total_provider_calls": total_provider_calls,
                 "structured_retry_count": structured_retry_count,
-                "runtime_identity": runtime_identity,
-                "v0_replay_stats": v0_replay_stats,
             },
-            "sources_identity": sources_info,
+            "sources_identity": execution_identity["sources"],
             "stability": stability_info,
             "summary_metrics": {
                 "total_claims": len(all_claim_targets),
@@ -1374,12 +1499,14 @@ class SemanticVerifierBenchmarkRunner:
             "semantic_verifier_promotion_authorized": False,
             "promotion_decision": "NO_PROMOTION_AUTHORIZED",
             "justification": (
-                "Task B-FORENSIC-1C is an empirical evaluation task only. "
-                "Production semantic verifier promotion is explicitly prohibited."
+                "This evaluation is part of the Controlled V0 RuleBasedCitationVerifier vs "
+                "V1 Semantic-Verifier Benchmark. Production semantic verifier promotion is "
+                "strictly unauthorized (semantic_verifier_promotion_authorized = false)."
             ),
             "stability_pass": stability_info["stable"],
             "model_error_count": model_error_count,
             "paired_deltas": metrics_report["paired_deltas"],
+            "execution_identity": execution_identity,
         }
 
         return report, decision_report, comparisons
@@ -1387,7 +1514,7 @@ class SemanticVerifierBenchmarkRunner:
     def _write_outputs(
         self,
         *,
-        sources_info: dict[str, Any],
+        execution_identity: dict[str, Any],
         report: dict[str, Any],
         v0_claim_preds: list[dict[str, Any]],
         v1_pass1_preds: list[dict[str, Any]],
@@ -1402,18 +1529,8 @@ class SemanticVerifierBenchmarkRunner:
         exec_dir.mkdir(parents=True, exist_ok=True)
         results_dir.mkdir(parents=True, exist_ok=True)
 
-        exec_identity = {
-            "schema_version": "1.0",
-            "benchmark_name": "verification_semantic_benchmark_v0_vs_v1",
-            "created_at": datetime.now(UTC).isoformat(),
-            "sources": sources_info,
-            "v1_model_name": self._model_name,
-            "v1_model_revision": self._model_revision,
-            "repeat_count": self._repeat_count,
-            "semantic_verifier_promotion_authorized": False,
-        }
         (exec_dir / "verifier_benchmark_execution_identity.json").write_text(
-            json.dumps(exec_identity, ensure_ascii=False, indent=2) + "\n",
+            json.dumps(execution_identity, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
 
