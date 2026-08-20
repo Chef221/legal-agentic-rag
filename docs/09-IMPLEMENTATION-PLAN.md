@@ -2419,7 +2419,7 @@ reports are reviewed.
 
 ## 69. Milestone 51.4 — Phase B1B: Structural Competition Graph Removal
 
-**Status:** B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING (Runbook: `docs/25-PHASE-B1B-GRAPH-REMOVAL.md`)
+**Status:** Completed & Closed (Authoritative run archive: `phase-b1b-graphless-equivalence-evidence.zip` SHA-256: `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, Verdict: `B1B_EQUIVALENCE_PASS`, Commit: `38a6feec8867a41454c453cce9c54b162801579e`)
 
 - package version bumped to `0.50.7`;
 - removed `ToolName.GRAPH_SEARCH` from online agent capabilities; added `ToolName.RELATIONSHIP_RERANK_SEARCH` with `RelationshipSeedRerankingRetriever` preserving exact S20 candidate isolation;
@@ -2427,4 +2427,6 @@ reports are reviewed.
 - reduced online runtime manifest requirement to exact 3 artifacts (`legal_chunks`, `bm25_index`, `vector_index`);
 - removed relationship mapping and graph index construction from offline competition build profile;
 - preserved generic graph capabilities (`KEEP_GENERIC_ONLY`) in generic library packages;
-- added comprehensive 32-point unit test suite and Kaggle post-change verification tooling.
+- executed Kaggle dual T4 post-change verification protocol, confirming 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40 / candidate query / fusion limit / final top-k / route plan passes, 0 retrieval model errors against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`;
+- officially closed Phase B1B with mechanical verdict `B1B_EQUIVALENCE_PASS`;
+- next active research priority established as candidate-pool / reranker audit (S20 vs H40) without speculative promotion of H40.

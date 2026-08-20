@@ -2785,10 +2785,11 @@ Canonical run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626
 
 ## D116 — Phase B1B Structural Competition Graph Removal and S20 Preservation
 
-**Status:** Implementation Complete; Post-Change Verification Pending
+**Status:** Accepted (Verified via `B1B_EQUIVALENCE_PASS`)
 
 **Context:**
 Authorized by verdict `GRAPH_REDUNDANCY_PROVEN` from Phase B1A.2, Phase B1B removes the zero-edge graph traversal mechanism from the UIT DSC competition online path and offline build while preserving exact S20 retrieval behavior.
+Post-change equivalence verification on Kaggle dual T4 (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, canonical evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size 14,157 bytes) achieved mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`).
 
 **Decisions & Invariants:**
 1. **Tool Surface**: `ToolName.GRAPH_SEARCH` is removed from active online agent capabilities; `ToolName.RELATIONSHIP_RERANK_SEARCH` (`"relationship_rerank_search"`) is introduced.
@@ -2801,3 +2802,4 @@ Authorized by verdict `GRAPH_REDUNDANCY_PROVEN` from Phase B1A.2, Phase B1B remo
 5. **Online Runtime Artifact Set**: Exactly 3 active artifacts (`legal_chunks`, `bm25_index`, `vector_index`). Startup does not require or validate `graph/` or `relationships/`.
 6. **Offline Competition Build**: Produces exactly 6 artifacts (`normalized_documents`, `cleaned_documents`, `legal_blocks`, `legal_chunks`, `bm25_index`, `vector_index`).
 7. **Generic Graph Infrastructure (`KEEP_GENERIC_ONLY`)**: Generic graph contracts, implementations, and tests remain intact outside the competition path.
+8. **Verification Invariants**: 22/22 exact matches, chunk sequence matches, document sequence matches, score tolerance passes ($\le 10^{-6}$), branch depth 40 passes, candidate query passes, fusion limit passes ($\le 20$), final top-k passes ($\le 8$), and route plan passes confirmed against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`. H40 remains a distinct non-promoted path.

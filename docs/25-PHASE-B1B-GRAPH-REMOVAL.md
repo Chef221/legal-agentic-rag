@@ -4,17 +4,40 @@
 
 ## 1. Executive Summary and Status
 
-- **Status**: `B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING`
+- **Status**: `CLOSED (Verdict: B1B_EQUIVALENCE_PASS)`
 - **Package Version**: `0.50.7`
-- **Scientific Authorization**: Phase B1A.2 Experiment Verdict **`GRAPH_REDUNDANCY_PROVEN`**
-  - Canonical Run Archive SHA-256: `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`
-  - Canonical Case Count: 22 relationship queries
-  - Seed Match: 22/22 (100.0%)
-  - Final Top-8 Match (G vs S20): 22/22 (100.0%)
-  - Score Tolerance: Absolute difference $\le 10^{-6}$ for all 22 cases
-  - Diagnostic H40 Divergence: 17/22 cases differed, confirming H40 is non-equivalent and must remain a separate second route.
+- **Reviewed Execution Commit**: `38a6feec8867a41454c453cce9c54b162801579e`
+- **Mechanical Verdict**: `B1B_EQUIVALENCE_PASS` (`b1b_verified = true`)
+- **Canonical B1B Evidence Archive**: `phase-b1b-graphless-equivalence-evidence.zip`
+  - SHA-256: `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`
+  - Size: `14157 bytes`
+- **Canonical Input & Baseline Provenance**:
+  - `development.json` SHA-256: `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8` (991 questions)
+  - Frozen B1A.2 baseline results SHA-256: `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`
+  - Frozen B1A.2 execution commit: `9265f3dadcf1ef0170f0abe618519da1657fc55e`
+- **Verification Protocol Results (22 Canonical Cases)**:
+  - Exact matches: 22/22 (100.0%)
+  - Chunk sequence matches: 22/22 (100.0%)
+  - Document sequence matches: 22/22 (100.0%)
+  - Reranker score tolerance passes ($\le 10^{-6}$): 22/22 (100.0%)
+  - Branch depth 40 passes: 22/22 (100.0%)
+  - Candidate-query invariant passes: 22/22 (100.0%)
+  - Fusion-limit passes ($\le 20$): 22/22 (100.0%)
+  - Final top-k passes ($\le 8$): 22/22 (100.0%)
+  - Route-plan passes: 22/22 (100.0%)
+  - Retrieval model error count: 0
+- **Verified S20 Retrieval Semantics**:
+  - Branch depth 40 $\rightarrow$ hybrid fused top $\le 20$ $\rightarrow$ cross-encoder rerank $\le 20$ $\rightarrow$ final top $\le 8$
+- **Verified Relationship Route Order**:
+  1. `HYBRID_RERANK` / `relationship_rerank_search` (S20)
+  2. `HYBRID_RERANK` / `rerank_search` (H40)
+  3. `HYBRID` / `hybrid_search`
+- **Competition Online Artifact Set**: Exactly 3 active artifacts (`legal_chunks`, `bm25_index`, `vector_index`). `graph/` and `relationships/` are absent from runtime and build.
+- **Evaluation Details**:
+  - Retrieval equivalence used E5 embedding + CrossEncoder MiniLM reranker; Qwen/generation was NOT loaded or executed during retrieval equivalence.
+  - H40 was NOT promoted: S20 vs H40 divergence (17/22 cases changed top-8) remains an open candidate-pool / reranker research question.
 
-Phase B1B eliminates the redundant zero-edge graph traversal overhead, runtime graph dependencies, and offline relationship/graph artifact builds from the active UIT DSC competition pipeline while preserving exact S20 retrieval behavior.
+Phase B1B eliminates the redundant zero-edge graph traversal overhead, runtime graph dependencies, and offline relationship/graph artifact builds from the active UIT DSC competition pipeline while preserving exact S20 retrieval behavior. Competition Graph removal is now officially verified and CLOSED.
 
 ---
 

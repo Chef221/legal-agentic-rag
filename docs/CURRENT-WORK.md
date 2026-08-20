@@ -355,14 +355,21 @@ The immediate next action is:
 
 1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
 2. **Phase B1A.2 Graph Equivalence Experiment COMPLETE**: Run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed `GRAPH_REDUNDANCY_PROVEN` with 22/22 seed match, 22/22 top-8 match, and score diffs within $10^{-6}$.
-3. **Phase B1B Structural Graph Removal IMPLEMENTED**: Graph path removed from competition online path and offline build; S20 seed-rerank behavior preserved via `RelationshipSeedRerankingRetriever`; generic graph capability retained outside competition path (`KEEP_GENERIC_ONLY`).
-4. **Phase B1B Status**: `B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING` (Runbook: [`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
-5. **Execute Phase B1B Post-Change Verification**: Run post-change equivalence verification on Kaggle dual T4 following the runbook cells in [`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md).
+3. **Phase B1B Structural Graph Removal VERIFIED & CLOSED**: Post-change equivalence verification on Kaggle dual T4 (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size `14157 bytes`) yielded mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`). Confirmed 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40, candidate query, fusion limit, final top-k, and route plan passes, with 0 retrieval model errors. Competition graph is officially removed from runtime and build ([`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
+4. **Immediate Post-B1B Research Priority**: Candidate-pool / reranker audit (S20 vs H40).
+   - In Phase B1A.2, S20 vs H40 changed top-8 evidence in 17/22 relationship cases.
+   - Research question: Does reranking the fused top 40 introduce distractors compared with reranking the fused top 20, or does the larger pool recover better evidence?
+   - Invariant: H40 remains unpromoted. Do NOT claim H40 is superior. A separate controlled experiment is required.
+5. **Additional Research Frontiers**:
+   - Verification-correctness audit (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key cases `102047`, `147239`, `26541`, `95861`).
+   - Retrieval-miss analysis (gold source misses on `26541`, `95861`).
+   - Generation/fine-tuning later (deferred until retrieval/reranker/verifier architecture is better understood).
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase B1B?** Resolved: Phase B1B post-change verification passed cleanly with `B1B_EQUIVALENCE_PASS`. Exact S20 retrieval behavior preserved, zero-edge competition graph removed, 3 online artifacts active.
 - **What happened in Phase B1A.2?** Resolved: Graph traversal proved redundant on UIT DSC competition corpus (0 edges, 0 steps). S20 matches G perfectly across all 22 cases. H40 diverges on 17/22 cases and is preserved as a separate second route.
 - **What happened in Phase-A Census?** Resolved: 991/991 benchmark questions completed. 806 answer_verified (81.33%), 177 generation_failed, 7 citation_verification_failed, 10 generator model errors. All 22 relationship queries routed to GRAPH_SEARCH and terminated on Attempt 1.
 - **What happened in M50-C1?** Resolved: C1 trained cleanly to step 282 (val loss 1.09828) and showed lexical gain on ROUGE-L, but collapsed in free-generation health (70% cap reached, 90% repetition loops). Conclusively rejected.
@@ -396,12 +403,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Phase B1B Structural Competition Graph Removal Implemented)
+    0.50.7 (Phase B1B Structural Competition Graph Removal Closed — B1B_EQUIVALENCE_PASS)
 
 Active development frontier:
-    Phase B1B: B1B IMPLEMENTATION COMPLETE; POST-CHANGE EQUIVALENCE VERIFICATION PENDING
-    (Runbook: docs/25-PHASE-B1B-GRAPH-REMOVAL.md)
+    Candidate-pool / reranker audit (S20 vs H40) and Verification-correctness audit
 
 Next action:
-    Execute Phase B1B post-change equivalence verification on Kaggle dual T4
+    Design and execute controlled candidate-pool / reranker audit (S20 vs H40)
 ```
