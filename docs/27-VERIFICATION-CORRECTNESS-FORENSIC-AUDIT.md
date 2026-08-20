@@ -927,20 +927,220 @@ def derive_claim_semantic_label(assessment: StructuredClaimAssessmentDraft) -> S
 
 ---
 
-### 12.3 Implementation & Candidate Governance
+### 12.3 Implementation & Candidate Governance (V2-D1 Archive)
 
-- **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier.py) (`StructuredSemanticCitationVerifier`).
-- **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_development.py).
-- **Candidate Status:** **`V2-D1 IMPLEMENTED — REAL DEVELOPMENT MODEL EXECUTION PENDING EXTERNAL REVIEW`**.
+- **Historical Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier.py) (`StructuredSemanticCitationVerifier`).
+- **Historical Harness:** [`scripts/evaluate_verification_v2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_development.py).
+- **Candidate Status:** **`V2-D1 CLOSED — EXPERIMENT COMPLETED (KEEP_ITERATING)`**.
 - **Dataset Role:** The 38 claims are permanently designated `verification_benchmark_v1_role = "development_after_first_evaluation"`.
 - **Holdout Status:** The fresh V2 promotion holdout remains strictly sealed in `verification-v2-holdout-review-packets-v1.zip` and MUST NOT be accessed during development.
 - **Production Status:** `RuleBasedCitationVerifier` (V0) remains active in production. `semantic_verifier_promotion_authorized = false` remains in effect.
-- **Execution Governance Note (Commit `2c3863b`):** An initial Kaggle execution attempt on commit `2c3863b` failed during harness startup inside `_init_v2_provider()` due to passing unsupported extra fields (`enabled`, `temperature`) to `SemanticVerificationConfig` (`extra="forbid"`). The failure occurred prior to provider/model loading (0 model inferences, 0 claim predictions, 0 holdout accesses). The scientific candidate V2-D1 was not evaluated or burned; the upcoming run will be the first true semantic evaluation of V2-D1.
-
 
 ---
 
-### 12.4 Kaggle Development Runbook (For Future V2-D1 Execution)
+## 13. V2-D1 Canonical Execution Results & Forensic Closure
+
+The canonical Kaggle execution of candidate **V2-D1** has completed on commit `c6977375b3a7003b6df74fc625c8465f11e42f8a`.
+
+### 13.1 Canonical Evidence Archive & Execution Facts
+
+- **Candidate ID:** `V2-D1`
+- **Execution Commit:** `c6977375b3a7003b6df74fc625c8465f11e42f8a`
+- **Evidence Archive:** `verification-v2-d1-development-evidence.zip`
+- **Archive Size:** `20,111 bytes`
+- **Archive SHA-256:** `89771690b3caf6048770b29230a79c7188226df434a79b25c78498fd3957acf0`
+- **Archive Members (10/10 Verified):**
+  1. `execution/v2_development_source_identity.json`
+  2. `results/v2_development_report.json`
+  3. `results/v2_development_decision_report.json`
+  4. `results/v2_dimension_diagnostics.json`
+  5. `results/v0_claim_predictions.jsonl`
+  6. `results/v1_claim_predictions.jsonl`
+  7. `results/v2_claim_predictions_pass1.jsonl`
+  8. `results/v2_claim_predictions_pass2.jsonl`
+  9. `results/v2_claim_comparisons.jsonl`
+  10. `telemetry/provider_calls.jsonl`
+- **Observed Verdict:** `V2_DEVELOPMENT_EXECUTION_ERROR`
+- **Development Decision:** `KEEP_ITERATING`
+- **Promotion Authorized:** `false`
+- **Model Execution Telemetry:**
+  - Total Provider Invocations: `52`
+  - Provider Invocation Failures: `0` (0 network/timeout crashes)
+  - Structured Output Retries: `8`
+  - Model Errors: `4` (schema validation failures after retry)
+
+---
+
+### 13.2 Claim-Level Results & Paired Comparison vs V1
+
+| Metric | Canonical V1 Baseline | V2-D1 Evaluated (34 Claims) | V2-D1 Total (38 Claims) |
+| :--- | :--- | :--- | :--- |
+| **True Positives (TP)** | 16 | 13 | 13 |
+| **False Positives (FP)** | 13 | 13 | 13 |
+| **True Negatives (TN)** | 7 | 6 | 6 |
+| **False Negatives (FN)** | 2 | 2 | 2 |
+| **Execution Errors** | 0 | 4 (excluded from rate) | 4 (unscored/failed) |
+| **Total Correct** | **23 / 38 (60.53%)** | **19 / 34 (55.88%)** | **19 / 38 (50.00%)** |
+| **Supported Retention** | 16 / 18 (88.89%) | 13 / 15 (86.67%) | 13 / 18 (72.22%) |
+| **Negative Catch** | 7 / 20 (35.00%) | 6 / 19 (31.58%) | 6 / 20 (30.00%) |
+| **Balanced Accuracy** | 61.94% | 59.12% | 51.11% |
+
+> [!WARNING]
+> The evaluated accuracy of V2-D1 on the 34 successfully parsed claims ($19/34 = 55.88\%$) is strictly worse than V1 ($23/38 = 60.53\%$). The reduced denominator must NOT be presented as an apples-to-apples improvement.
+
+#### Paired Claim Deltas vs V1 Baseline:
+- **Both Correct:** 17 claims
+- **V1 Only Correct:** 6 claims
+- **V2 Only Correct:** 2 claims
+- **Both Wrong:** 13 claims
+- **Net Correctness Delta:** **-4**
+- **V2 Fixes (2 claims):**
+  1. `95861:BASE:C3` (Fixed false positive $\to$ correctly rejected)
+  2. `103983:PRIMARY:C2` (Fixed false positive $\to$ correctly rejected)
+- **V2 Regressions (6 claims):**
+  1. `147239:CANDIDATE:C2` (V1 rejected correctly $\to$ V2 false accepted)
+  2. `150131:PRIMARY:C1` (V1 retained correctly $\to$ V2 false rejected)
+  3. `15181:PRIMARY:C1` (V1 retained correctly $\to$ V2 execution error)
+  4. `15181:PRIMARY:C2` (V1 retained correctly $\to$ V2 execution error)
+  5. `15181:PRIMARY:C3` (V1 retained correctly $\to$ V2 execution error)
+  6. `34351:PRIMARY:C1` (V1 retained correctly $\to$ V2 false rejected)
+
+---
+
+### 13.3 Optimistic Upper-Bound Analysis & Closure Rationale
+
+An explicit upper-bound analysis was conducted on V2-D1:
+- Total successfully evaluated correct claims = 19
+- Total claims with structured output execution errors = 4
+- **Optimistic Upper Bound:** Even in the hypothetical best case where all 4 execution errors were resolved correctly without degrading any other predictions, the maximum achievable correct claims for D1 would be $19 + 4 = 23 / 38$.
+- A score of 23/38 merely **ties** the canonical V1 baseline ($23/38$) and strictly fails the mandatory pre-registered development threshold ($V2 \text{ correct} > 23$).
+- Therefore, simply patching the structured retry prompt or fixing schema validation for V2-D1 cannot meet the freeze criteria. V2-D1 is permanently closed as `KEEP_ITERATING`.
+
+---
+
+### 13.4 Dimension Diagnostics & Failure Mode Forensics
+
+#### 1. Dimension Collapse Diagnostic (34 Evaluated Claims):
+- `actor_role`: MATCH = 29, CONFLICT = 5, INSUFFICIENT = 0, NOT_APPLICABLE = 0
+- `action_object`: MATCH = 34, CONFLICT = 0, INSUFFICIENT = 0, NOT_APPLICABLE = 0
+- `condition_exception`: MATCH = 34, CONFLICT = 0, INSUFFICIENT = 0, NOT_APPLICABLE = 0
+- `quantity_temporal`: MATCH = 33, CONFLICT = 0, INSUFFICIENT = 1, NOT_APPLICABLE = 0
+- `negation_modality`: MATCH = 34, CONFLICT = 0, INSUFFICIENT = 0, NOT_APPLICABLE = 0
+- `source_article_scope`: MATCH = 34, CONFLICT = 0, INSUFFICIENT = 0, NOT_APPLICABLE = 0
+- `evidence_coverage`: COMPLETE = 27, PARTIAL = 7, NONE = 0
+
+**Key Finding:** When evaluated as an entire multi-claim array in a single holistic prompt, Qwen2.5-3B-Instruct collapses non-actor dimensions heavily toward `MATCH` (34/34 or 33/34). It fails to actively detect condition omissions, quantity/temporal role mismatches, and statutory scope limits.
+
+#### 2. Structured Output Execution Errors:
+- The 4 claim execution errors occurred across 2 distinct answer arms: `15181 PRIMARY` (claims C1, C2, C3) and `75171 PRIMARY` (claim C1).
+- Both arms failed in Pass 1 and Pass 2 despite allowed retries.
+- All provider network calls succeeded (52/52); failures were draft parse/schema/identity validation on the multi-claim array.
+
+---
+
+## 14. Candidate V2-D2: Per-Claim Independent Semantic Citation Verifier
+
+Candidate **V2-D2** addresses the root causes discovered during V2-D1 forensics through three architectural innovations:
+1. **Per-Claim Independent Invocations:** Every claim is evaluated in an isolated provider call containing only that claim's text and cited evidence. Sibling claims are completely insulated from execution errors.
+2. **Tightened Semantic Vocabulary:** Introduces `ESTABLISHED`, `CONFLICT`, `NOT_ESTABLISHED`, `NOT_MATERIAL` with explicit burden requiring positive statutory establishment.
+3. **Generic Entailment Rules:** Strengthens statutory scrutiny against topic overlap, token matching, condition omissions, and scope distortions.
+
+---
+
+### 14.1 V2-D2 Specification & Deterministic Derivation
+
+#### Semantic Status Vocabulary:
+- **`ESTABLISHED`:** The cited evidence positively and explicitly establishes the material proposition for this dimension. Shared terminology, topical similarity, or related vocabulary is NOT enough.
+- **`CONFLICT`:** The cited evidence establishes a materially incompatible actor, act, condition, quantity, modality, source/scope, or proposition.
+- **`NOT_ESTABLISHED`:** The dimension is material to the claim but cited evidence does not establish it sufficiently.
+- **`NOT_MATERIAL`:** The dimension is genuinely not material to this claim.
+
+#### Evidence Coverage:
+- **`COMPLETE`:** Cited evidence establishes every material proposition in the claim.
+- **`PARTIAL`:** Cited evidence establishes only part of the claim.
+- **`NONE`:** Cited evidence does not establish the claim.
+
+```mermaid
+flowchart TD
+    SingleClaim["Single Claim + Cited Evidence Only"] --> ModelCall["Independent Model Invocation\n(Qwen2.5-3B-Instruct, Temp 0.0)"]
+    ModelCall --> D1["ACTOR_ROLE (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D2["ACTION_OBJECT (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D3["CONDITION_EXCEPTION (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D4["QUANTITY_TEMPORAL (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D5["NEGATION_MODALITY (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D6["SOURCE_ARTICLE_SCOPE (ESTABLISHED / CONFLICT / NOT_ESTABLISHED / NOT_MATERIAL)"]
+    ModelCall --> D7["EVIDENCE_COVERAGE (COMPLETE / PARTIAL / NONE)"]
+
+    D1 & D2 & D3 & D4 & D5 & D6 & D7 --> DetDerive{"derive_claim_semantic_label_d2"}
+
+    DetDerive -->|"Any Dimension == CONFLICT"| Contradicted["CONTRADICTED"]
+    DetDerive -->|"Coverage != COMPLETE or Any Dimension == NOT_ESTABLISHED"| Insufficient["INSUFFICIENT"]
+    DetDerive -->|"All Dimensions ESTABLISHED/NOT_MATERIAL and Coverage == COMPLETE"| Supported["SUPPORTED"]
+```
+
+#### Deterministic Derivation Algorithm:
+```python
+def derive_claim_semantic_label_d2(
+    assessment: D2StructuredClaimAssessmentDraft,
+) -> SemanticSupportLabel:
+    dimensions = (
+        assessment.actor_role,
+        assessment.action_object,
+        assessment.condition_exception,
+        assessment.quantity_temporal,
+        assessment.negation_modality,
+        assessment.source_article_scope,
+    )
+    if any(d == D2SemanticDimensionStatus.CONFLICT for d in dimensions):
+        return SemanticSupportLabel.CONTRADICTED
+    if assessment.evidence_coverage != D2EvidenceCoverageStatus.COMPLETE:
+        return SemanticSupportLabel.INSUFFICIENT
+    if any(d == D2SemanticDimensionStatus.NOT_ESTABLISHED for d in dimensions):
+        return SemanticSupportLabel.INSUFFICIENT
+    return SemanticSupportLabel.SUPPORTED
+```
+
+---
+
+### 14.2 V2-D2 Single-Claim Output Schema
+
+```json
+{
+  "claim_id": "C1",
+  "actor_role": "ESTABLISHED",
+  "action_object": "ESTABLISHED",
+  "condition_exception": "NOT_MATERIAL",
+  "quantity_temporal": "ESTABLISHED",
+  "negation_modality": "ESTABLISHED",
+  "source_article_scope": "ESTABLISHED",
+  "evidence_coverage": "COMPLETE"
+}
+```
+
+- No arrays.
+- No final holistic model judgment.
+- No explanation or human labels.
+- Content-safe draft rejection telemetry categorized as: `JSON_PARSE_ERROR`, `CLAIM_ID_MISMATCH`, `MISSING_FIELD`, `EXTRA_FIELD`, `ENUM_VALUE_INVALID`, `SCHEMA_VALIDATION_ERROR`.
+
+---
+
+### 14.3 Implementation & Candidate Governance
+
+- **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py) (`StructuredSemanticCitationVerifierD2`).
+- **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_d2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_d2_development.py).
+- **Candidate Status:** **`V2-D2 IMPLEMENTED — REAL DEVELOPMENT EXECUTION PENDING EXTERNAL REVIEW`**.
+- **Freeze Eligibility Criteria:**
+  1. Mechanical benchmark completion with `model_errors == 0`
+  2. Zero label instability (`unstable_claim_count == 0`)
+  3. Total Correct $> 23$ (Canonical V1 is 23)
+  4. Negative Catch $> 7$ (Canonical V1 is 7)
+  5. Supported Retention $\ge 16$ (Canonical V1 is 16)
+  6. Paired Net Correctness Delta $> 0$
+  7. `promotion_authorized = false` (always False during development)
+
+---
+
+## 15. Kaggle Development Runbook (For Real V2-D2 Execution)
 
 ```python
 # ==============================================================================
@@ -973,7 +1173,7 @@ if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
 assert source_ver == "0.50.7", f"Source package version mismatch: expected '0.50.7', got '{source_ver}'"
 assert installed_ver == "0.50.7", f"Installed distribution version mismatch: expected '0.50.7', got '{installed_ver}'"
 assert transformers.__version__ == "4.47.1", f"Transformers version drift: expected '4.47.1', got '{transformers.__version__}'"
-assert torch.cuda.is_available() is True, "CUDA device required for V2-D1 execution"
+assert torch.cuda.is_available() is True, "CUDA device required for V2-D2 execution"
 
 print("=" * 60)
 print("ENVIRONMENT & PROVENANCE GATE PASSED")
@@ -1107,34 +1307,34 @@ from pathlib import Path
 
 sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
 
-!python scripts/evaluate_verification_v2_development.py \
+!python scripts/evaluate_verification_v2_d2_development.py \
   --forensic-packets "{sources['forensic_packets']}" \
   --forensic-labels "{sources['forensic_labels']}" \
   --control-packets "{sources['control_packets']}" \
   --control-labels "{sources['control_labels']}" \
   --v1-evidence "{sources['v1_evidence']}" \
-  --output-dir "/kaggle/working/v2_development_preflight" \
+  --output-dir "/kaggle/working/v2_d2_development_preflight" \
   --preflight-only
 ```
 
 ```python
 # ==============================================================================
-# CELL 4: Full Real V2-D1 Development Execution (2-Pass Stability & Multi-Dimensional Metrics)
+# CELL 4: Full Real V2-D2 Development Execution (Per-Claim Invocations, 2-Pass Stability & D2 Diagnostics)
 # ==============================================================================
 import json
 from pathlib import Path
 
 sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
 
-!python scripts/evaluate_verification_v2_development.py \
+!python scripts/evaluate_verification_v2_d2_development.py \
   --forensic-packets "{sources['forensic_packets']}" \
   --forensic-labels "{sources['forensic_labels']}" \
   --control-packets "{sources['control_packets']}" \
   --control-labels "{sources['control_labels']}" \
   --v1-evidence "{sources['v1_evidence']}" \
-  --output-dir "/kaggle/working/v2_development_output" \
-  --package-zip "/kaggle/working/verification-v2-d1-development-evidence.zip" \
-  --candidate-id "V2-D1" \
+  --output-dir "/kaggle/working/v2_d2_development_output" \
+  --package-zip "/kaggle/working/verification-v2-d2-development-evidence.zip" \
+  --candidate-id "V2-D2" \
   --device "cuda" \
   --repeat-count 2
 ```
@@ -1154,7 +1354,7 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-pkg_path = Path("/kaggle/working/verification-v2-d1-development-evidence.zip")
+pkg_path = Path("/kaggle/working/verification-v2-d2-development-evidence.zip")
 assert pkg_path.is_file(), f"Missing evidence package: {pkg_path}"
 pkg_sha = sha256_file(pkg_path)
 pkg_size = pkg_path.stat().st_size
@@ -1162,15 +1362,15 @@ print(f"Evidence Package SHA-256: {pkg_sha}")
 print(f"Evidence Package Size:    {pkg_size} bytes")
 
 required_members = {
-    "execution/v2_development_source_identity.json",
-    "results/v2_development_report.json",
-    "results/v2_development_decision_report.json",
-    "results/v2_dimension_diagnostics.json",
+    "execution/v2_d2_development_source_identity.json",
+    "results/v2_d2_development_report.json",
+    "results/v2_d2_development_decision_report.json",
+    "results/v2_d2_dimension_diagnostics.json",
     "results/v0_claim_predictions.jsonl",
     "results/v1_claim_predictions.jsonl",
-    "results/v2_claim_predictions_pass1.jsonl",
-    "results/v2_claim_predictions_pass2.jsonl",
-    "results/v2_claim_comparisons.jsonl",
+    "results/v2_d2_claim_predictions_pass1.jsonl",
+    "results/v2_d2_claim_predictions_pass2.jsonl",
+    "results/v2_d2_claim_comparisons.jsonl",
     "telemetry/provider_calls.jsonl",
 }
 
@@ -1181,13 +1381,13 @@ with zipfile.ZipFile(pkg_path, "r") as zf:
     print(f"Total Archive Members:    {len(members)} (all {len(required_members)} required present)")
 
     # Read report and decision directly from ZIP as integrity check
-    zip_report = json.loads(zf.read("results/v2_development_report.json").decode("utf-8"))
-    zip_decision = json.loads(zf.read("results/v2_development_decision_report.json").decode("utf-8"))
+    zip_report = json.loads(zf.read("results/v2_d2_development_report.json").decode("utf-8"))
+    zip_decision = json.loads(zf.read("results/v2_d2_development_decision_report.json").decode("utf-8"))
 
 # Read loose output reports
-decision_path = Path("/kaggle/working/v2_development_output/results/v2_development_decision_report.json")
+decision_path = Path("/kaggle/working/v2_d2_development_output/results/v2_d2_development_decision_report.json")
 decision = json.loads(decision_path.read_text(encoding="utf-8"))
-report = json.loads(Path("/kaggle/working/v2_development_output/results/v2_development_report.json").read_text(encoding="utf-8"))
+report = json.loads(Path("/kaggle/working/v2_d2_development_output/results/v2_d2_development_report.json").read_text(encoding="utf-8"))
 
 # Verify loose vs ZIP report consistency
 assert zip_report["candidate_id"] == report["candidate_id"]
@@ -1206,18 +1406,18 @@ stability_info = report["stability"]
 model_errors = report["telemetry"]["model_errors"]
 structured_retries = report["telemetry"]["structured_output_retries"]
 v1_claim_metrics = report["metrics"]["v1_claim_binary"]
-v2_claim_metrics = report["metrics"]["v2_claim_binary"]
-paired_metrics = report["metrics"]["paired_v1_vs_v2"]
+v2_claim_metrics = report["metrics"]["v2_d2_claim_binary"]
+paired_metrics = report["metrics"]["paired_v1_vs_v2_d2"]
 v1_three_way = report["metrics"]["v1_three_way"]
-v2_three_way = report["metrics"]["v2_three_way"]
+v2_three_way = report["metrics"]["v2_d2_three_way"]
 v0_answer_metrics = report["metrics"]["v0_answer_metrics"]
 v1_answer_metrics = report["metrics"]["v1_answer_metrics"]
-v2_answer_metrics = report["metrics"]["v2_answer_metrics"]
-answer_deltas = report["metrics"]["v2_vs_v1_answer_deltas"]
+v2_answer_metrics = report["metrics"]["v2_d2_answer_metrics"]
+answer_deltas = report["metrics"]["v2_d2_vs_v1_answer_deltas"]
 promotion_authorized = decision["promotion_authorized"]
 
 print("\n" + "=" * 60)
-print("V2-D1 DEVELOPMENT EXECUTION SUMMARY")
+print("V2-D2 DEVELOPMENT EXECUTION SUMMARY")
 print("=" * 60)
 print("Candidate ID:                 ", candidate)
 print("Git Commit:                   ", execution_commit)
@@ -1237,7 +1437,7 @@ print("Promotion Authorized:         ", promotion_authorized)
 print("=" * 60)
 
 # Final safety hard assertions
-assert candidate == "V2-D1", f"Candidate mismatch: {candidate}"
+assert candidate == "V2-D2", f"Candidate mismatch: {candidate}"
 if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
     assert execution_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {execution_commit} != {REVIEWED_COMMIT_SHA}"
 assert source_pkg_ver == "0.50.7", f"Source version mismatch: {source_pkg_ver}"
