@@ -2803,3 +2803,20 @@ Post-change equivalence verification on Kaggle (reviewed commit `38a6feec8867a41
 6. **Offline Competition Build**: Produces exactly 6 artifacts (`normalized_documents`, `cleaned_documents`, `legal_blocks`, `legal_chunks`, `bm25_index`, `vector_index`).
 7. **Generic Graph Infrastructure (`KEEP_GENERIC_ONLY`)**: Generic graph contracts, implementations, and tests remain intact outside the competition path.
 8. **Verification Invariants**: 22/22 exact matches, chunk sequence matches, document sequence matches, score tolerance passes ($\le 10^{-6}$), branch depth 40 passes, candidate query passes, fusion limit passes ($\le 20$), final top-k passes ($\le 8$), and route plan passes confirmed against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`. H40 remains a distinct non-promoted path.
+
+---
+
+## D117 — Stage R1 Candidate-Pool / Reranker Mechanics Characterization and Non-Promotion of H40
+
+**Status:** Accepted (Verified via `CANDIDATE_POOL_AUDIT_PASS`)
+
+**Context:**
+Following Phase B1B, Stage R1 audited the candidate-pool depth effects (fused 20 vs fused 40) under identical single-pass query understanding, branch retrieval (BM25 + dense depth 40), RRF fusion, and single-pass cross-encoder reranker scoring on the 22 canonical relationship queries.
+Kaggle execution (reviewed commit `9a5b708c2769425dbd65731feb8ede96975b5b46`, canonical evidence archive `candidate-pool-reranker-audit-evidence.zip` SHA-256 `ce9b239b808c3d7b0e575ce1c1683db243bbea909f0e6d9c306df21cb2899860`, size 56,706 bytes) achieved mechanical verdict **`CANDIDATE_POOL_AUDIT_PASS`** (`audit_verified = true`, `h40_promotion_authorized = false`).
+
+**Decisions & Invariants:**
+1. **Candidate-Pool Depth is Behaviorally Material**: Expanding the fused candidate pool from 20 to 40 changes the final top-8 evidence in 17/22 relationship cases, introducing 35 tail entrants and 20 document-level churn events.
+2. **Prohibition of Unsubstantiated H40 Promotion**: The official competition dataset lacks retrieval ground-truth labels. The presence of tail entrants does not prove that H40 is semantically superior or legally correct. Therefore, H40 remains strictly unpromoted (`h40_promotion_authorized = false`).
+3. **Production S20 Routing Preserved**: Production Attempt 1 routing remains strictly bound to `relationship_rerank_search` (S20). Attempt 2 remains `rerank_search` (H40).
+4. **Verification Fidelity**: 22/22 seed prefix passes, 22/22 shared S20 sequence passes, 22/22 legacy S20 frozen score passes ($\le 10^{-6}$), 22/22 H40 frozen score passes ($\le 10^{-6}$), 22/22 branch depth passes, and 0 retrieval model errors verified.
+5. **Next Active Research Frontier**: The active development frontier advances to **Priority B — Verification-correctness audit**.

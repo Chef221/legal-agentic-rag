@@ -355,13 +355,17 @@ The immediate next action is:
 1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
 2. **Phase B1A.2 Graph Equivalence Experiment COMPLETE**: Run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed `GRAPH_REDUNDANCY_PROVEN` with 22/22 seed match, 22/22 top-8 match, and score diffs within $10^{-6}$.
 3. **Phase B1B Structural Graph Removal VERIFIED & CLOSED**: Kaggle post-change equivalence verification (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size `14157 bytes`) yielded mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`). Confirmed 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40, candidate query, fusion limit, final top-k, and route plan passes, with 0 retrieval model errors. Competition graph is officially removed from runtime and build ([`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
-4. **Immediate Post-B1B Research Priority**: Candidate-pool / reranker audit (S20 vs H40) — Stage R1.
-   - In Phase B1A.2, S20 vs H40 changed top-8 evidence in 17/22 relationship cases.
-   - Research question: Does reranking the fused top 40 introduce distractors compared with reranking the fused top 20, or does the larger pool recover better evidence?
-   - Stage R1 protocol and tooling implemented in [`scripts/candidate_pool_reranker_audit.py`](file:///c:/legal-agentic-rag/scripts/candidate_pool_reranker_audit.py) and [`docs/26-S20-H40-CANDIDATE-POOL-RERANKER-AUDIT.md`](file:///c:/legal-agentic-rag/docs/26-S20-H40-CANDIDATE-POOL-RERANKER-AUDIT.md), awaiting reviewed Kaggle execution.
-   - Invariant: H40 remains unpromoted. Do NOT claim H40 is superior. A separate controlled experiment is required.
-5. **Subsequent Planned Research Frontiers (Sequenced Order)**:
-   - Priority B: Verification-correctness audit (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key cases `102047`, `147239`, `26541`, `95861`).
+4. **Stage R1 Candidate-Pool / Reranker Mechanics Audit CLOSED — PASS**:
+   - Reviewed Kaggle execution commit: `9a5b708c2769425dbd65731feb8ede96975b5b46`.
+   - Canonical evidence archive: `candidate-pool-reranker-audit-evidence.zip` (SHA-256 `ce9b239b808c3d7b0e575ce1c1683db243bbea909f0e6d9c306df21cb2899860`, size `56,706 bytes`).
+   - Mechanical verdict: **`CANDIDATE_POOL_AUDIT_PASS`** (`audit_verified = true`, `h40_promotion_authorized = false`).
+   - Confirmed 22/22 seed prefix passes, 22/22 shared S20 sequence passes, 22/22 legacy S20 frozen score passes ($\le 10^{-6}$), 22/22 H40 frozen score passes ($\le 10^{-6}$), 22/22 branch depth passes, 0 retrieval model errors.
+   - Characterized candidate-pool mechanics: 5 identical top-8 cases, 17 changed top-8 cases, 35 total tail entrants across 17 cases, 20 document-level churn events.
+   - Shared S20 maximum numerical delta of `1.621e-05` confirmed as batch-shape inference artifact; observational legacy S20 probe reproduced all 22 cases within $10^{-6}$.
+   - Runtime config evidence self-identity verified matching on disk and inside ZIP.
+   - Invariant: H40 remains unpromoted. Production routing unchanged (S20 in Attempt 1, H40 in Attempt 2).
+5. **Next Active Research Frontier**:
+   - **Priority B — Verification-correctness audit** (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key forensic cases `102047`, `147239`, `26541`, `95861`).
    - Priority C: Retrieval-miss analysis (gold source misses on `26541`, `95861`).
    - Priority D: Generation/fine-tuning later (deferred until retrieval/reranker/verifier architecture is better understood).
 
@@ -369,6 +373,7 @@ The immediate next action is:
 
 ## 16. Status of Historical Questions
 
+- **What happened in Stage R1?** Resolved: Stage R1 candidate-pool audit passed cleanly with `CANDIDATE_POOL_AUDIT_PASS`. Proved candidate-pool depth is behaviorally material (35 tail entrants, 20 document-level churn events across 17/22 relationship cases). H40 remains unpromoted in Attempt 2.
 - **What happened in Phase B1B?** Resolved: Phase B1B post-change verification passed cleanly with `B1B_EQUIVALENCE_PASS`. Exact S20 retrieval behavior preserved, zero-edge competition graph removed, 3 online artifacts active.
 - **What happened in Phase B1A.2?** Resolved: Graph traversal proved redundant on UIT DSC competition corpus (0 edges, 0 steps). S20 matches G perfectly across all 22 cases. H40 diverges on 17/22 cases and is preserved as a separate second route.
 - **What happened in Phase-A Census?** Resolved: 991/991 benchmark questions completed. 806 answer_verified (81.33%), 177 generation_failed, 7 citation_verification_failed, 10 generator model errors. All 22 relationship queries routed to GRAPH_SEARCH and terminated on Attempt 1.
@@ -403,11 +408,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Phase B1B Closed — B1B_EQUIVALENCE_PASS; Stage R1 Candidate-Pool Audit Tooling Implemented)
+    0.50.7 (Stage R1 Closed — CANDIDATE_POOL_AUDIT_PASS; H40 Unpromoted)
 
 Active development frontier:
-    Candidate-pool / reranker audit (S20 vs H40)
+    Priority B — Verification-correctness audit
 
 Next action:
-    External review of Stage R1 harness commit prior to Kaggle execution
+    Design and execute Priority B verification-correctness audit on historical failure classes
 ```

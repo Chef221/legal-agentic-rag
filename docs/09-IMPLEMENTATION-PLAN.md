@@ -2430,3 +2430,16 @@ reports are reviewed.
 - executed Kaggle post-change equivalence verification protocol, confirming 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40 / candidate query / fusion limit / final top-k / route plan passes, 0 retrieval model errors against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`;
 - officially closed Phase B1B with mechanical verdict `B1B_EQUIVALENCE_PASS`;
 - next active research priority established as candidate-pool / reranker audit (S20 vs H40) without speculative promotion of H40.
+
+## 70. Milestone 51.5 — Stage R1: S20 vs H40 Candidate-Pool / Reranker Mechanics Audit
+
+**Status:** Completed & Closed (Authoritative run archive: `candidate-pool-reranker-audit-evidence.zip` SHA-256: `ce9b239b808c3d7b0e575ce1c1683db243bbea909f0e6d9c306df21cb2899860`, size `56,706 bytes`, Verdict: `CANDIDATE_POOL_AUDIT_PASS`, Commit: `9a5b708c2769425dbd65731feb8ede96975b5b46`)
+
+- evaluated candidate-pool depth effects (fused 20 vs fused 40) under identical single-pass query understanding, branch retrieval (BM25 + dense depth 40), RRF fusion, and single-pass cross-encoder reranker scoring;
+- verified 22/22 seed prefix passes, 22/22 shared S20 sequence passes, 22/22 legacy S20 frozen score passes ($\le 10^{-6}$), 22/22 H40 frozen score passes ($\le 10^{-6}$), 22/22 branch depth passes, 0 retrieval model errors;
+- reproduced historical divergence: 5 identical top-8 cases, 17 changed top-8 cases;
+- characterized candidate-pool mechanics: 35 total tail entrants entering top-8 across 17 cases, 20 document-level churn events;
+- shared S20 maximum numerical delta of `1.621e-05` confirmed as batch-shape inference artifact, while observational legacy S20 probe reproduced all 22 frozen S20 scores within `1e-6`;
+- runtime config evidence self-identity verified across disk and ZIP archive;
+- H40 remains strictly unpromoted (`h40_promotion_authorized = false`); Stage R1 closed with mechanical verdict `CANDIDATE_POOL_AUDIT_PASS`;
+- next active research frontier established as **Priority B — Verification-correctness audit**.

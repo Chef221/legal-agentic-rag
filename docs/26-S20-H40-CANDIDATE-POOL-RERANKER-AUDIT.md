@@ -40,6 +40,49 @@ When the fused candidate pool is expanded from 20 to 40 while keeping the exact 
 
 ---
 
+## 1.1 Stage R1 Execution Closure & Provenance
+
+- **Status:** **CLOSED — PASS**
+- **Exact Verdict:** **`CANDIDATE_POOL_AUDIT_PASS`**
+- **Audit Verified:** `true`
+- **H40 Promotion Authorized:** `false` (Strict Invariant)
+
+| Provenance Property | Canonical Value |
+|---|---|
+| Reviewed Execution Commit | `9a5b708c2769425dbd65731feb8ede96975b5b46` |
+| Package Version | `0.50.7` |
+| Canonical Evidence Archive | `candidate-pool-reranker-audit-evidence.zip` |
+| Evidence Archive SHA-256 | `ce9b239b808c3d7b0e575ce1c1683db243bbea909f0e6d9c306df21cb2899860` |
+| Evidence Archive Size | `56,706 bytes` |
+
+### Verified Mechanical Summary (22/22 Canonical Cases):
+
+| Metric / Reproduction Gate | Target / Expected | Observed Stage R1 Result | Status |
+|---|---|---|---|
+| Total Cases Evaluated | 22 | 22 | PASS |
+| Seed Prefix Passes (`fused40[:20] == s20_seeds`) | 22 / 22 | 22 / 22 | PASS |
+| Shared S20 Sequence Passes (chunks & docs) | 22 / 22 | 22 / 22 | PASS |
+| Legacy S20 Frozen Score Passes ($|diff| \le 10^{-6}$) | 22 / 22 | 22 / 22 | PASS |
+| H40 Frozen Score Passes ($|diff| \le 10^{-6}$) | 22 / 22 | 22 / 22 | PASS |
+| Real Branch-Depth Passes (depth 40) | 22 / 22 | 22 / 22 | PASS |
+| Historical Identical Top-8 Cases | 5 | 5 | PASS |
+| Historical Changed Top-8 Cases | 17 | 17 | PASS |
+| Total H40 Tail Entrants | — | 35 | Characterized |
+| Cases with Tail Entrants | — | 17 | Characterized |
+| Document-Level Churn Count | — | 20 | Characterized |
+| Retrieval Model Errors | 0 | 0 | PASS |
+| Shared S20 Max Numerical Delta | — | `1.621e-05` | Diagnostic Only |
+
+> [!NOTE]
+> **Batch-Shape Numerical Diagnostic**:
+> The `1.621e-05` maximum numerical score delta observed on shared S20 scoring is a GPU inference batch-shape artifact (batch of 40 evaluated as $32+8$ under `batch_size=32` vs batch of 20 in historical S20) and represents zero retrieval or ranking drift.
+> The observational legacy S20 probe confirmed exact score reproduction $\le 10^{-6}$ across all 22/22 cases under the exact historical 20-candidate batch shape.
+
+> [!CAUTION]
+> **H40 Remains Unpromoted**:
+> Stage R1 proved that candidate-pool depth is behaviorally material (35 tail entrants and 20 document churn events across 17 cases). However, because official retrieval labels are absent, Stage R1 does **not** prove that H40 is semantically superior to S20. Production routing remains unchanged (S20 in Attempt 1, H40 in Attempt 2).
+> The active development frontier moves to **Priority B — Verification-correctness audit**.
+
 ## 2. Experimental Design & Variable Isolation
 
 To guarantee that candidate-pool depth is the **sole experimental variable**, the audit enforces strict single-pass retrieval execution:
