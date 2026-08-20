@@ -256,53 +256,37 @@ Milestone 10 triển khai policy:
 `Reranker`. Strategy `rerank` chỉ là stage nội bộ và không phải entry point của
 fixed retrieval.
 
-### 5.5 Graph Retrieval
+### 5.5 Relationship Seed-Reranking (Phase B1B Active Strategy)
 
 Luồng:
 
 ```text
-Text Retrieval
-→ Seed Chunks
-→ Seed Documents
-→ Graph Expansion
-→ Related Documents
-→ Related Chunks
-→ Candidate Merge
-→ Rerank
+Query Understanding (Relationship Intent)
+→ Sparse BM25 Branch (depth 40) + Dense E5 Branch (depth 40)
+→ Multi-Query RRF Fusion (top 20 seeds)
+→ Cross-Encoder Reranker (reranks the 20 seeds)
+→ Final Top-K Chunks
 ```
 
-Graph traversal mặc định:
+Đặc điểm và invariants:
 
-- 1 hop;
-- tối đa 2 hop;
-- filter relationship type khi có thể;
-- không mở rộng toàn graph;
-- phải ghi retrieval trace.
+- Khi `QueryAnalysis.intent == QueryIntent.RELATIONSHIP`, `DeterministicStrategyRouter` điều phối:
+  - **Attempt 1**: `(HYBRID_RERANK, relationship_rerank_search)` (S20 seed-rerank, candidate pool $\le 20$)
+  - **Attempt 2**: `(HYBRID_RERANK, rerank_search)` (H40 candidate pool 40)
+  - **Attempt 3**: `(HYBRID, hybrid_search)`
+- `RelationshipSeedRerankingRetriever` nhận `candidate_k = 40`, giới hạn fusion output và reranker input thành $\le \min(\text{relationship\_rerank\_fusion\_k}, \text{candidate\_k} - 1) = 20$;
+- Output trả về `RetrievalStrategy.HYBRID_RERANK`; không thêm enum strategy mới;
+- Đã được chứng minh tương đương toán học và ranking hoàn toàn với zero-edge graph traversal trong Phase B1A.2 (22/22 case matches, tolerance $\le 10^{-6}$).
 
-Milestone 11 triển khai fixed graph flow:
+### 5.6 Generic Graph Expansion (`KEEP_GENERIC_ONLY`)
 
-```text
-Hybrid seed retrieval
-→ Unique seed documents
-→ Directed BFS expansion
-→ Hybrid retrieval restricted to reached documents
-→ Merge bounded candidates
-→ Cross-encoder rerank once
-→ Graph RetrievalResponse
-```
+Generic graph expansion được lưu giữ trong `src/legal_agentic_rag/retrieval/graph.py` (`GraphExpandedRetriever`) và `src/legal_agentic_rag/indexing/graph/` (`AdjacencyGraphBackend`) cho các bài toán/corpus đa văn bản có quan hệ thực tế trong tương lai.
 
-Policy:
+Sau Phase B1B:
+- Competition online runtime loại bỏ `ToolName.GRAPH_SEARCH` khỏi tool capability set;
+- Online startup không load `graph/` hay `relationships/` và chỉ yêu cầu 3 active artifacts (`legal_chunks`, `bm25_index`, `vector_index`).
 
-- graph không chạy nếu text retrieval không tạo seed;
-- graph không thay BM25/dense và không tự quét toàn corpus;
-- `graph_seed_chunk_k`, `graph_seed_document_k`,
-  `graph_related_document_k`, hop và relationship filters đều qua typed config;
-- explicit document filters không bị graph expansion nới rộng;
-- expanded hit ghi đủ `graph_hop` và ordered `graph_path`;
-- graph/chunk artifacts phải cùng dataset/revision;
-- candidate pool không vượt `candidate_k` hoặc reranker limit;
-- `FixedRetriever` chỉ route `graph` khi đã inject graph backend, chunk manifest
-  và reranker.
+Generic graph expansion được lưu giữ độc lập trong generic library modules (`src/legal_agentic_rag/retrieval/graph.py` và `src/legal_agentic_rag/indexing/graph/`) cùng unit/integration tests riêng.
 
 ---
 

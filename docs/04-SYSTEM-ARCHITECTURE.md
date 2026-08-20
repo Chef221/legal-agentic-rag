@@ -23,7 +23,7 @@ Hệ thống tuân thủ các nguyên tắc:
 
 ```mermaid
 flowchart TD
-    subgraph OFFLINE["Offline Phase"]
+    subgraph OFFLINE["Offline Competition Phase (6 Artifacts)"]
         A["Official BTC Competition Data"]
         B["Competition Adapter"]
         C["Dataset Audit"]
@@ -35,8 +35,6 @@ flowchart TD
         I["BM25 Index Builder"]
         J["Embedding Pipeline"]
         K["Vector Index Builder"]
-        L["Relationship Normalizer"]
-        M["Graph Index Builder"]
         N["Artifact Validator"]
 
         A --> B
@@ -49,24 +47,20 @@ flowchart TD
         H --> I
         H --> J
         J --> K
-        D --> L
-        L --> M
         I --> N
         K --> N
-        M --> N
     end
 
-    subgraph ONLINE["Online Phase"]
+    subgraph ONLINE["Online Inference Phase (3 Active Artifacts)"]
         Q["User Question"]
         R["Query Normalizer"]
         R2["Query Understanding"]
-        S["Fixed Router or Agent"]
+        S["Deterministic Router or Agent"]
         T1["BM25 Search"]
         T2["Dense Search"]
-        T3["Hybrid RRF"]
-        T4["Graph Expansion"]
-        U["Candidate Merger"]
-        V["Cross-Encoder Reranker"]
+        T3["Hybrid Search"]
+        T4["Rerank Search (H40)"]
+        T5["Relationship Rerank Search (S20)"]
         W["Context Builder"]
         X["Context Grader"]
         Y["Answer Generator"]
@@ -80,12 +74,12 @@ flowchart TD
         S --> T2
         S --> T3
         S --> T4
-        T1 --> U
-        T2 --> U
-        T3 --> U
-        T4 --> U
-        U --> V
-        V --> W
+        S --> T5
+        T1 --> W
+        T2 --> W
+        T3 --> W
+        T4 --> W
+        T5 --> W
         W --> X
         X --> Y
         Y --> Z
@@ -95,8 +89,12 @@ flowchart TD
     I --> T1
     K --> T2
     K --> T3
-    M --> T4
+    K --> T4
+    K --> T5
 ```
+
+> [!NOTE]
+> **Generic Graph Retention (`KEEP_GENERIC_ONLY`)**: Generic graph indexing and traversal components remain preserved in `src/legal_agentic_rag/indexing/graph/` and `src/legal_agentic_rag/retrieval/graph.py` for future multi-corpus support, but are excluded from active UIT DSC competition offline builds and online runtime paths per Phase B1B.
 
 ---
 
@@ -130,7 +128,6 @@ Chịu trách nhiệm:
 
 - BM25 index;
 - vector index;
-- graph index;
 - artifact persistence;
 - manifests;
 - backend abstraction.
@@ -141,9 +138,9 @@ Chịu trách nhiệm:
 
 - sparse retrieval;
 - dense retrieval;
-- RRF fusion;
-- graph expansion;
-- reranking;
+- hybrid search (RRF fusion);
+- cross-encoder reranking (standard H40);
+- relationship seed-reranking (S20);
 - retrieval trace.
 
 Cross-encoder input dùng unified legal metadata cùng chunk text để giữ phạm vi

@@ -4,7 +4,7 @@
 Verifies that the graphless competition runtime loads cleanly without graph
 artifacts, registers `relationship_rerank_search` without `graph_search`, and
 reproduces the exact S20 retrieval hits and ranking on the 22 relationship
-cases authorized by Phase B1A.2.
+cases authorized by Phase B1A.2 using the frozen B1A.2 evidence baseline.
 """
 
 from __future__ import annotations
@@ -16,7 +16,9 @@ from datetime import UTC, datetime
 from hashlib import sha256
 import json
 import logging
+import os
 from pathlib import Path
+import shutil
 from statistics import fmean
 import subprocess
 import unicodedata
@@ -46,6 +48,10 @@ from legal_agentic_rag.retrieval import (
     RelationshipSeedRerankingRetriever,
     RerankingRetriever,
 )
+from legal_agentic_rag.agent.router import (
+    DeterministicStrategyRouter,
+    RetrievalRoute,
+)
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
 from legal_agentic_rag.runtime.online import OnlineRuntime, OnlineRuntimeFactory
 from legal_agentic_rag.runtime.startup_validation import (
@@ -54,6 +60,7 @@ from legal_agentic_rag.runtime.startup_validation import (
 )
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
+    QueryAnalysis,
     QueryIntent,
     RetrievalHit,
     RetrievalQuery,
@@ -71,6 +78,35 @@ CANONICAL_SOURCE_QUESTION_COUNT = 991
 CANONICAL_SOURCE_QUESTION_SHA256 = (
     "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
 )
+CANONICAL_B1A2_RESULTS_SHA256 = (
+    "51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a"
+)
+CANONICAL_B1A2_EXECUTION_COMMIT = "9265f3dadcf1ef0170f0abe618519da1657fc55e"
+
+EXPECTED_22_IDS: list[str] = [
+    "102047",
+    "107487",
+    "110287",
+    "111905",
+    "113537",
+    "122659",
+    "125393",
+    "133075",
+    "134605",
+    "147239",
+    "147869",
+    "150051",
+    "26541",
+    "29491",
+    "29877",
+    "39671",
+    "45219",
+    "47537",
+    "48905",
+    "64035",
+    "95861",
+    "99639",
+]
 
 S20_BRANCH_CANDIDATE_DEPTH = 40
 S20_HYBRID_OUTPUT_LIMIT = 20
@@ -99,87 +135,30 @@ def normalize_question_text(question: str) -> str:
     return " ".join(nfc.split())
 
 
-@dataclass(frozen=True, slots=True)
-class RelationshipCase:
-    """A verified relationship question for equivalence evaluation."""
-
-    question_id: str
-    raw_question: str
-    normalized_question: str
-    detected_intent: str
-
-
-def load_relationship_cases(
-    questions_path: Path,
-    expected_count: int = EXPECTED_CASE_COUNT,
-) -> list[RelationshipCase]:
-    """Load and filter relationship cases deterministically from questions json."""
-    if not questions_path.exists():
-        raise DataValidationError(
-            f"Questions file does not exist: {questions_path}"
-        )
-
-    content_bytes = questions_path.read_bytes()
-    file_hash = sha256_bytes(content_bytes)
+def resolve_execution_git_commit(script_path: Path) -> str:
+    """Resolve immutable git commit SHA for the repository containing the script."""
+    repo_dir = script_path.resolve().parents[1]
     try:
-        raw_data = json.loads(content_bytes.decode("utf-8"))
-    except Exception as error:
-        raise DataValidationError(
-            f"Failed to parse questions JSON from {questions_path}: {error}"
-        ) from error
-
-    if not isinstance(raw_data, dict):
-        raise DataValidationError(
-            f"Questions file must be a JSON object, got {type(raw_data).__name__}"
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo_dir,
+            capture_output=True,
+            text=True,
+            check=True,
         )
-
-    qu_service = QueryUnderstandingService()
-    cases: list[RelationshipCase] = []
-
-    for qid, payload in raw_data.items():
-        if not isinstance(payload, dict) or "question" not in payload:
-            continue
-        raw_q = payload["question"]
-        if not isinstance(raw_q, str):
-            continue
-
-        norm_q = normalize_question_text(raw_q)
-        analysis = qu_service.analyze(norm_q)
-
-        if analysis.intent == QueryIntent.RELATIONSHIP:
-            cases.append(
-                RelationshipCase(
-                    question_id=str(qid),
-                    raw_question=raw_q,
-                    normalized_question=norm_q,
-                    detected_intent=analysis.intent.value,
-                )
-            )
-
-    cases.sort(key=lambda c: c.question_id)
-
-    _LOGGER.info(
-        "relationship_cases_loaded",
-        extra={
-            "total_questions_in_file": len(raw_data),
-            "file_sha256": file_hash,
-            "relationship_cases_found": len(cases),
-            "expected_count": expected_count,
-        },
-    )
-
-    if expected_count is not None and len(cases) != expected_count:
+        commit = result.stdout.strip()
+        if len(commit) != 40 or not all(c in "0123456789abcdefABCDEF" for c in commit):
+            raise ValueError(f"Invalid git commit output: '{commit}'")
+        return commit
+    except Exception as exc:
         raise DataValidationError(
-            f"Expected exactly {expected_count} relationship cases, "
-            f"found {len(cases)} (file={questions_path}, sha256={file_hash})"
-        )
-
-    return cases
+            f"Failed to resolve execution git commit SHA: {exc}"
+        ) from exc
 
 
 @dataclass(frozen=True, slots=True)
 class EvaluatedHit:
-    """Comparable hit attributes for post-change equivalence."""
+    """A single hit serialized for equivalence evaluation."""
 
     rank: int
     chunk_id: str
@@ -187,285 +166,757 @@ class EvaluatedHit:
     score: float
     strategy: str
 
-    @classmethod
-    def from_retrieval_hit(cls, hit: RetrievalHit, rank: int) -> EvaluatedHit:
-        return cls(
-            rank=rank,
-            chunk_id=hit.chunk_id,
-            document_id=hit.document_id,
-            score=round(hit.score, 8),
-            strategy=hit.strategy.value,
+
+@dataclass(frozen=True, slots=True)
+class FrozenB1A2Baseline:
+    """Loaded and verified B1A.2 baseline evidence."""
+
+    decision_verdict: str
+    results_sha256: str
+    execution_git_commit: str
+    case_count: int
+    expected_s20_hits: dict[str, list[EvaluatedHit]]
+
+
+def load_and_verify_b1a2_baseline(
+    baseline_dir_or_zip: Path,
+    expected_ids: list[str],
+) -> FrozenB1A2Baseline:
+    """Load and verify frozen B1A.2 baseline evidence against strict gates."""
+    if not baseline_dir_or_zip.exists():
+        raise DataValidationError(
+            f"B1A.2 baseline path does not exist: {baseline_dir_or_zip}"
         )
+
+    temp_unpack_dir: Path | None = None
+    if baseline_dir_or_zip.is_file() and baseline_dir_or_zip.suffix == ".zip":
+        import tempfile
+        temp_unpack_dir = Path(tempfile.mkdtemp(prefix="b1a2_unpacked_"))
+        with zipfile.ZipFile(baseline_dir_or_zip, "r") as zip_ref:
+            zip_ref.extractall(temp_unpack_dir)
+        base_path = temp_unpack_dir
+    else:
+        base_path = baseline_dir_or_zip
+
+    try:
+        # Locate results file
+        results_path = base_path / "results" / "phase_b1a2_retrieval_results.jsonl"
+        if not results_path.exists():
+            results_path = base_path / "phase_b1a2_retrieval_results.jsonl"
+        if not results_path.exists():
+            raise DataValidationError(
+                f"Missing B1A.2 results jsonl at {results_path}"
+            )
+
+        # Locate decision report
+        decision_path = base_path / "results" / "phase_b1a2_decision_report.json"
+        if not decision_path.exists():
+            decision_path = base_path / "phase_b1a2_decision_report.json"
+        if not decision_path.exists():
+            raise DataValidationError(
+                f"Missing B1A.2 decision report at {decision_path}"
+            )
+
+        # Locate run summary / baseline identity
+        summary_path = base_path / "evidence" / "phase_b1a2_run_summary.json"
+        if not summary_path.exists():
+            summary_path = base_path / "phase_b1a2_run_summary.json"
+        if not summary_path.exists():
+            summary_path = base_path / "baseline" / "b1a2_baseline_identity.json"
+
+        # Verify results SHA256
+        actual_results_sha = sha256_file(results_path)
+        if actual_results_sha != CANONICAL_B1A2_RESULTS_SHA256:
+            raise DataValidationError(
+                f"B1A.2 results SHA256 mismatch: expected {CANONICAL_B1A2_RESULTS_SHA256}, got {actual_results_sha}"
+            )
+
+        # Verify decision report
+        decision_data = json.loads(decision_path.read_text(encoding="utf-8"))
+        verdict = decision_data.get("verdict")
+        if verdict != "GRAPH_REDUNDANCY_PROVEN":
+            raise DataValidationError(
+                f"B1A.2 verdict must be 'GRAPH_REDUNDANCY_PROVEN', got '{verdict}'"
+            )
+
+        # Verify execution commit from summary if present
+        commit = CANONICAL_B1A2_EXECUTION_COMMIT
+        if summary_path.exists():
+            summary_data = json.loads(summary_path.read_text(encoding="utf-8"))
+            commit = summary_data.get("execution_git_commit", commit)
+            if commit != CANONICAL_B1A2_EXECUTION_COMMIT:
+                raise DataValidationError(
+                    f"B1A.2 execution commit mismatch: expected {CANONICAL_B1A2_EXECUTION_COMMIT}, got {commit}"
+                )
+
+        # Load S20 hits per question
+        lines = [
+            line.strip()
+            for line in results_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if len(lines) != len(expected_ids):
+            raise DataValidationError(
+                f"B1A.2 results count ({len(lines)}) != expected case count ({len(expected_ids)})"
+            )
+
+        expected_hits: dict[str, list[EvaluatedHit]] = {}
+        for line in lines:
+            record = json.loads(line)
+            qid = str(record["question_id"])
+            s20_hits_raw = record.get("s20_arm", {}).get("final_hits", [])
+            expected_hits[qid] = [
+                EvaluatedHit(
+                    rank=h["rank"],
+                    chunk_id=h["chunk_id"],
+                    document_id=h["document_id"],
+                    score=float(h["score"]),
+                    strategy=h["strategy"],
+                )
+                for h in s20_hits_raw
+            ]
+
+        # Verify all expected IDs exist
+        for expected_id in expected_ids:
+            if expected_id not in expected_hits:
+                raise DataValidationError(
+                    f"B1A.2 baseline missing expected question ID '{expected_id}'"
+                )
+
+        return FrozenB1A2Baseline(
+            decision_verdict=verdict,
+            results_sha256=actual_results_sha,
+            execution_git_commit=commit,
+            case_count=len(expected_hits),
+            expected_s20_hits=expected_hits,
+        )
+    finally:
+        if temp_unpack_dir is not None and temp_unpack_dir.exists():
+            shutil.rmtree(temp_unpack_dir, ignore_errors=True)
 
 
 @dataclass(frozen=True, slots=True)
-class CaseResult:
-    """Per-case evaluation output for B1B verification."""
+class CaseMaterialization:
+    """Materialized case from manifest and benchmark questions."""
+
+    question_id: str
+    raw_question: str
+    normalized_question: str
+
+
+def materialize_cases_from_benchmark(
+    manifest_path: Path,
+    questions_path: Path,
+) -> tuple[list[CaseMaterialization], str, str]:
+    """Validate manifest and questions benchmark, then materialize the 22 cases."""
+    if not manifest_path.exists():
+        raise DataValidationError(f"Manifest path does not exist: {manifest_path}")
+    if not questions_path.exists():
+        raise DataValidationError(f"Questions benchmark path does not exist: {questions_path}")
+
+    manifest_bytes = manifest_path.read_bytes()
+    manifest_sha = sha256_bytes(manifest_bytes)
+    manifest_data = json.loads(manifest_bytes.decode("utf-8"))
+
+    case_ids: list[str] = [str(x) for x in manifest_data.get("question_ids", [])]
+    if len(case_ids) != EXPECTED_CASE_COUNT:
+        raise DataValidationError(
+            f"Case manifest must have exactly {EXPECTED_CASE_COUNT} IDs, got {len(case_ids)}"
+        )
+    if len(set(case_ids)) != len(case_ids):
+        raise DataValidationError("Case manifest contains duplicate IDs")
+    if case_ids != EXPECTED_22_IDS:
+        raise DataValidationError(
+            f"Case manifest IDs/order mismatch: expected {EXPECTED_22_IDS}, got {case_ids}"
+        )
+
+    questions_bytes = questions_path.read_bytes()
+    questions_sha = sha256_bytes(questions_bytes)
+    if questions_sha != CANONICAL_SOURCE_QUESTION_SHA256:
+        raise DataValidationError(
+            f"Canonical development.json SHA mismatch: expected {CANONICAL_SOURCE_QUESTION_SHA256}, got {questions_sha}"
+        )
+
+    raw_questions_data = json.loads(questions_bytes.decode("utf-8"))
+    if not isinstance(raw_questions_data, dict):
+        raise DataValidationError("development.json must be a JSON object mapping IDs to payloads")
+    if len(raw_questions_data) != CANONICAL_SOURCE_QUESTION_COUNT:
+        raise DataValidationError(
+            f"development.json question count ({len(raw_questions_data)}) != {CANONICAL_SOURCE_QUESTION_COUNT}"
+        )
+
+    cases: list[CaseMaterialization] = []
+    for qid in case_ids:
+        if qid not in raw_questions_data:
+            raise DataValidationError(f"Question ID '{qid}' not found in development.json")
+        payload = raw_questions_data[qid]
+        if not isinstance(payload, dict) or "question" not in payload:
+            raise DataValidationError(f"Question ID '{qid}' missing 'question' string field")
+        raw_q = payload["question"]
+        if not isinstance(raw_q, str) or not raw_q.strip():
+            raise DataValidationError(f"Question ID '{qid}' has invalid or empty question text")
+        norm_q = normalize_question_text(raw_q)
+        cases.append(
+            CaseMaterialization(
+                question_id=qid,
+                raw_question=raw_q,
+                normalized_question=norm_q,
+            )
+        )
+
+    return cases, manifest_sha, questions_sha
+
+
+def create_graphless_staging_root(
+    source_root: Path,
+    staging_root: Path,
+) -> list[dict[str, object]]:
+    """Create an immutable graphless staging root exposing only B1B competition artifacts."""
+    if not source_root.exists():
+        raise DataValidationError(f"Source artifact root does not exist: {source_root}")
+
+    staging_root.mkdir(parents=True, exist_ok=True)
+    inventory: list[dict[str, object]] = []
+
+    for item in source_root.iterdir():
+        if item.name in ("graph", "relationships"):
+            continue
+        dest = staging_root / item.name
+        if dest.exists() or dest.is_symlink():
+            continue
+        is_symlink = False
+        try:
+            os.symlink(item.resolve(), dest, target_is_directory=item.is_dir())
+            is_symlink = True
+        except (OSError, NotImplementedError):
+            if item.is_dir():
+                shutil.copytree(item, dest, symlinks=True)
+            else:
+                shutil.copy2(item, dest)
+        inventory.append({
+            "name": item.name,
+            "is_symlink": is_symlink,
+            "is_dir": item.is_dir(),
+            "source_path": str(item.resolve()),
+        })
+
+    # Hard assert graph and relationships are absent
+    if (staging_root / "graph").exists() or (staging_root / "graph").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'graph'")
+    if (staging_root / "relationships").exists() or (staging_root / "relationships").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'relationships'")
+
+    return inventory
+
+
+@dataclass(frozen=True, slots=True)
+class CaseEquivalenceResult:
+    """Equivalence comparison result for a single case."""
 
     question_id: str
     normalized_question: str
-    s20_arm_hits: list[EvaluatedHit]
-    relationship_reranker_hits: list[EvaluatedHit]
-    h40_arm_hits: list[EvaluatedHit]
-    s20_match: bool
-    s20_score_diffs: list[float]
+    b1b_hits: list[EvaluatedHit]
+    b1a2_expected_hits: list[EvaluatedHit]
+    chunks_match: bool
+    docs_match: bool
+    scores_match: bool
+    score_diffs: list[float]
+    max_score_diff: float
+    is_equivalent: bool
+    observed_candidate_count: int
+    route_plan: list[str]
     warnings: list[str]
 
 
 def compare_hit_lists(
-    expected: Sequence[EvaluatedHit],
     actual: Sequence[EvaluatedHit],
+    expected: Sequence[EvaluatedHit],
     tolerance: float = SCORE_ABS_TOLERANCE,
-) -> tuple[bool, list[float]]:
-    """Compare two hit lists for identical chunk/doc IDs and score tolerance."""
-    if len(expected) != len(actual):
-        return False, []
+) -> tuple[bool, bool, bool, list[float], float]:
+    """Compare hit sequences on chunks, documents, and score tolerance."""
+    actual_chunks = [h.chunk_id for h in actual]
+    expected_chunks = [h.chunk_id for h in expected]
+    chunks_match = (actual_chunks == expected_chunks)
+
+    actual_docs = [h.document_id for h in actual]
+    expected_docs = [h.document_id for h in expected]
+    docs_match = (actual_docs == expected_docs)
 
     score_diffs: list[float] = []
-    for exp, act in zip(expected, actual, strict=True):
-        if exp.chunk_id != act.chunk_id:
-            return False, score_diffs
-        if exp.document_id != act.document_id:
-            return False, score_diffs
-        diff = abs(exp.score - act.score)
-        score_diffs.append(diff)
-        if diff > tolerance:
-            return False, score_diffs
+    if len(actual) == len(expected):
+        for act_h, exp_h in zip(actual, expected):
+            score_diffs.append(abs(act_h.score - exp_h.score))
+        max_diff = max(score_diffs) if score_diffs else 0.0
+        scores_match = all(d <= tolerance for d in score_diffs)
+    else:
+        max_diff = float("inf")
+        scores_match = False
 
-    return True, score_diffs
+    return chunks_match, docs_match, scores_match, score_diffs, max_diff
 
 
-def run_b1b_verification(
-    config: ApplicationConfig,
+def run_b1b_verification_protocol(
+    config_path: Path,
+    manifest_path: Path,
     questions_path: Path,
+    baseline_dir_or_zip: Path,
     output_dir: Path,
-    expected_case_count: int = EXPECTED_CASE_COUNT,
-) -> dict[str, object]:
-    """Execute complete Phase B1B post-change verification protocol."""
-    started_at = datetime.now(UTC)
+    staging_root: Path | None = None,
+) -> tuple[dict[str, object], dict[str, object], str]:
+    """Execute the full B1B post-change verification protocol and determine mechanical verdict."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    execution_dir = output_dir / "execution"
+    baseline_dir = output_dir / "baseline"
+    configs_dir = output_dir / "configs"
+    results_dir = output_dir / "results"
 
-    # 1. Load cases
-    cases = load_relationship_cases(
-        questions_path, expected_count=expected_case_count
-    )
+    execution_dir.mkdir(parents=True, exist_ok=True)
+    baseline_dir.mkdir(parents=True, exist_ok=True)
+    configs_dir.mkdir(parents=True, exist_ok=True)
+    results_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. Build OnlineRuntime via factory to test startup without graph
-    runtime_factory = OnlineRuntimeFactory(config)
-    runtime = runtime_factory.build()
+    reasons: list[str] = []
+    is_invalid = False
+    verdict = "INVALID_EXPERIMENT"
 
-    # 3. Verify tool capabilities
-    tool_names = set(runtime.registry.descriptors().keys())
-    if ToolName.GRAPH_SEARCH.value in tool_names:
-        raise RetrievalError("graph_search must NOT be present in online runtime tools")
-    if ToolName.RELATIONSHIP_RERANK_SEARCH.value not in tool_names:
-        raise RetrievalError("relationship_rerank_search MUST be present in online runtime tools")
+    # Resolve execution commit & script SHA
+    script_path = Path(__file__).resolve()
+    script_sha = sha256_file(script_path)
+    try:
+        execution_commit = resolve_execution_git_commit(script_path)
+    except Exception as exc:
+        reasons.append(f"Protocol failure: Cannot resolve execution git commit ({exc})")
+        execution_commit = "unknown"
+        is_invalid = True
 
-    # 4. Verify registered strategy router planning for relationship intent
-    qu_service = QueryUnderstandingService(config.online.query_understanding)
-    for case in cases:
-        analysis = qu_service.analyze(case.normalized_question)
-        query = RetrievalQuery(
-            text=case.normalized_question,
-            top_k=FINAL_TOP_K,
-            candidate_k=S20_BRANCH_CANDIDATE_DEPTH,
-            query_analysis=analysis,
+    # 1. Load baseline B1A.2 evidence
+    b1a2_baseline: FrozenB1A2Baseline | None = None
+    try:
+        b1a2_baseline = load_and_verify_b1a2_baseline(baseline_dir_or_zip, EXPECTED_22_IDS)
+        baseline_identity = {
+            "baseline_experiment_id": "PHASE-B1A.2",
+            "decision_verdict": b1a2_baseline.decision_verdict,
+            "results_sha256": b1a2_baseline.results_sha256,
+            "execution_git_commit": b1a2_baseline.execution_git_commit,
+            "case_count": b1a2_baseline.case_count,
+        }
+        (baseline_dir / "b1a2_baseline_identity.json").write_text(
+            json.dumps(baseline_identity, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
-        routes = runtime.workflow._router.plan(
-            query,
-            set(runtime.registry.tools.keys()),
+    except Exception as exc:
+        reasons.append(f"Baseline provenance failure: {exc}")
+        is_invalid = True
+
+    # 2. Materialize exact 22 cases
+    cases: list[CaseMaterialization] = []
+    manifest_sha = ""
+    questions_sha = ""
+    try:
+        cases, manifest_sha, questions_sha = materialize_cases_from_benchmark(
+            manifest_path, questions_path
         )
-        if len(routes) < 2:
-            raise RetrievalError(f"Router produced fewer than 2 routes for case {case.question_id}")
-        if routes[0].tool_name != ToolName.RELATIONSHIP_RERANK_SEARCH:
-            raise RetrievalError(
-                f"Attempt 1 route for relationship query must be relationship_rerank_search, got {routes[0].tool_name}"
-            )
-        if routes[1].tool_name != ToolName.RERANK_SEARCH:
-            raise RetrievalError(
-                f"Attempt 2 route for relationship query must be rerank_search, got {routes[1].tool_name}"
-            )
+        shutil.copy2(manifest_path, configs_dir / "phase-b1a-graph-routing-cases.json")
+    except Exception as exc:
+        reasons.append(f"Case materialization failure: {exc}")
+        is_invalid = True
 
-    # 5. Evaluate all cases across arms: S20 specification vs runtime relationship_reranker
-    reranker = runtime_factory._reranker
-    reranker_config = config.online.reranker
-    bm25 = SQLiteFTS5BM25Backend(
-        config.offline.bm25,
-        runtime_config=config.online.bm25_runtime,
-    )
-    bm25_manifest = load_artifact_manifest(
-        config.artifacts.directory("bm25_directory"),
-        expected_type=ArtifactType.BM25_INDEX,
-    )
-    bm25.load(config.artifacts.directory("bm25_directory"), bm25_manifest)
+    # 3. Create graphless staging root and build runtime
+    app_config = load_application_config(config_path)
+    source_root = app_config.artifacts.root_path
+    if staging_root is None:
+        staging_root = output_dir / "staging" / "graphless_root"
 
-    vector = NumpyVectorBackend(
-        config.offline.vector_index,
-        runtime_config=config.online.vector_runtime,
-        serving_metadata_source=config.artifacts.directory("vector_serving_directory"),
-    )
-    vector_manifest = load_artifact_manifest(
-        config.artifacts.directory("vector_directory"),
-        expected_type=ArtifactType.VECTOR_INDEX,
-    )
-    vector.load(config.artifacts.directory("vector_directory"), vector_manifest)
+    inventory: list[dict[str, object]] = []
+    runtime: OnlineRuntime | None = None
+    runtime_config: ApplicationConfig | None = None
 
-    dense = DenseRetriever(runtime_factory._embedding_provider, vector)
-    hybrid = HybridRetriever(
-        bm25,
-        dense,
-        config.online.retrieval,
-        config.online.query_understanding,
-    )
-    h40_reranker = RerankingRetriever(hybrid, reranker, reranker_config)
-
-    case_results: list[CaseResult] = []
-    all_s20_matches = True
-    max_score_diff = 0.0
-
-    for case in cases:
-        analysis = qu_service.analyze(case.normalized_question)
-        base_query = RetrievalQuery(
-            text=case.normalized_question,
-            top_k=FINAL_TOP_K,
-            candidate_k=S20_BRANCH_CANDIDATE_DEPTH,
-            query_analysis=analysis,
+    try:
+        inventory = create_graphless_staging_root(source_root, staging_root)
+        (execution_dir / "graphless_root_inventory.json").write_text(
+            json.dumps(inventory, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
 
-        # Direct S20 baseline calculation
-        s20_candidate_query = base_query.model_copy(
+        # Freeze runtime config targeting graphless root
+        runtime_config = app_config.model_copy(
             update={
-                "top_k": S20_HYBRID_OUTPUT_LIMIT,
-                "requested_strategy": RetrievalStrategy.HYBRID,
+                "artifacts": app_config.artifacts.model_copy(
+                    update={"root_path": staging_root}
+                ),
+                "online": app_config.online.model_copy(
+                    update={
+                        "retrieval": app_config.online.retrieval.model_copy(
+                            update={
+                                "top_k": FINAL_TOP_K,
+                                "candidate_k": S20_BRANCH_CANDIDATE_DEPTH,
+                                "relationship_rerank_fusion_k": S20_HYBRID_OUTPUT_LIMIT,
+                            }
+                        )
+                    }
+                ),
             }
         )
-        s20_candidate_resp = hybrid.search(s20_candidate_query)
-        s20_rerank_resp = h40_reranker.rerank_candidates(
-            base_query.model_copy(update={"requested_strategy": RetrievalStrategy.HYBRID_RERANK}),
-            s20_candidate_resp,
+
+        (configs_dir / "runtime_config.json").write_text(
+            json.dumps(runtime_config.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
-        s20_hits = [
-            EvaluatedHit.from_retrieval_hit(hit, idx + 1)
-            for idx, hit in enumerate(s20_rerank_resp.hits[:FINAL_TOP_K])
-        ]
 
-        # Runtime relationship reranker search
-        rel_resp = runtime.retriever.search_relationship_rerank(base_query)
-        rel_hits = [
-            EvaluatedHit.from_retrieval_hit(hit, idx + 1)
-            for idx, hit in enumerate(rel_resp.hits[:FINAL_TOP_K])
-        ]
+        runtime = OnlineRuntimeFactory(runtime_config).build()
 
-        # H40 diagnostic search
-        h40_resp = h40_reranker.search(base_query)
-        h40_hits = [
-            EvaluatedHit.from_retrieval_hit(hit, idx + 1)
-            for idx, hit in enumerate(h40_resp.hits[:FINAL_TOP_K])
-        ]
-
-        # Compare S20 vs relationship_reranker
-        matched, diffs = compare_hit_lists(s20_hits, rel_hits, SCORE_ABS_TOLERANCE)
-        if not matched:
-            all_s20_matches = False
-        if diffs:
-            max_score_diff = max(max_score_diff, max(diffs))
-
-        case_results.append(
-            CaseResult(
-                question_id=case.question_id,
-                normalized_question=case.normalized_question,
-                s20_arm_hits=s20_hits,
-                relationship_reranker_hits=rel_hits,
-                h40_arm_hits=h40_hits,
-                s20_match=matched,
-                s20_score_diffs=diffs,
-                warnings=rel_resp.warnings,
+        # Check runtime manifests
+        actual_manifest_types = set(runtime.manifests.keys())
+        expected_manifest_types = {
+            ArtifactType.LEGAL_CHUNKS.value,
+            ArtifactType.BM25_INDEX.value,
+            ArtifactType.VECTOR_INDEX.value,
+        }
+        if actual_manifest_types != expected_manifest_types:
+            raise ArtifactCompatibilityError(
+                f"OnlineRuntime manifests mismatch: expected {expected_manifest_types}, got {actual_manifest_types}"
             )
+
+        # Check tool registry
+        descriptor_names = {d.name.value for d in runtime.tool_registry.descriptors()}
+        if "graph_search" in descriptor_names:
+            raise RetrievalError("ToolName.GRAPH_SEARCH illegally present in tool registry")
+        if ToolName.RELATIONSHIP_RERANK_SEARCH.value not in descriptor_names:
+            raise RetrievalError("ToolName.RELATIONSHIP_RERANK_SEARCH missing from tool registry")
+
+    except Exception as exc:
+        reasons.append(f"Runtime startup / artifact compatibility failure: {exc}")
+        is_invalid = True
+
+    # 4. If invalid before execution, record decision and exit
+    if is_invalid or runtime is None or b1a2_baseline is None or runtime_config is None:
+        report = {
+            "experiment_id": "PHASE-B1B",
+            "verdict": "INVALID_EXPERIMENT",
+            "reasons": reasons,
+            "code_version": __version__,
+            "execution_git_commit": execution_commit,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        decision_report = {
+            "experiment_id": "PHASE-B1B",
+            "verdict": "INVALID_EXPERIMENT",
+            "reasons": reasons,
+            "b1b_verified": False,
+        }
+        (results_dir / "phase_b1b_equivalence_report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        (results_dir / "phase_b1b_decision_report.json").write_text(
+            json.dumps(decision_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        return report, decision_report, "INVALID_EXPERIMENT"
+
+    # 5. Execute 22 cases
+    qu_service = QueryUnderstandingService(runtime_config.online.query_understanding)
+    router = DeterministicStrategyRouter(
+        runtime_config.online.agent,
+        runtime_config.online.query_understanding,
+    )
+    registered_tool_names = {d.name for d in runtime.tool_registry.descriptors()}
+    rel_tool = runtime.tool_registry.get(ToolName.RELATIONSHIP_RERANK_SEARCH)
+
+    case_results: list[CaseEquivalenceResult] = []
+    case_results_lines: list[str] = []
+    case_metrics_lines: list[str] = []
+
+    for idx, case in enumerate(cases):
+        qid = case.question_id
+        analysis = qu_service.analyze(case.normalized_question)
+        if analysis.intent != QueryIntent.RELATIONSHIP:
+            reasons.append(
+                f"Protocol failure ({qid}): Query intent ({analysis.intent}) != RELATIONSHIP"
+            )
+            is_invalid = True
+
+        query = RetrievalQuery(
+            query_id=qid,
+            original_question=case.raw_question,
+            normalized_question=case.normalized_question,
+            top_k=FINAL_TOP_K,
+            candidate_k=S20_BRANCH_CANDIDATE_DEPTH,
+            requested_strategy=None,
+            query_analysis=analysis,
         )
 
-    completed_at = datetime.now(UTC)
-    duration_seconds = (completed_at - started_at).total_seconds()
+        routes = router.plan(query, registered_tool_names)
+        route_str_list = [f"{r.strategy.value}:{r.tool_name.value}" for r in routes]
 
-    report: dict[str, object] = {
-        "protocol": "PHASE_B1B_GRAPHLESS_EQUIVALENCE",
-        "version": __version__,
-        "started_at": started_at.isoformat(),
-        "completed_at": completed_at.isoformat(),
-        "duration_seconds": duration_seconds,
-        "cases_evaluated": len(case_results),
-        "all_s20_matches": all_s20_matches,
-        "max_score_diff": max_score_diff,
-        "tolerance": SCORE_ABS_TOLERANCE,
-        "verdict": "VERIFIED_EQUIVALENT" if all_s20_matches else "EQUIVALENCE_FAILED",
-        "tools_registered": list(tool_names),
-        "manifests_loaded": list(runtime.manifests.keys()),
-        "case_details": [
-            {
-                "question_id": r.question_id,
-                "s20_match": r.s20_match,
-                "max_score_diff": max(r.s20_score_diffs) if r.s20_score_diffs else 0.0,
-                "hits_count": len(r.relationship_reranker_hits),
-            }
-            for r in case_results
-        ],
+        # Verify route ordering
+        if len(routes) < 3:
+            reasons.append(f"Protocol failure ({qid}): Router planned < 3 attempts: {route_str_list}")
+            is_invalid = True
+        elif (
+            routes[0].tool_name != ToolName.RELATIONSHIP_RERANK_SEARCH
+            or routes[1].tool_name != ToolName.RERANK_SEARCH
+            or routes[2].tool_name != ToolName.HYBRID_SEARCH
+        ):
+            reasons.append(
+                f"Protocol failure ({qid}): Route order mismatch: expected [relationship_rerank, rerank, hybrid], got {route_str_list}"
+            )
+            is_invalid = True
+
+        # Execute Attempt 1 via RELATIONSHIP_RERANK_SEARCH tool
+        try:
+            resp: RetrievalResponse = rel_tool.invoke(query)
+        except Exception as exc:
+            reasons.append(f"Execution model error on case {qid}: {exc}")
+            is_invalid = True
+            continue
+
+        if resp.strategy != RetrievalStrategy.HYBRID_RERANK:
+            reasons.append(f"Protocol failure ({qid}): Strategy ({resp.strategy}) != HYBRID_RERANK")
+            is_invalid = True
+
+        if len(resp.hits) > FINAL_TOP_K:
+            reasons.append(f"Protocol failure ({qid}): Hits count ({len(resp.hits)}) > {FINAL_TOP_K}")
+            is_invalid = True
+
+        b1b_hits = [
+            EvaluatedHit(
+                rank=h.rank,
+                chunk_id=h.chunk_id,
+                document_id=h.document_id,
+                score=float(h.score),
+                strategy=h.strategy.value,
+            )
+            for h in resp.hits
+        ]
+
+        expected_hits = b1a2_baseline.expected_s20_hits.get(qid, [])
+        (
+            chunks_match,
+            docs_match,
+            scores_match,
+            score_diffs,
+            max_diff,
+        ) = compare_hit_lists(b1b_hits, expected_hits, tolerance=SCORE_ABS_TOLERANCE)
+
+        is_equiv = chunks_match and docs_match and scores_match
+
+        # Extract candidate count if available from trace
+        observed_cands = len(b1b_hits)
+
+        case_res = CaseEquivalenceResult(
+            question_id=qid,
+            normalized_question=case.normalized_question,
+            b1b_hits=b1b_hits,
+            b1a2_expected_hits=expected_hits,
+            chunks_match=chunks_match,
+            docs_match=docs_match,
+            scores_match=scores_match,
+            score_diffs=score_diffs,
+            max_score_diff=max_diff,
+            is_equivalent=is_equiv,
+            observed_candidate_count=observed_cands,
+            route_plan=route_str_list,
+            warnings=resp.warnings,
+        )
+        case_results.append(case_res)
+
+        case_record = {
+            "question_id": qid,
+            "normalized_question": case.normalized_question,
+            "b1b_final_hits": [asdict(h) for h in b1b_hits],
+            "b1a2_expected_hits": [asdict(h) for h in expected_hits],
+            "chunks_match": chunks_match,
+            "docs_match": docs_match,
+            "scores_match": scores_match,
+            "max_score_diff": max_diff if max_diff != float("inf") else None,
+            "is_equivalent": is_equiv,
+            "route_plan": route_str_list,
+            "warnings": resp.warnings,
+        }
+        case_results_lines.append(json.dumps(case_record, ensure_ascii=False))
+
+        case_metric = {
+            "question_id": qid,
+            "is_equivalent": is_equiv,
+            "chunks_match": chunks_match,
+            "docs_match": docs_match,
+            "scores_match": scores_match,
+            "max_score_diff": max_diff if max_diff != float("inf") else None,
+        }
+        case_metrics_lines.append(json.dumps(case_metric, ensure_ascii=False))
+
+        _LOGGER.info(
+            "Case [%d/%d] %s: equivalent=%s (chunks=%s, docs=%s, scores=%s, max_diff=%.7f)",
+            idx + 1,
+            len(cases),
+            qid,
+            is_equiv,
+            chunks_match,
+            docs_match,
+            scores_match,
+            max_diff,
+        )
+
+    # Write retrieval results jsonl and case metrics jsonl
+    (results_dir / "phase_b1b_retrieval_results.jsonl").write_bytes(
+        ("\n".join(case_results_lines) + "\n").encode("utf-8")
+    )
+    (results_dir / "phase_b1b_case_metrics.jsonl").write_bytes(
+        ("\n".join(case_metrics_lines) + "\n").encode("utf-8")
+    )
+
+    # 6. Evaluate verdict
+    if is_invalid or len(case_results) != len(cases):
+        verdict = "INVALID_EXPERIMENT"
+    else:
+        mismatches: list[str] = []
+        for cr in case_results:
+            if not cr.chunks_match:
+                mismatches.append(f"Case {cr.question_id}: Chunk ID sequences differ from frozen B1A.2 S20")
+            if not cr.docs_match:
+                mismatches.append(f"Case {cr.question_id}: Document ID sequences differ from frozen B1A.2 S20")
+            if not cr.scores_match:
+                mismatches.append(
+                    f"Case {cr.question_id}: Reranker score diff ({cr.max_score_diff}) > {SCORE_ABS_TOLERANCE}"
+                )
+
+        if mismatches:
+            reasons.extend(mismatches)
+            verdict = "B1B_EQUIVALENCE_FAIL"
+        else:
+            reasons.append(
+                f"All {len(cases)} relationship cases match frozen B1A.2 S20 hits exactly on chunk IDs, "
+                f"document IDs, and reranker scores (tolerance <= {SCORE_ABS_TOLERANCE}) against graphless runtime root."
+            )
+            verdict = "B1B_EQUIVALENCE_PASS"
+
+    matching_count = sum(1 for cr in case_results if cr.is_equivalent)
+    chunk_matches_count = sum(1 for cr in case_results if cr.chunks_match)
+    doc_matches_count = sum(1 for cr in case_results if cr.docs_match)
+    score_passes_count = sum(1 for cr in case_results if cr.scores_match)
+
+    report = {
+        "experiment_id": "PHASE-B1B",
+        "code_version": __version__,
+        "execution_git_commit": execution_commit,
+        "script_sha256": script_sha,
+        "manifest_sha256": manifest_sha,
+        "development_sha256": questions_sha,
+        "b1a2_baseline_results_sha256": b1a2_baseline.results_sha256,
+        "created_at": datetime.now(UTC).isoformat(),
+        "case_count": len(case_results),
+        "verdict": verdict,
+        "reasons": reasons,
+        "equivalence_summary": {
+            "exact_matches_count": matching_count,
+            "chunk_sequence_matches_count": chunk_matches_count,
+            "document_sequence_matches_count": doc_matches_count,
+            "score_tolerance_passes_count": score_passes_count,
+            "score_abs_tolerance": SCORE_ABS_TOLERANCE,
+        },
+        "invariants": {
+            "top_k": FINAL_TOP_K,
+            "candidate_k": S20_BRANCH_CANDIDATE_DEPTH,
+            "relationship_rerank_fusion_k": S20_HYBRID_OUTPUT_LIMIT,
+            "graph_search_tool_present": False,
+            "relationship_rerank_search_tool_present": True,
+            "online_manifests": sorted(list(runtime.manifests.keys())),
+        },
     }
 
-    report_file = output_dir / "phase_b1b_verification_report.json"
-    report_file.write_text(
-        json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+    decision_report = {
+        "experiment_id": "PHASE-B1B",
+        "verdict": verdict,
+        "reasons": reasons,
+        "b1b_verified": (verdict == "B1B_EQUIVALENCE_PASS"),
+        "summary": {
+            "exact_matches": f"{matching_count}/{len(cases)}",
+            "score_passes": f"{score_passes_count}/{len(cases)}",
+        },
+    }
+
+    (results_dir / "phase_b1b_equivalence_report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    _LOGGER.info(
-        "b1b_verification_report_written",
-        extra={
-            "report_path": str(report_file),
-            "verdict": report["verdict"],
-            "all_s20_matches": all_s20_matches,
-        },
+    (results_dir / "phase_b1b_decision_report.json").write_text(
+        json.dumps(decision_report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
     )
-    return report
+
+    # Persist execution identity
+    execution_identity = {
+        "experiment_id": "PHASE-B1B",
+        "code_version": __version__,
+        "execution_git_commit": execution_commit,
+        "script_sha256": script_sha,
+        "manifest_sha256": manifest_sha,
+        "development_sha256": questions_sha,
+        "runtime_config_sha256": sha256_file(configs_dir / "runtime_config.json"),
+    }
+    (execution_dir / "b1b_execution_identity.json").write_text(
+        json.dumps(execution_identity, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    return report, decision_report, verdict
+
+
+def package_b1b_evidence(
+    output_zip_path: Path,
+    output_dir: Path,
+) -> tuple[str, int]:
+    """Package verification evidence into canonical zip archive."""
+    output_zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(output_zip_path, "w", zipfile.ZIP_DEFLATED) as zip_file:
+        for root, _, files in os.walk(output_dir):
+            for file in files:
+                file_path = Path(root) / file
+                if file_path == output_zip_path:
+                    continue
+                # Expose only evidence directories
+                rel_path = file_path.relative_to(output_dir)
+                if any(rel_path.parts[0] == p for p in ("execution", "baseline", "configs", "results")):
+                    zip_file.write(file_path, arcname=str(rel_path).replace("\\", "/"))
+
+    zip_sha = sha256_file(output_zip_path)
+    zip_size = output_zip_path.stat().st_size
+    return zip_sha, zip_size
 
 
 def main() -> None:
-    """CLI entrypoint for Phase B1B post-change verification."""
-    parser = argparse.ArgumentParser(
-        description="Phase B1B Graphless Equivalence Verification Tool"
-    )
-    parser.add_argument(
-        "--config",
-        type=Path,
-        default=Path("configs/application.json"),
-        help="Path to application configuration JSON file.",
-    )
-    parser.add_argument(
-        "--questions",
-        type=Path,
-        default=Path("data/raw/public-official.json"),
-        help="Path to questions JSON file.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("artifacts/b1b_verification"),
-        help="Directory to save verification report.",
-    )
-    parser.add_argument(
-        "--expected-cases",
-        type=int,
-        default=EXPECTED_CASE_COUNT,
-        help="Expected number of relationship cases to find.",
-    )
+    """CLI entrypoint for Phase B1B verification tooling."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+    parser = argparse.ArgumentParser(description="Phase B1B Graphless Equivalence Verification Tooling")
+    parser.add_argument("--config", "-c", type=Path, required=True, help="Path to base ApplicationConfig JSON")
+    parser.add_argument("--manifest", "-m", type=Path, default=Path("configs/phase-b1a-graph-routing-cases.json"), help="Path to case manifest")
+    parser.add_argument("--questions", "-q", type=Path, required=True, help="Path to development.json")
+    parser.add_argument("--baseline-evidence-dir", "--b1a2-dir", type=Path, required=True, help="Path to B1A.2 baseline evidence directory or zip")
+    parser.add_argument("--output-dir", "-o", type=Path, default=Path("artifacts/b1b_verification"), help="Output directory")
+    parser.add_argument("--staging-root", type=Path, default=None, help="Optional custom graphless staging root")
+
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    app_config = load_application_config(args.config)
-    report = run_b1b_verification(
-        app_config,
-        args.questions,
-        args.output_dir,
-        expected_case_count=args.expected_cases,
+    report, decision, verdict = run_b1b_verification_protocol(
+        config_path=args.config,
+        manifest_path=args.manifest,
+        questions_path=args.questions,
+        baseline_dir_or_zip=args.baseline_evidence_dir,
+        output_dir=args.output_dir,
+        staging_root=args.staging_root,
     )
-    print(json.dumps(report, indent=2, ensure_ascii=False))
+
+    zip_path = args.output_dir / "phase-b1b-graphless-equivalence-evidence.zip"
+    zip_sha, zip_size = package_b1b_evidence(zip_path, args.output_dir)
+
+    print("\n========================================================")
+    print(f"PHASE B1B POST-CHANGE EQUIVALENCE VERDICT: {verdict}")
+    print("========================================================")
+    print(f"Exact matches: {decision.get('summary', {}).get('exact_matches', 'N/A')}")
+    print(f"Evidence ZIP:  {zip_path}")
+    print(f"Evidence SHA:  {zip_sha}")
+    print(f"Evidence Size: {zip_size} bytes")
+    print("========================================================\n")
 
 
 if __name__ == "__main__":

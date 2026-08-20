@@ -1,4 +1,4 @@
-# Phase B1B: Structural Competition Graph Removal
+# Phase B1B: Structural Competition Graph Removal and Post-Change Equivalence Verification
 
 ---
 
@@ -80,51 +80,262 @@ Generic graph capabilities remain preserved outside the competition path for fut
 
 ---
 
-## 3. Kaggle Post-Change Equivalence Runbook
+## 3. Kaggle Post-Change Equivalence Verification Protocol (Cells B1B-K1 to B1B-K7)
 
-### Cell 1: Environment and Git Commit Verification
+### Cell B1B-K1 — Environment & Commit Verification
+
 ```bash
 %%bash
 set -euo pipefail
 
-cd /kaggle/working/legal-agentic-rag
+cd /kaggle/working
 
-echo "=== Git Working Tree Status ==="
-git status --short
-git branch --show-current
+# 1. Clean previous checkout
+rm -rf legal-agentic-rag
+
+# 2. Clone repository
+git clone https://github.com/Chef221/legal-agentic-rag.git
+cd legal-agentic-rag
+
+# 3. Pin reviewed commit (set by reviewer)
+REVIEWED_COMMIT_SHA="PLACEHOLDER_REVIEWED_COMMIT_SHA"
+
+if [ "$REVIEWED_COMMIT_SHA" != "PLACEHOLDER_REVIEWED_COMMIT_SHA" ]; then
+    git checkout "$REVIEWED_COMMIT_SHA"
+fi
+
 ACTUAL_COMMIT_SHA="$(git rev-parse HEAD)"
 echo "Verified Execution Commit: $ACTUAL_COMMIT_SHA"
+test -n "$ACTUAL_COMMIT_SHA"
 
-echo "=== Python Package Verification ==="
-python3 -c "import legal_agentic_rag; print('Version:', legal_agentic_rag.__version__)"
+# 4. Install dependencies in editable mode
+pip install -q \
+  "torch==2.6.0" \
+  "transformers==4.49.0" \
+  "sentence-transformers==5.4.1" \
+  "accelerate==1.6.0" \
+  "nltk==3.7"
+
+pip install --no-deps -e .
+
+python3 -c "
+import legal_agentic_rag
+import torch
+print('Package version:', legal_agentic_rag.__version__)
+assert legal_agentic_rag.__version__ == '0.50.7', f'Expected 0.50.7, got {legal_agentic_rag.__version__}'
+print('CUDA available:', torch.cuda.is_available())
+print('Device count:', torch.cuda.device_count())
+assert torch.cuda.is_available(), 'CUDA is required for embedding and reranking'
+"
 ```
 
-### Cell 2: Execute Post-Change Equivalence Verification Protocol
-```bash
-%%bash
-set -euo pipefail
+---
 
-cd /kaggle/working/legal-agentic-rag
+### Cell B1B-K2 — Identity-Based Input & Evidence Discovery
 
-python3 scripts/phase_b1b_graphless_equivalence.py \
-  --config configs/phase-a-current-system-census-kaggle.json \
-  --questions data/raw/public-official.json \
-  --output-dir artifacts/b1b_verification \
-  --expected-cases 22
+```python
+import hashlib
+import json
+from pathlib import Path
+
+CANONICAL_DEV_SHA = "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
+CANONICAL_B1A2_RESULTS_SHA = "51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a"
+
+# 1. Discover canonical development.json uniquely
+dev_candidates = list(Path("/kaggle/input").rglob("development.json"))
+matching_devs = []
+for cand in dev_candidates:
+    if cand.is_file() and hashlib.sha256(cand.read_bytes()).hexdigest() == CANONICAL_DEV_SHA:
+        matching_devs.append(cand)
+
+assert len(matching_devs) == 1, (
+    f"Expected exactly 1 canonical development.json matching SHA {CANONICAL_DEV_SHA}, "
+    f"found {len(matching_devs)}: {matching_devs}"
+)
+dev_path = matching_devs[0]
+print(f"Found unique canonical development.json at: {dev_path}")
+
+# 2. Discover serving artifact root uniquely
+val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
+if not val_candidates:
+    val_candidates = list(Path("/kaggle/input").rglob("build_validation.json"))
+
+valid_serving_roots = []
+for val_file in val_candidates:
+    root = val_file.parent
+    if all((root / sub).is_dir() for sub in ["legal_chunks", "bm25", "vector"]):
+        valid_serving_roots.append(root)
+
+assert len(valid_serving_roots) >= 1, f"Expected valid serving root, found none in {val_candidates}"
+serving_root = valid_serving_roots[0]
+print(f"Found validated serving artifact root at: {serving_root}")
+
+# 3. Discover Phase B1A.2 baseline evidence directory or zip
+b1a2_candidates = list(Path("/kaggle/input").rglob("*b1a2*")) + list(Path("/kaggle/input").rglob("phase-b1a2-graph-equivalence-evidence.zip"))
+matching_b1a2 = []
+for cand in b1a2_candidates:
+    if cand.is_file() and cand.name == "phase-b1a2-graph-equivalence-evidence.zip":
+        matching_b1a2.append(cand)
+    elif cand.is_dir() and ((cand / "results" / "phase_b1a2_retrieval_results.jsonl").exists() or (cand / "phase_b1a2_retrieval_results.jsonl").exists()):
+        matching_b1a2.append(cand)
+
+assert len(matching_b1a2) >= 1, f"Expected B1A.2 baseline evidence directory/zip, found none in {b1a2_candidates}"
+b1a2_evidence_root = matching_b1a2[0]
+print(f"Found verified B1A.2 baseline evidence at: {b1a2_evidence_root}")
 ```
 
-### Cell 3: Package Evidence and Generate Canonical Checksum
-```bash
-%%bash
-set -euo pipefail
+---
 
-cd /kaggle/working/legal-agentic-rag/artifacts/b1b_verification
+### Cell B1B-K3 — Verify B1A.2 Provenance & Create Graphless Staging Root
 
-echo "=== Verification Report Summary ==="
-cat phase_b1b_verification_report.json
+```python
+import subprocess
+import json
+import os
+import shutil
+from pathlib import Path
 
-echo "=== Packaging Evidence ZIP ==="
-zip -q -r phase_b1b_verification_evidence.zip .
+work_dir = Path("/kaggle/working")
+staging_root = work_dir / "graphless_staging_root"
 
-sha256sum phase_b1b_verification_evidence.zip
+# Create graphless staging root (symlink valid components only)
+staging_root.mkdir(parents=True, exist_ok=True)
+for item in serving_root.iterdir():
+    if item.name in ("graph", "relationships"):
+        continue
+    dest = staging_root / item.name
+    if not dest.exists():
+        try:
+            os.symlink(item.resolve(), dest, target_is_directory=item.is_dir())
+        except OSError:
+            if item.is_dir():
+                shutil.copytree(item, dest)
+            else:
+                shutil.copy2(item, dest)
+
+assert not (staging_root / "graph").exists(), "Staging root illegally contains graph directory"
+assert not (staging_root / "relationships").exists(), "Staging root illegally contains relationships directory"
+print(f"Created clean graphless staging root at: {staging_root}")
+print(f"Staging root items: {[p.name for p in staging_root.iterdir()]}")
+```
+
+---
+
+### Cell B1B-K4 — Runtime Configuration Freeze
+
+```python
+import json
+from pathlib import Path
+from legal_agentic_rag.configuration import ApplicationConfig
+
+base_example = Path("legal-agentic-rag/configs/phase-a-current-system-census-kaggle.example.json")
+cfg = json.loads(base_example.read_text(encoding="utf-8"))
+
+# Point artifacts strictly to graphless staging root
+cfg["artifacts"]["root_path"] = str(staging_root)
+
+# Set retrieval parameters
+cfg["online"]["retrieval"]["top_k"] = 8
+cfg["online"]["retrieval"]["candidate_k"] = 40
+cfg["online"]["retrieval"]["relationship_rerank_fusion_k"] = 20
+
+# Set device to single GPU ("cuda") for retrieval components
+cfg["online"]["vector_runtime"]["search_device"] = "cuda"
+cfg["offline"]["embedding"]["device"] = "cuda"
+cfg["online"]["reranker"]["device"] = "cuda"
+
+# Strictly validate configuration through ApplicationConfig schema
+app_cfg = ApplicationConfig.model_validate(cfg)
+assert app_cfg.online.retrieval.top_k == 8
+assert app_cfg.online.retrieval.candidate_k == 40
+assert app_cfg.online.retrieval.relationship_rerank_fusion_k == 20
+assert app_cfg.online.vector_runtime.search_device == "cuda"
+
+runtime_cfg_path = work_dir / "runtime_config_b1b.json"
+runtime_cfg_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+print(f"B1B Runtime configuration validated and written to: {runtime_cfg_path}")
+```
+
+---
+
+### Cell B1B-K5 — Retrieval-Only Execution & Protocol Verification
+
+```python
+import subprocess
+import json
+from pathlib import Path
+
+output_dir = work_dir / "b1b_verification"
+output_dir.mkdir(parents=True, exist_ok=True)
+
+cmd = [
+    "python", "legal-agentic-rag/scripts/phase_b1b_graphless_equivalence.py",
+    "--config", str(runtime_cfg_path),
+    "--manifest", "legal-agentic-rag/configs/phase-b1a-graph-routing-cases.json",
+    "--questions", str(dev_path),
+    "--baseline-evidence-dir", str(b1a2_evidence_root),
+    "--output-dir", str(output_dir),
+    "--staging-root", str(staging_root),
+]
+
+print("Executing Phase B1B Verification Protocol...")
+res = subprocess.run(cmd, capture_output=False, text=True, check=True)
+```
+
+---
+
+### Cell B1B-K6 — Mechanical Decision & Verdict Verification
+
+```python
+import json
+from pathlib import Path
+
+report_path = output_dir / "results" / "phase_b1b_equivalence_report.json"
+decision_path = output_dir / "results" / "phase_b1b_decision_report.json"
+
+report = json.loads(report_path.read_text(encoding="utf-8"))
+decision = json.loads(decision_path.read_text(encoding="utf-8"))
+
+print("\n" + "=" * 60)
+print(f"PHASE B1B VERIFICATION VERDICT: {decision['verdict']}")
+print("=" * 60)
+print(f"B1B Verified:             {decision['b1b_verified']}")
+print(f"Exact Matches:            {decision['summary']['exact_matches']} / 22")
+print(f"Score Tolerance Passes:   {decision['summary']['score_passes']} / 22")
+
+print("\nEquivalence Summary:")
+for k, v in report.get("equivalence_summary", {}).items():
+    print(f"  {k}: {v}")
+
+print("\nReasons:")
+for r in decision.get("reasons", []):
+    print(f"  - {r}")
+print("=" * 60)
+
+assert decision["verdict"] == "B1B_EQUIVALENCE_PASS", f"Verification failed with verdict: {decision['verdict']}"
+```
+
+---
+
+### Cell B1B-K7 — Evidence Packaging & Download
+
+```python
+import hashlib
+from pathlib import Path
+
+zip_path = output_dir / "phase-b1b-graphless-equivalence-evidence.zip"
+assert zip_path.is_file(), f"Expected evidence zip at {zip_path}"
+
+zip_bytes = zip_path.read_bytes()
+zip_sha = hashlib.sha256(zip_bytes).hexdigest()
+zip_size = len(zip_bytes)
+
+print("\n" + "=" * 60)
+print("PHASE B1B EVIDENCE PACKAGE READY")
+print("=" * 60)
+print("ZIP Path:      ", zip_path)
+print("ZIP SHA-256:   ", zip_sha)
+print("ZIP Size Bytes:", zip_size)
+print("=" * 60)
+print(">>> DOWNLOAD phase-b1b-graphless-equivalence-evidence.zip BEFORE ENDING SESSION <<<")
 ```

@@ -2785,7 +2785,7 @@ Canonical run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626
 
 ## D116 — Phase B1B Structural Competition Graph Removal and S20 Preservation
 
-**Status:** Accepted
+**Status:** Implementation Complete; Post-Change Verification Pending
 
 **Context:**
 Authorized by verdict `GRAPH_REDUNDANCY_PROVEN` from Phase B1A.2, Phase B1B removes the zero-edge graph traversal mechanism from the UIT DSC competition online path and offline build while preserving exact S20 retrieval behavior.
