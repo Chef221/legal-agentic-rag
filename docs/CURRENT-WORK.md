@@ -396,12 +396,26 @@ The immediate next action is:
      - Preflight verification passed on canonical development sources (`V2_DEVELOPMENT_BENCHMARK_READY`).
      - 33 comprehensive unit tests passing across verifier and harness.
      - Production isolation preserved: `RuleBasedCitationVerifier` active in production; semantic verifier disabled. Fresh holdout remains strictly sealed.
-   - **Next Action in Priority B**: External review of V2-D1 implementation before running first Kaggle development benchmark.
+   - **Task B-V2-D3.1 BENCHMARK COMPLETE — KEEP_D3**:
+     - Executed canonical development benchmark for V2-D3.1 on Kaggle (`1383bf379a01c3f7456e3c41ba3be42846ceee2c`).
+     - Evidence archived in `verification-v2-d31-development-evidence.zip` (SHA-256 `e14f9656a13a04b8e545d88a5dca13653fa317166ff530f45e4b13124f864041`, size 18,379 bytes, 11 members).
+     - Verdict: `V2_D31_DEVELOPMENT_BENCHMARK_PASS`, Decision: `KEEP_D3`, `promotion_authorized = false`.
+     - Behavioral Finding: D3.1 operated as a high-recall / low-precision contradiction detector (caught 6/7 contradictions, but emitted 14 false contradiction positives, damaging supported retention from 17/18 down to 12/18 and regressing 6/7 D3 fixes).
+     - Canonical champion remains: **V2-D3**.
+   - **Task B-V2-D3.2 IMPLEMENTATION COMPLETE — FINAL PLANNED DEVELOPMENT ITERATION**:
+     - Implemented Candidate **V2-D3.2** (Frozen D3 Base + Strict Contradiction Confirmation Overlay) in `src/legal_agentic_rag/generation/structured_semantic_verifier_d32.py` and `src/legal_agentic_rag/generation/structured_semantic_verifier_d32_conflict.py`.
+     - Asymmetric design: Call A runs frozen D3 base verifier; Call B runs strict contradiction confirmation filter (`same_material_proposition`, `cannot_both_be_true`).
+     - Trusted override rule: D3 prediction changed TO `CONTRADICTED` if and only if strict conflict is confirmed (`(True, True)`). Otherwise, D3 label is strictly preserved.
+     - Benchmark harness implemented in `scripts/evaluate_verification_v2_d32_development.py` with 7 canonical input sources and pre-registered selection gate (`D32_SUPERSEDES_D3` vs `KEEP_D3`).
+     - Explicit invariant: V2-D3.2 is the FINAL planned development iteration (NO D3.3 planned). Fresh holdout remains strictly sealed.
+   - **Next Action in Priority B**: External review of V2-D3.2 implementation and protocol (`docs/30-V2-D32-STRICT-CONFLICT-OVERLAY-PROTOCOL.md`) before Kaggle development execution.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in V2-D3.1 Execution?** Resolved: V2-D3.1 passed mechanical benchmarks (`V2_D31_DEVELOPMENT_BENCHMARK_PASS`), but caused severe regressions on supported retention (12/18 vs D3's 17/18) and regressed 6/7 D3 gains due to contradiction overcalling (precision 30%, recall 85.71%). Formal decision: `KEEP_D3`. Evidence archived in `verification-v2-d31-development-evidence.zip` (SHA-256 `e14f9656a13a04b8e545d88a5dca13653fa317166ff530f45e4b13124f864041`).
+- **What is the architecture of V2-D3.2?** Resolved: Asymmetric two-stage verifier combining frozen D3 base verifier with an independent strict contradiction confirmation filter. D3 label is overridden to `CONTRADICTED` if and only if strict conflict is confirmed (`same_material_proposition=True` and `cannot_both_be_true=True`). Otherwise, D3 label is preserved. This is the final planned development iteration.
 - **What happened in Task B-V2-IMPLEMENTATION?** Resolved: Implemented experimental candidate `StructuredSemanticCitationVerifier` (multi-dimensional audit + deterministic derivation) and offline development benchmark harness `scripts/evaluate_verification_v2_development.py`. Preflight validation passed on canonical sources (`V2_DEVELOPMENT_BENCHMARK_READY`). 33 unit tests pass. Status: `V2-D1 IMPLEMENTED — REAL DEVELOPMENT MODEL EXECUTION PENDING EXTERNAL REVIEW`.
 - **What happened in Task B-HOLDOUT-SEALED?** Resolved: Pre-registered fresh holdout from frozen Phase-A census with 46-QID contamination exclusion set (772 eligible records). Selected 16 PRIMARY (4/4/4/4) + 8 FRESH RESERVE (2/2/2/2) under salt `verification-v2-holdout-gen-v1:`. All 16 primary packets materialized with 100% chunk lookups, 100% trace mapping, and 16/16 V0 verifier replay match. Review status: `sealed_unreviewed` (claim labels null). Artifacts: `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`) and `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`). Verdict: `V2_HOLDOUT_PRE_REGISTERED`.
 - **What happened in the V0 vs V1 Semantic Verifier Benchmark Execution?** Resolved: Executed controlled offline benchmark on Kaggle Tesla T4 (`d3aac626400cbe31ed0ed5ad109762fcb78d737d`). Evidence archived in `verification-semantic-benchmark-evidence.zip` (SHA-256 `bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6`). Mechanical verdict: `VERIFIER_BENCHMARK_PASS`. V1 improved net correctness by +5 claims and caught 7/15 invalid answers, but failed on 13/20 negative claims and regressed on 2 supported claims. Formal decision: `V1_EXISTING_SEMANTIC_VERIFIER_NOT_PROMOTED`. 38 claims burned as development data; fresh holdout required before future V2 promotion.
@@ -445,11 +459,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (V2-D3.1 Hierarchical Two-Gate Verifier Implemented — V2_D31_DEVELOPMENT_BENCHMARK_READY; V2-D3 Remains Current Best Candidate; Fresh Holdout Sealed; Production Verifier Disabled)
+    0.50.7 (V2-D3.2 Strict Contradiction Overlay Implemented — V2_D32_DEVELOPMENT_BENCHMARK_READY; V2-D3 Remains Current Best Candidate; V2-D3.1 Formally Closed as KEEP_D3; Fresh Holdout Sealed; Production Verifier Disabled)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (V2-D3.1 Implemented — Real Development Execution Pending External Review)
+    Priority B — Verification-correctness audit (V2-D3.2 Implemented — Final Planned Development Iteration — Real Development Execution Pending External Review)
 
 Next action:
-    External review of V2-D3.1 implementation and protocol before Kaggle development execution
+    External review of V2-D3.2 implementation and protocol before Kaggle development execution
 ```
