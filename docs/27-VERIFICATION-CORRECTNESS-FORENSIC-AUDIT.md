@@ -944,13 +944,15 @@ def derive_claim_semantic_label(assessment: StructuredClaimAssessmentDraft) -> S
 # ==============================================================================
 # CELL 1: Environment Setup & Pinned Dependency Gate
 # ==============================================================================
-import os, sys, importlib.metadata
+import os, sys, subprocess, importlib.metadata
 
 !git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
 %cd /kaggle/working/legal-agentic-rag
-!git checkout <COMMITTED_REVIEWED_V2_SHA>
+
+REVIEWED_COMMIT_SHA = "PLACEHOLDER_REVIEWED_COMMIT_SHA"
+
+!git checkout $REVIEWED_COMMIT_SHA
 !git status --short
-!git rev-parse HEAD
 
 !pip install -q -e .
 !python -m pip install -q transformers==4.47.1 accelerate==1.2.1
@@ -959,11 +961,30 @@ import torch
 import transformers
 import legal_agentic_rag
 
-assert transformers.__version__ == "4.47.1", f"Transformers version drift: {transformers.__version__}"
+actual_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+installed_ver = importlib.metadata.version("legal-agentic-rag")
+
+if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
+    assert actual_commit == REVIEWED_COMMIT_SHA, f"Git commit mismatch: expected {REVIEWED_COMMIT_SHA}, got {actual_commit}"
+
+assert source_ver == "0.50.7", f"Source package version mismatch: expected '0.50.7', got '{source_ver}'"
+assert installed_ver == "0.50.7", f"Installed distribution version mismatch: expected '0.50.7', got '{installed_ver}'"
+assert transformers.__version__ == "4.47.1", f"Transformers version drift: expected '4.47.1', got '{transformers.__version__}'"
 assert torch.cuda.is_available() is True, "CUDA device required for V2-D1 execution"
-print("Transformers Version:", transformers.__version__)
-print("CUDA Device:", torch.cuda.get_device_name(0))
-print("CUDA Version:", torch.version.cuda)
+
+print("=" * 60)
+print("ENVIRONMENT & PROVENANCE GATE PASSED")
+print("=" * 60)
+print("Git HEAD:                      ", actual_commit)
+print("legal_agentic_rag Source Ver:  ", source_ver)
+print("Installed Distribution Ver:    ", installed_ver)
+print("Transformers Version:          ", transformers.__version__)
+print("Torch Version:                 ", torch.__version__)
+print("CUDA Available:                ", torch.cuda.is_available())
+print("CUDA Version:                  ", torch.version.cuda)
+print("CUDA Device Name:              ", torch.cuda.get_device_name(0))
+print("=" * 60)
 ```
 
 ```python
@@ -981,17 +1002,33 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-# Step 1: Fail closed if any holdout artifact is present in /kaggle/input
-forbidden_holdout_filenames = [
+# Step 1: Recursive scan of all paths, directories, and files in /kaggle/input
+forbidden_patterns = [
+    "verification-v2-holdout",
+    "verification_v2_holdout",
+    "phase-a-current-system-census",
+]
+forbidden_exact = {
     "verification-v2-holdout-selection-v1.json",
     "verification-v2-holdout-review-packets-v1.zip",
     "verification_v2_holdout_output",
     "phase-a-current-system-census-final-evidence.zip",
-]
-for root, _, files in os.walk("/kaggle/input"):
-    for fname in files:
-        if fname in forbidden_holdout_filenames:
-            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout artifact found: {fname}")
+}
+
+for root, dirs, files in os.walk("/kaggle/input"):
+    root_p = Path(root)
+    for part in root_p.parts:
+        part_lower = part.lower()
+        if any(pat in part_lower for pat in forbidden_patterns) or part in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout path component detected in /kaggle/input: {part}")
+    for d in dirs:
+        d_lower = d.lower()
+        if any(pat in d_lower for pat in forbidden_patterns) or d in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout directory detected in /kaggle/input: {d}")
+    for f in files:
+        f_lower = f.lower()
+        if any(pat in f_lower for pat in forbidden_patterns) or f in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout file detected in /kaggle/input: {f}")
 
 # Step 2: Canonical expected SHA-256 signatures for the 5 development sources
 canonical_sources = {
@@ -1116,40 +1153,99 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 pkg_path = Path("/kaggle/working/verification-v2-d1-development-evidence.zip")
-assert pkg_path.is_file(), f"Missing package: {pkg_path}"
+assert pkg_path.is_file(), f"Missing evidence package: {pkg_path}"
 pkg_sha = sha256_file(pkg_path)
 pkg_size = pkg_path.stat().st_size
 print(f"Evidence Package SHA-256: {pkg_sha}")
-print(f"Evidence Package Size: {pkg_size} bytes")
+print(f"Evidence Package Size:    {pkg_size} bytes")
+
+required_members = {
+    "execution/v2_development_source_identity.json",
+    "results/v2_development_report.json",
+    "results/v2_development_decision_report.json",
+    "results/v2_dimension_diagnostics.json",
+    "results/v0_claim_predictions.jsonl",
+    "results/v1_claim_predictions.jsonl",
+    "results/v2_claim_predictions_pass1.jsonl",
+    "results/v2_claim_predictions_pass2.jsonl",
+    "results/v2_claim_comparisons.jsonl",
+    "telemetry/provider_calls.jsonl",
+}
 
 with zipfile.ZipFile(pkg_path, "r") as zf:
-    members = zf.namelist()
-    print(f"Total Archive Members: {len(members)}")
-    for m in sorted(members):
-        print(f"  - {m}")
+    members = set(zf.namelist())
+    missing = required_members - members
+    assert not missing, f"Missing required archive members in evidence package: {missing}"
+    print(f"Total Archive Members:    {len(members)} (all {len(required_members)} required present)")
 
-# Verify decision report
+    # Read report and decision directly from ZIP as integrity check
+    zip_report = json.loads(zf.read("results/v2_development_report.json").decode("utf-8"))
+    zip_decision = json.loads(zf.read("results/v2_development_decision_report.json").decode("utf-8"))
+
+# Read loose output reports
 decision_path = Path("/kaggle/working/v2_development_output/results/v2_development_decision_report.json")
 decision = json.loads(decision_path.read_text(encoding="utf-8"))
 report = json.loads(Path("/kaggle/working/v2_development_output/results/v2_development_report.json").read_text(encoding="utf-8"))
 
+# Verify loose vs ZIP report consistency
+assert zip_report["candidate_id"] == report["candidate_id"]
+assert zip_report["verdict"] == report["verdict"]
+assert zip_report["execution_identity"]["execution_git_commit"] == report["execution_identity"]["execution_git_commit"]
+assert zip_decision["promotion_authorized"] == decision["promotion_authorized"]
+
+# Extract canonical schema fields
+candidate = report["candidate_id"]
+execution_commit = report["execution_identity"]["execution_git_commit"]
+source_pkg_ver = report["execution_identity"]["source_package_version"]
+installed_pkg_ver = report["execution_identity"]["installed_distribution_version"]
+verdict = report["verdict"]
+dev_decision = decision["development_evaluation_decision"]
+stability_info = report["stability"]
+model_errors = report["telemetry"]["model_errors"]
+structured_retries = report["telemetry"]["structured_output_retries"]
+v1_claim_metrics = report["metrics"]["v1_claim_binary"]
+v2_claim_metrics = report["metrics"]["v2_claim_binary"]
+paired_metrics = report["metrics"]["paired_v1_vs_v2"]
+v1_three_way = report["metrics"]["v1_three_way"]
+v2_three_way = report["metrics"]["v2_three_way"]
+v0_answer_metrics = report["metrics"]["v0_answer_metrics"]
+v1_answer_metrics = report["metrics"]["v1_answer_metrics"]
+v2_answer_metrics = report["metrics"]["v2_answer_metrics"]
+answer_deltas = report["metrics"]["v2_vs_v1_answer_deltas"]
+promotion_authorized = decision["promotion_authorized"]
+
 print("\n" + "=" * 60)
 print("V2-D1 DEVELOPMENT EXECUTION SUMMARY")
 print("=" * 60)
-print("Candidate ID:               ", decision["candidate_id"])
-print("Git Commit:                 ", decision["execution_git_commit"])
-print("Verdict:                    ", decision["verdict"])
-print("Decision:                   ", decision["development_evaluation_decision"])
-print("Stability:                  ", decision["stability"]["label_stability_percentage"], f"% ({decision['stability']['unstable_claim_count']} unstable)")
-print("Model Errors:               ", decision["model_error_count"])
-print("Structured Output Retries:  ", decision["structured_retry_count"])
-print("Claim Accuracy (V1 vs V2):  ", f"{decision['v1_claim_binary']['accuracy']*100:.2f}% -> {decision['v2_claim_binary']['accuracy']*100:.2f}%")
-print("Negative Catch (V1 vs V2):  ", f"{decision['v1_claim_binary']['negative_catch']*100:.2f}% -> {decision['v2_claim_binary']['negative_catch']*100:.2f}%")
-print("Retention (V1 vs V2):       ", f"{decision['v1_claim_binary']['supported_retention']*100:.2f}% -> {decision['v2_claim_binary']['supported_retention']*100:.2f}%")
-print("Answer Accuracy (V1 vs V2): ", f"{report['metrics']['v1_answer_level']['answer_level_accuracy']*100:.2f}% -> {report['metrics']['v2_answer_level']['answer_level_accuracy']*100:.2f}%")
-print("Promotion Authorized:       ", decision["promotion_authorized"])
+print("Candidate ID:                 ", candidate)
+print("Git Commit:                   ", execution_commit)
+print("Source Package Version:       ", source_pkg_ver)
+print("Installed Package Version:    ", installed_pkg_ver)
+print("Verdict:                      ", verdict)
+print("Development Decision:         ", dev_decision)
+print("Stability:                    ", f"{stability_info['label_stability_percentage']}% ({stability_info['unstable_claim_count']} unstable)")
+print("Model Errors:                 ", model_errors)
+print("Structured Retries:           ", structured_retries)
+print("Claim Accuracy (V1 -> V2):    ", f"{v1_claim_metrics['accuracy']*100:.2f}% -> {v2_claim_metrics['accuracy']*100:.2f}%")
+print("Negative Catch (V1 -> V2):    ", f"{v1_claim_metrics['negative_catch']*100:.2f}% -> {v2_claim_metrics['negative_catch']*100:.2f}%")
+print("Retention (V1 -> V2):         ", f"{v1_claim_metrics['supported_retention']*100:.2f}% -> {v2_claim_metrics['supported_retention']*100:.2f}%")
+print("Net Correctness Delta:        ", paired_metrics["net_correctness_delta"], f"(Fixes: {paired_metrics['v2_fixes_count']}, Regressions: {paired_metrics['v2_regressions_count']})")
+print("Answer Accuracy (V1 -> V2):   ", f"{v1_answer_metrics['answer_level_accuracy']*100:.2f}% -> {v2_answer_metrics['answer_level_accuracy']*100:.2f}% (delta: {answer_deltas['v2_vs_v1_answer_accuracy_delta']:+.4f})")
+print("Promotion Authorized:         ", promotion_authorized)
 print("=" * 60)
 
-# HARD SAFETY ASSERTION: Promotion is NEVER authorized on development runs
-assert decision["promotion_authorized"] is False, "CRITICAL: promotion_authorized must be False for development evaluation"
+# Final safety hard assertions
+assert candidate == "V2-D1", f"Candidate mismatch: {candidate}"
+if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
+    assert execution_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {execution_commit} != {REVIEWED_COMMIT_SHA}"
+assert source_pkg_ver == "0.50.7", f"Source version mismatch: {source_pkg_ver}"
+assert installed_pkg_ver == "0.50.7", f"Installed version mismatch: {installed_pkg_ver}"
+assert report["execution_identity"]["repeat_count"] == 2, f"Repeat count mismatch: {report['execution_identity']['repeat_count']}"
+assert promotion_authorized is False, "CRITICAL: promotion_authorized must be False for development evaluation"
+
+if verdict == "V2_DEVELOPMENT_BENCHMARK_PASS":
+    assert model_errors == 0, f"Model errors must be 0 for PASS, got {model_errors}"
+    assert stability_info["unstable_claim_count"] == 0, f"Unstable claims must be 0 for PASS, got {stability_info['unstable_claim_count']}"
+    assert v2_claim_metrics.get("execution_errors", 0) == 0, f"Binary execution errors must be 0 for PASS, got {v2_claim_metrics.get('execution_errors')}"
+    assert v2_three_way.get("execution_errors", 0) == 0, f"Three-way execution errors must be 0 for PASS, got {v2_three_way.get('execution_errors')}"
 ```

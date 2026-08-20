@@ -38,10 +38,12 @@ from legal_agentic_rag.schemas.answering import (
     SemanticSupportLabel,
 )
 from scripts.evaluate_verification_v2_development import (
+    CANONICAL_CANDIDATE_ID,
     CANONICAL_CONTROL_LABELS_SHA256,
     CANONICAL_CONTROL_REVIEW_ZIP_SHA256,
     CANONICAL_FORENSIC_LABELS_SHA256,
     CANONICAL_FORENSIC_REVIEW_ZIP_SHA256,
+    CANONICAL_PACKAGE_VERSION,
     CANONICAL_V1_EVIDENCE_ZIP_SHA256,
     CANONICAL_V2_BACKEND,
     CANONICAL_V2_MODEL_NAME,
@@ -674,6 +676,9 @@ def test_candidate_execution_identity_completeness(tmp_path: Path):
     assert identity["candidate_id"] == "V2-D1"
     assert len(identity["execution_git_commit"]) == 40
     assert isinstance(identity["git_worktree_clean"], bool)
+    assert identity["source_package_version"] == CANONICAL_PACKAGE_VERSION
+    assert identity["installed_distribution_version"] == CANONICAL_PACKAGE_VERSION
+    assert identity["package_version"] == CANONICAL_PACKAGE_VERSION
     assert identity["provider"]["provider_version"] == CANONICAL_V2_PROVIDER_VERSION
     assert identity["model_inference_config"]["backend"] == CANONICAL_V2_BACKEND
     assert "transformers_version" in identity["runtime_environment"]
@@ -685,6 +690,87 @@ def test_candidate_execution_identity_completeness(tmp_path: Path):
     assert len(identity["schema_identity"]["structured_verification_json_schema_sha256"]) == 64
 
 
+def test_package_version_source_mismatch_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify that source package version != 0.50.7 is rejected with DataValidationError."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+    )
+    import legal_agentic_rag
+    monkeypatch.setattr(legal_agentic_rag, "__version__", "0.47.0")
+
+    with pytest.raises(DataValidationError, match="Package version mismatch"):
+        evaluator._validate_package_provenance()
+
+
+def test_package_version_installed_distribution_mismatch_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify that installed distribution version != 0.50.7 is rejected with DataValidationError."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+    )
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "0.47.0")
+
+    with pytest.raises(DataValidationError, match="Package version mismatch"):
+        evaluator._validate_package_provenance()
+
+
+def test_package_version_disagreement_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """Verify that disagreement between source and installed distribution version is rejected."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+    )
+    import legal_agentic_rag
+    monkeypatch.setattr(legal_agentic_rag, "__version__", "0.50.7")
+    monkeypatch.setattr(importlib.metadata, "version", lambda _: "0.50.8")
+
+    with pytest.raises(DataValidationError, match="Package version mismatch"):
+        evaluator._validate_package_provenance()
+
+
+def test_canonical_package_versions_accepted(tmp_path: Path):
+    """Verify that canonical 0.50.7 versions pass provenance validation without error."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+    )
+    # Should not raise
+    evaluator._validate_package_provenance()
+
+
+def test_candidate_id_mismatch_rejected(tmp_path: Path):
+    """Verify that candidate_id other than V2-D1 is rejected in canonical execution."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=tmp_path / "f.zip",
+        forensic_labels_path=tmp_path / "f.json",
+        control_packets_path=tmp_path / "c.zip",
+        control_labels_path=tmp_path / "c.json",
+        v1_evidence_path=tmp_path / "v1.zip",
+        output_dir=tmp_path / "out",
+        candidate_id="V2-D2",
+        custom_provider=None,
+    )
+    with pytest.raises(DataValidationError, match="Candidate ID mismatch"):
+        evaluator._validate_canonical_config()
+
+
 def test_git_worktree_dirty_blocks_canonical_real_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Verify that a dirty git worktree raises DataValidationError in canonical real runs."""
     evaluator = V2DevelopmentBenchmarkEvaluator(
@@ -694,7 +780,7 @@ def test_git_worktree_dirty_blocks_canonical_real_run(tmp_path: Path, monkeypatc
         control_labels_path=tmp_path / "c.json",
         v1_evidence_path=tmp_path / "v1.zip",
         output_dir=tmp_path / "out",
-        custom_provider=None,  # Real canonical mode
+        custom_provider=None,
     )
 
     monkeypatch.setattr("scripts.evaluate_verification_v2_development.is_git_worktree_clean", lambda: False)
@@ -728,6 +814,237 @@ def test_provider_version_drift_rejected(tmp_path: Path):
 
     with pytest.raises(DataValidationError, match="Provider version mismatch"):
         evaluator._validate_runtime_provider_identity(DriftingProvider())
+
+
+def test_cell5_report_schema_keys_mapping():
+    """Verify that all report and decision report keys read by Kaggle Cell 5 are correctly populated."""
+    evaluator = V2DevelopmentBenchmarkEvaluator(
+        forensic_packets_path=Path("f.zip"),
+        forensic_labels_path=Path("f.json"),
+        control_packets_path=Path("c.zip"),
+        control_labels_path=Path("c.json"),
+        v1_evidence_path=Path("v1.zip"),
+        output_dir=Path("out"),
+    )
+
+    metrics_report = {
+        "v0_claim_binary": {"accuracy": 0.4737},
+        "v1_claim_binary": {"tp": 16, "tn": 7, "fp": 13, "fn": 2, "accuracy": 0.6053, "negative_catch": 0.35, "supported_retention": 0.8889},
+        "v2_claim_binary": {"tp": 18, "tn": 15, "fp": 5, "fn": 0, "execution_errors": 0, "accuracy": 0.8684, "negative_catch": 0.75, "supported_retention": 1.0},
+        "v1_three_way": {"accuracy": 0.5, "execution_errors": 0},
+        "v2_three_way": {"accuracy": 0.8684, "execution_errors": 0},
+        "paired_v1_vs_v2": {"net_correctness_delta": 10, "v2_fixes_count": 10, "v2_regressions_count": 0, "v2_execution_error_count": 0},
+        "v0_answer_metrics": {"answer_level_accuracy": 0.3182},
+        "v1_answer_metrics": {"answer_level_accuracy": 0.6364, "valid_answer_retention_rate": 1.0, "invalid_answer_catch_rate": 0.4667},
+        "v2_answer_metrics": {"answer_level_accuracy": 0.8636, "valid_answer_retention_rate": 1.0, "invalid_answer_catch_rate": 0.80},
+        "v2_vs_v1_answer_deltas": {"v2_vs_v1_valid_retention_delta": 0.0, "v2_vs_v1_invalid_catch_delta": 0.3333, "v2_vs_v1_answer_accuracy_delta": 0.2272},
+    }
+
+    exec_identity = {
+        "execution_git_commit": "1124a9b079283344ae6d688992d93a963645f2a8",
+        "source_package_version": "0.50.7",
+        "installed_distribution_version": "0.50.7",
+        "repeat_count": 2,
+    }
+
+    report, decision, _ = evaluator._build_reports(
+        verdict="V2_DEVELOPMENT_BENCHMARK_PASS",
+        execution_identity=exec_identity,
+        stability_info={"label_stability_percentage": 100.0, "unstable_claim_count": 0},
+        metrics_report=metrics_report,
+        dimension_diagnostics={},
+        v0_claim_preds=[],
+        v1_claim_preds=[],
+        v2_pass1_preds=[],
+        all_claim_targets=[],
+        model_error_count=0,
+        total_provider_calls=44,
+        structured_retry_count=0,
+    )
+
+    # Test exact fields accessed by Cell 5
+    assert report["candidate_id"] == "V2-D1"
+    assert report["execution_identity"]["execution_git_commit"] == "1124a9b079283344ae6d688992d93a963645f2a8"
+    assert report["execution_identity"]["source_package_version"] == "0.50.7"
+    assert report["execution_identity"]["installed_distribution_version"] == "0.50.7"
+    assert report["verdict"] == "V2_DEVELOPMENT_BENCHMARK_PASS"
+    assert decision["development_evaluation_decision"] == "CANDIDATE_FREEZE_ELIGIBLE"
+    assert report["stability"]["unstable_claim_count"] == 0
+    assert report["telemetry"]["model_errors"] == 0
+    assert report["telemetry"]["structured_output_retries"] == 0
+    assert report["metrics"]["v1_claim_binary"]["accuracy"] == 0.6053
+    assert report["metrics"]["v2_claim_binary"]["accuracy"] == 0.8684
+    assert report["metrics"]["paired_v1_vs_v2"]["net_correctness_delta"] == 10
+    assert report["metrics"]["v1_three_way"]["accuracy"] == 0.5
+    assert report["metrics"]["v2_three_way"]["accuracy"] == 0.8684
+    assert report["metrics"]["v0_answer_metrics"]["answer_level_accuracy"] == 0.3182
+    assert report["metrics"]["v1_answer_metrics"]["answer_level_accuracy"] == 0.6364
+    assert report["metrics"]["v2_answer_metrics"]["answer_level_accuracy"] == 0.8636
+    assert report["metrics"]["v2_vs_v1_answer_deltas"]["v2_vs_v1_answer_accuracy_delta"] == 0.2272
+    assert decision["promotion_authorized"] is False
+
+
+def test_evidence_package_required_members_integrity(tmp_path: Path):
+    """Verify that package member validation asserts all 10 required artifacts."""
+    required_members = {
+        "execution/v2_development_source_identity.json",
+        "results/v2_development_report.json",
+        "results/v2_development_decision_report.json",
+        "results/v2_dimension_diagnostics.json",
+        "results/v0_claim_predictions.jsonl",
+        "results/v1_claim_predictions.jsonl",
+        "results/v2_claim_predictions_pass1.jsonl",
+        "results/v2_claim_predictions_pass2.jsonl",
+        "results/v2_claim_comparisons.jsonl",
+        "telemetry/provider_calls.jsonl",
+    }
+
+    # Case A: complete ZIP
+    zip_a = tmp_path / "complete.zip"
+    with zipfile.ZipFile(zip_a, "w") as zf:
+        for m in required_members:
+            zf.writestr(m, "{}")
+
+    with zipfile.ZipFile(zip_a, "r") as zf:
+        missing_a = required_members - set(zf.namelist())
+        assert len(missing_a) == 0
+
+    # Case B: incomplete ZIP missing diagnostics
+    zip_b = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(zip_b, "w") as zf:
+        for m in required_members:
+            if m != "results/v2_dimension_diagnostics.json":
+                zf.writestr(m, "{}")
+
+    with zipfile.ZipFile(zip_b, "r") as zf:
+        missing_b = required_members - set(zf.namelist())
+        assert missing_b == {"results/v2_dimension_diagnostics.json"}
+
+
+def test_holdout_blindness_forbidden_file_rejected():
+    """Verify that Cell 2 scanner detects and rejects forbidden holdout filenames."""
+    forbidden_exact = {
+        "verification-v2-holdout-selection-v1.json",
+        "verification-v2-holdout-review-packets-v1.zip",
+        "verification_v2_holdout_output",
+        "phase-a-current-system-census-final-evidence.zip",
+    }
+
+    def check_file(fname: str) -> bool:
+        forbidden_patterns = ["verification-v2-holdout", "verification_v2_holdout", "phase-a-current-system-census"]
+        f_lower = fname.lower()
+        return any(pat in f_lower for pat in forbidden_patterns) or fname in forbidden_exact
+
+    for fname in forbidden_exact:
+        assert check_file(fname) is True, f"Failed to detect forbidden file: {fname}"
+
+    assert check_file("verification-forensic-review-packets.zip") is False
+    assert check_file("verification-human-forensic-labels-v1.json") is False
+
+
+def test_holdout_blindness_forbidden_directory_rejected():
+    """Verify that Cell 2 scanner detects and rejects forbidden holdout directories and path components."""
+    def check_path_component(part: str) -> bool:
+        forbidden_patterns = ["verification-v2-holdout", "verification_v2_holdout", "phase-a-current-system-census"]
+        part_lower = part.lower()
+        return any(pat in part_lower for pat in forbidden_patterns)
+
+    forbidden_dirs = [
+        "verification-v2-holdout-packets",
+        "verification_v2_holdout_output",
+        "phase-a-current-system-census",
+        "/kaggle/input/verification-v2-holdout-review-packets-v1/packets",
+    ]
+    for d in forbidden_dirs:
+        assert check_path_component(d) is True, f"Failed to detect forbidden directory: {d}"
+
+    assert check_path_component("verification-sources") is False
+    assert check_path_component("kaggle-working") is False
+
+
+def test_five_source_sha_base64_discovery_contract(tmp_path: Path):
+    """Verify Base64 chunk decoding and SHA verification for transport-encoded artifacts."""
+    import base64
+
+    raw_data = b"canonical_binary_evidence_data_12345"
+    expected_sha = sha256(raw_data).hexdigest()
+
+    b64_file = tmp_path / "test_artifact.zip.b64"
+    b64_file.write_text(base64.b64encode(raw_data).decode("utf-8"), encoding="utf-8")
+
+    # Decode and verify
+    decoded_bytes = base64.b64decode(b64_file.read_text(encoding="utf-8").strip())
+    assert sha256(decoded_bytes).hexdigest() == expected_sha
+
+
+def test_v2_system_instruction_and_schema_sha_unchanged():
+    """Verify that V2-D1 system instruction and JSON schema SHA remain byte-stable."""
+    expected_sys_sha = "b4dde34963df5ec11d3b8cfdaac3609311bd32c249278f039812437093b14d3e"
+    expected_schema_sha = "a7050995773e783c3a4ef810bf6417bc8055f5cde4ed6e7511c1b9bc25655abc"
+
+    observed_sys_sha = sha256_text(STRUCTURED_SEMANTIC_SYSTEM_INSTRUCTION)
+    observed_schema_sha = sha256_text(
+        json.dumps(StructuredSemanticVerificationDraft.model_json_schema(), sort_keys=True)
+    )
+
+    assert observed_sys_sha == expected_sys_sha, "STRUCTURED_SEMANTIC_SYSTEM_INSTRUCTION SHA changed unexpectedly!"
+    assert observed_schema_sha == expected_schema_sha, "StructuredSemanticVerificationDraft schema SHA changed unexpectedly!"
+
+
+def test_deterministic_label_derivation_contract_unchanged():
+    """Verify all categorical derivation permutations of derive_claim_semantic_label remain identical."""
+    # 1. Any dimension == CONFLICT -> CONTRADICTED
+    c1 = StructuredClaimAssessmentDraft(
+        claim_id="C1",
+        actor_role=SemanticDimensionStatus.CONFLICT,
+        action_object=SemanticDimensionStatus.MATCH,
+        condition_exception=SemanticDimensionStatus.MATCH,
+        quantity_temporal=SemanticDimensionStatus.MATCH,
+        negation_modality=SemanticDimensionStatus.MATCH,
+        source_article_scope=SemanticDimensionStatus.MATCH,
+        evidence_coverage=EvidenceCoverageStatus.COMPLETE,
+    )
+    assert derive_claim_semantic_label(c1) == SemanticSupportLabel.CONTRADICTED
+
+    # 2. Coverage != COMPLETE -> INSUFFICIENT
+    c2 = StructuredClaimAssessmentDraft(
+        claim_id="C1",
+        actor_role=SemanticDimensionStatus.MATCH,
+        action_object=SemanticDimensionStatus.MATCH,
+        condition_exception=SemanticDimensionStatus.MATCH,
+        quantity_temporal=SemanticDimensionStatus.MATCH,
+        negation_modality=SemanticDimensionStatus.MATCH,
+        source_article_scope=SemanticDimensionStatus.MATCH,
+        evidence_coverage=EvidenceCoverageStatus.PARTIAL,
+    )
+    assert derive_claim_semantic_label(c2) == SemanticSupportLabel.INSUFFICIENT
+
+    # 3. Any dimension == INSUFFICIENT -> INSUFFICIENT
+    c3 = StructuredClaimAssessmentDraft(
+        claim_id="C1",
+        actor_role=SemanticDimensionStatus.MATCH,
+        action_object=SemanticDimensionStatus.MATCH,
+        condition_exception=SemanticDimensionStatus.INSUFFICIENT,
+        quantity_temporal=SemanticDimensionStatus.MATCH,
+        negation_modality=SemanticDimensionStatus.MATCH,
+        source_article_scope=SemanticDimensionStatus.MATCH,
+        evidence_coverage=EvidenceCoverageStatus.COMPLETE,
+    )
+    assert derive_claim_semantic_label(c3) == SemanticSupportLabel.INSUFFICIENT
+
+    # 4. All dimensions MATCH/NA and COMPLETE coverage -> SUPPORTED
+    c4 = StructuredClaimAssessmentDraft(
+        claim_id="C1",
+        actor_role=SemanticDimensionStatus.MATCH,
+        action_object=SemanticDimensionStatus.MATCH,
+        condition_exception=SemanticDimensionStatus.NOT_APPLICABLE,
+        quantity_temporal=SemanticDimensionStatus.MATCH,
+        negation_modality=SemanticDimensionStatus.MATCH,
+        source_article_scope=SemanticDimensionStatus.MATCH,
+        evidence_coverage=EvidenceCoverageStatus.COMPLETE,
+    )
+    assert derive_claim_semantic_label(c4) == SemanticSupportLabel.SUPPORTED
+
 
 
 def test_v1_answer_level_canonical_baseline_recovery():

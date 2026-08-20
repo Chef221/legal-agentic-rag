@@ -93,6 +93,8 @@ CANONICAL_V1_EVIDENCE_ZIP_SHA256 = (
 )
 
 # Canonical Pinned V2 Model & Execution Parameters (Identical to V1)
+CANONICAL_PACKAGE_VERSION = "0.50.7"
+CANONICAL_CANDIDATE_ID = "V2-D1"
 CANONICAL_V2_BACKEND = "transformers"
 CANONICAL_V2_MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
 CANONICAL_V2_MODEL_REVISION = "a1d308dfcc03e09da285d49d912439a655a571e8"
@@ -105,6 +107,7 @@ CANONICAL_V2_MAX_OUTPUT_TOKENS = 512
 CANONICAL_V2_MAX_STRUCTURED_RETRIES = 1
 CANONICAL_V2_TIMEOUT_SECONDS = 180.0
 CANONICAL_REPEAT_COUNT = 2
+
 
 
 def sha256_file(path: Path) -> str:
@@ -342,8 +345,17 @@ class V2DevelopmentBenchmarkEvaluator:
         # 1. Validate All External Sources Fail-Closed
         sources_info = self._validate_sources()
 
+        # Validate canonical candidate ID and package versions if running canonical evaluation/preflight
+        if self._custom_provider is None:
+            if self._candidate_id != CANONICAL_CANDIDATE_ID:
+                raise DataValidationError(
+                    f"INVALID_V2_DEVELOPMENT_PROVENANCE: Candidate ID mismatch: expected '{CANONICAL_CANDIDATE_ID}', got '{self._candidate_id}'"
+                )
+            self._validate_package_provenance()
+
         # 2. Load Datasets & Build Evaluation Targets
         arm_targets, all_claim_targets = self._load_and_bind_benchmark_targets(sources_info)
+
 
         # 3. Execute V0 Rule-Based Citation Verifier Replay
         v0_verifier = RuleBasedCitationVerifier()
@@ -958,10 +970,38 @@ class V2DevelopmentBenchmarkEvaluator:
 
         return ordered_preds
 
+    def _validate_package_provenance(self) -> None:
+        """Assert that source and installed distribution package versions match canonical 0.50.7."""
+        source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+        try:
+            dist_ver = importlib.metadata.version("legal-agentic-rag")
+        except Exception as exc:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Failed to read installed distribution version: {exc}"
+            ) from exc
+
+        if (
+            source_ver != CANONICAL_PACKAGE_VERSION
+            or dist_ver != CANONICAL_PACKAGE_VERSION
+            or source_ver != dist_ver
+        ):
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Package version mismatch: source='{source_ver}', installed='{dist_ver}', expected='{CANONICAL_PACKAGE_VERSION}'"
+            )
+
     def _validate_canonical_config(self) -> None:
         """Assert that runtime configuration strictly matches canonical V2 parameters and clean Git state."""
         if self._custom_provider is not None:
             return
+        if self._candidate_id != CANONICAL_CANDIDATE_ID:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Candidate ID mismatch: expected '{CANONICAL_CANDIDATE_ID}', got '{self._candidate_id}'"
+            )
+        self._validate_package_provenance()
+        if not is_git_worktree_clean():
+            raise DataValidationError(
+                "INVALID_V2_DEVELOPMENT_PROVENANCE: Git worktree must be clean for canonical real execution"
+            )
         if self._device != CANONICAL_V2_DEVICE:
             raise DataValidationError(
                 f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Expected device '{CANONICAL_V2_DEVICE}', got '{self._device}'"
@@ -974,10 +1014,7 @@ class V2DevelopmentBenchmarkEvaluator:
             raise DataValidationError(
                 f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Expected max retries {CANONICAL_V2_MAX_STRUCTURED_RETRIES}, got {self._max_structured_output_retries}"
             )
-        if not is_git_worktree_clean():
-            raise DataValidationError(
-                "INVALID_V2_DEVELOPMENT_PROVENANCE: Git worktree must be clean for canonical real execution"
-            )
+
 
     def _init_v2_provider(self) -> ChatModelProvider:
         """Construct real TransformersChatProvider with canonical parameters."""
@@ -1597,7 +1634,11 @@ class V2DevelopmentBenchmarkEvaluator:
         repeat_count: int,
     ) -> dict[str, Any]:
         """Build full candidate execution identity metadata block."""
-        pkg_version = importlib.metadata.version("legal-agentic-rag")
+        source_pkg_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+        try:
+            installed_pkg_ver = importlib.metadata.version("legal-agentic-rag")
+        except Exception:
+            installed_pkg_ver = "unknown"
 
         structured_path = Path(
             legal_agentic_rag.generation.structured_semantic_verifier.__file__
@@ -1614,10 +1655,13 @@ class V2DevelopmentBenchmarkEvaluator:
             "candidate_id": self._candidate_id,
             "execution_git_commit": get_git_commit(),
             "git_worktree_clean": is_git_worktree_clean(),
-            "package_version": pkg_version,
+            "package_version": source_pkg_ver,
+            "source_package_version": source_pkg_ver,
+            "installed_distribution_version": installed_pkg_ver,
             "timestamp_utc": datetime.now(UTC).isoformat(),
             "sources": sources_info,
             "provider": runtime_identity,
+
             "model_inference_config": {
                 "backend": CANONICAL_V2_BACKEND,
                 "device": self._device,
