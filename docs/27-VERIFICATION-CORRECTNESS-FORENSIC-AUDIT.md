@@ -375,3 +375,166 @@ With both suspicious failure cases (B-FORENSIC-1A) and positive-control candidat
 
 > [!WARNING]
 > **Prevalence Disclaimer**: This combined benchmark is an intentionally stratified evaluation set containing deliberate failure cases and stratified controls. The distribution ($18/7/13$) does **not** reflect production system error prevalence.
+
+---
+
+## 9. Controlled V0 Rule-Based vs V1 Semantic-Verifier Benchmark Protocol & Kaggle Runbook
+
+### 9.1 Evaluation Objective & Anti-Overfitting Invariant
+
+The objective of this offline benchmark is to evaluate the pre-existing `ModelBackedCitationVerifier` (V1) against the deterministic `RuleBasedCitationVerifier` (V0) on the frozen composite 38-claim human-annotated dataset.
+
+> [!IMPORTANT]
+> **Strict Anti-Overfitting Rule**:
+> - `src/legal_agentic_rag/generation/semantic_verifier.py` is **NOT modified**.
+> - Prompt template, schema, system instruction, and label definitions are strictly frozen as originally implemented prior to human labeling.
+> - Zero few-shot examples or prompt tuning are permitted.
+> - This first benchmark evaluates the verifier implementation as it existed. If future prompt/model tuning is motivated by these results, the 38 claims become **development data**, requiring a fresh independently human-reviewed holdout before any production promotion.
+> - **Production Semantic Verification Remains Disabled**: `semantic_verifier_promotion_authorized = false`.
+
+### 9.2 Benchmark Arms & Configuration
+
+| Arm | Implementation | Configuration / Model Identity |
+| :--- | :--- | :--- |
+| **V0 (Baseline)** | `RuleBasedCitationVerifier` | `ClaimVerificationConfig(enabled=True, require_inline_citations=True, minimum_lexical_support=0.25, minimum_claim_tokens=2, require_numeric_match=True, require_negation_match=True, max_claims=20)` |
+| **V1 (Candidate)** | `ModelBackedCitationVerifier` | Base: V0 `RuleBasedCitationVerifier`<br>Provider: `TransformersChatProvider`<br>Model Name: `Qwen/Qwen2.5-3B-Instruct`<br>Revision: `a1d308dfcc03e09da285d49d912439a655a571e8`<br>Device: `cuda`, Dtype: `float16`<br>Temperature: `0.0`, Retries: `1`<br>Timeout: `180s`, Tokens: `max_in=8192, max_out=512` |
+
+### 9.3 Benchmark Dataset Composition (38 Claims)
+
+- **Slice A (Suspicious Forensic)**:
+  - Packets: `verification-forensic-review-packets.zip` (SHA-256 `996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a`)
+  - Labels: `verification-human-forensic-labels-v1.json` (SHA-256 `bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733`)
+  - Labeled Claims: 11 (2 `SUPPORTED`, 5 `CONTRADICTED`, 4 `INSUFFICIENT`)
+- **Slice B (Positive Controls)**:
+  - Packets: `verification-positive-control-review-packets-v1.zip` (SHA-256 `cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4`)
+  - Labels: `verification-positive-control-human-labels-v1.json` (SHA-256 `60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373`)
+  - Labeled Claims: 27 (16 `SUPPORTED`, 2 `CONTRADICTED`, 9 `INSUFFICIENT`)
+- **Composite Benchmark**: 38 Claims (18 `SUPPORTED`, 7 `CONTRADICTED`, 13 `INSUFFICIENT`)
+
+### 9.4 Two-Pass Stability & Provenance Gates
+
+1. **Source Provenance Gate**: All 4 external benchmark files verified by exact SHA-256 before model initialization. Claim texts bound 1-to-1 via `claim_text_sha256`.
+2. **V0 Replay Gate**: 100% (22/22) historical arms replayed against V0 rule verifier. Must match historical verification flags exactly before V1 model initialization.
+3. **Deterministic Stability Gate (`repeat_count=2`)**: Pass 1 computes primary accuracy metrics. Pass 2 tests deterministic stability at `temperature=0.0`. If any claim prediction diverges between Pass 1 and Pass 2, verdict is `SEMANTIC_VERIFIER_LABEL_INSTABILITY`.
+
+### 9.5 Metrics Specification
+
+- **Claim-Level Binary Metrics**: TP, FP, TN, FN, Accuracy, Precision, Recall (Supported-Retention), Specificity (Negative-Catch Rate), F1, Balanced Accuracy.
+- **V1 Three-Way Metrics**: 3x3 Confusion Matrix (`SUPPORTED`, `CONTRADICTED`, `INSUFFICIENT`), Per-Class Precision/Recall/F1, Macro-Averaged F1.
+- **Paired V0 vs V1 Deltas**: `BOTH_CORRECT`, `V0_ONLY_CORRECT`, `V1_ONLY_CORRECT`, `BOTH_WRONG`, `v1_fixed_v0_error_count`, `v1_regressed_from_v0_correct_count`, `net_correctness_delta`.
+- **False Accept / Reject Profile**: Explicit counts and rates across human positive and negative claims.
+- **Error-Tag Catch Diagnostics**: V1 negative catch rate across granular forensic tags (`SCOPE_OVERGENERALIZED`, `CONDITION_INVERTED`, `ACTOR_ROLE_INVERTED`, `WRONG_DOCUMENT`, `WRONG_ARTICLE`, `QUANTITY_ERROR`, `OTHER`).
+- **Slice & Strata Breakdown**: Separate evaluations for Slice A, Slice B, and positive-control strata (`A_SINGLE_CLAIM_CLEAN`, `B_MULTI_CLAIM_CLEAN`, `C_NUMERIC`, `D_NEGATION_MODALITY`).
+- **Answer-Level Metrics**: Answer validity determined by all-claims-supported rule; V0 vs V1 accuracy against human ground truth.
+
+---
+
+### 9.6 Kaggle Execution Runbook (Copy-Paste Cells)
+
+> [!CAUTION]
+> **Execution Gate**: DO NOT RUN on Kaggle until the committed benchmark harness and test suite have been fully approved.
+
+#### Cell 1: Environment Setup & Git Checkout
+```bash
+%%bash
+set -euo pipefail
+
+# 1. Clone repository and checkout exact reviewed commit
+cd /kaggle/working
+if [ ! -d "legal-agentic-rag" ]; then
+    git clone https://github.com/Chef221/legal-agentic-rag.git
+fi
+cd legal-agentic-rag
+git fetch origin --prune
+git checkout 530d2dcdd3bb51ccb7dd710f056281b04547207f
+
+echo "=== Repository Authority Verified ==="
+git rev-parse HEAD
+
+# 2. Install editable package and dependencies
+pip install -q -e .
+python -m pip install -q transformers==4.47.1 accelerate==1.2.1 torch
+```
+
+#### Cell 2: Verify Benchmark Sources by Exact SHA-256
+```python
+import hashlib
+from pathlib import Path
+
+SOURCE_CHECKSUMS = {
+    "verification-forensic-review-packets.zip": "996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a",
+    "verification-human-forensic-labels-v1.json": "bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733",
+    "verification-positive-control-review-packets-v1.zip": "cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4",
+    "verification-positive-control-human-labels-v1.json": "60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373",
+}
+
+found_sources = {}
+input_root = Path("/kaggle/input")
+
+for filename, expected_sha in SOURCE_CHECKSUMS.items():
+    matched = None
+    for p in input_root.rglob(filename):
+        digest = hashlib.sha256(p.read_bytes()).hexdigest()
+        if digest == expected_sha:
+            matched = p
+            break
+    if matched is None:
+        raise FileNotFoundError(f"Source file {filename} matching SHA {expected_sha} not found under /kaggle/input")
+    found_sources[filename] = matched
+    print(f"Verified: {filename} -> {matched} (SHA: {expected_sha[:16]}...)")
+
+print("\n=== All 4 External Benchmark Sources Verified ===")
+```
+
+#### Cell 3: Execute Benchmark Harness
+```bash
+%%bash
+set -euo pipefail
+
+cd /kaggle/working/legal-agentic-rag
+
+# Discover exact file paths
+FORENSIC_PKTS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-forensic-review-packets.zip')))")
+FORENSIC_LBLS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-human-forensic-labels-v1.json')))")
+CONTROL_PKTS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-positive-control-review-packets-v1.zip')))")
+CONTROL_LBLS=$(python -c "from pathlib import Path; print(next(Path('/kaggle/input').rglob('verification-positive-control-human-labels-v1.json')))")
+
+OUT_DIR="/kaggle/working/semantic_benchmark_output"
+OUT_ZIP="/kaggle/working/verification-semantic-benchmark-evidence.zip"
+
+python scripts/evaluate_verification_semantic_benchmark.py \
+    --forensic-review-packets "$FORENSIC_PKTS" \
+    --forensic-labels "$FORENSIC_LBLS" \
+    --control-review-packets "$CONTROL_PKTS" \
+    --control-labels "$CONTROL_LBLS" \
+    --output-dir "$OUT_DIR" \
+    --package-zip "$OUT_ZIP" \
+    --model-name "Qwen/Qwen2.5-3B-Instruct" \
+    --model-revision "a1d308dfcc03e09da285d49d912439a655a571e8" \
+    --device "cuda" \
+    --torch-dtype "float16" \
+    --repeat-count 2
+```
+
+#### Cell 4: Verify Output Package & Checksum
+```python
+import hashlib
+from pathlib import Path
+
+zip_path = Path("/kaggle/working/verification-semantic-benchmark-evidence.zip")
+if not zip_path.is_file():
+    raise FileNotFoundError(f"Output evidence package not found at {zip_path}")
+
+size_bytes = zip_path.stat().st_size
+sha = hashlib.sha256(zip_path.read_bytes()).hexdigest()
+
+print(f"Benchmark Evidence Package: {zip_path.name}")
+print(f"Size (bytes): {size_bytes}")
+print(f"SHA-256: {sha}")
+```
+
+### 9.7 Implementation Status
+
+- **Status**: `VERIFIER BENCHMARK HARNESS IMPLEMENTED — REAL MODEL EXECUTION PENDING REVIEW`
+- **Mechanical Harness Verdict**: `VERIFIER_BENCHMARK_READY`
+- **Production Status**: Semantic verification remains disabled; `semantic_verifier_promotion_authorized = false`.
