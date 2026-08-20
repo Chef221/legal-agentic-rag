@@ -399,7 +399,6 @@ class StructuredSemanticCitationVerifierD3:
                     claim_text=claim_text,
                     evidence=evidence,
                     rejection_category=rej_cat or DraftRejectionCategory.SCHEMA_VALIDATION_ERROR,
-                    rejection_message=rej_msg,
                 )
 
         telemetry.semantic_execution_error = True
@@ -547,9 +546,8 @@ Analyze the cited evidence against the claim. Output a single JSON object with E
         claim_text: str,
         evidence: Sequence[Evidence],
         rejection_category: DraftRejectionCategory,
-        rejection_message: str,
     ) -> str:
-        """Construct targeted retry prompt after draft rejection."""
+        """Construct content-safe targeted retry prompt after draft rejection."""
         base_prompt = self._build_single_claim_prompt(
             question=question,
             claim_id=claim_id,
@@ -560,8 +558,7 @@ Analyze the cited evidence against the claim. Output a single JSON object with E
         return f"""\
 {base_prompt}
 
-CRITICAL: Your previous response was REJECTED for {rejection_category.value}:
-{rejection_message}
+CRITICAL: Your previous response was REJECTED for {rejection_category.value}.
 
 You must return ONLY a single JSON object with EXACT keys:
 - "claim_id": "{claim_id}"

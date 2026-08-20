@@ -8,7 +8,7 @@ over the frozen composite 38-claim human-annotated dataset:
 - Baseline V1 predictions loaded directly from canonical evidence archive:
   verification-semantic-benchmark-evidence.zip
 
-Key differences from V2-D2:
+Key features in V2-D3:
 - Reduced Semantic Dimensionality: Primary judgment is ONE evidence relation (ENTAILS, CONTRADICTS, DOES_NOT_ESTABLISH).
 - 5 Diagnostic Boolean Mismatch Flags (actor, condition/exception, quantity/temporal, negation/modality, source/scope).
 - Transparent Deterministic Derivation:
@@ -17,6 +17,8 @@ Key differences from V2-D2:
   - DOES_NOT_ESTABLISH -> INSUFFICIENT
 - Full Telemetry Preservation: Permanent execution-error claims retain operational telemetry outside structured assessments.
 - Unified Aggregate Diagnostics: Rejection categories and retry counts aggregated for both successful and failed claims.
+- Content-Safe Observational Telemetry: Transparent proxy records call metrics and hashes without raw prompt exposure.
+- Strict Fail-Closed Execution Provenance & Two-Pass Telemetry Reconciliation.
 """
 
 from __future__ import annotations
@@ -43,7 +45,6 @@ import zipfile
 
 import legal_agentic_rag
 from legal_agentic_rag.configuration.online import (
-    ClaimVerificationConfig,
     SemanticVerificationConfig,
 )
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
@@ -144,6 +145,79 @@ class BenchmarkArmTarget:
     claims: list[BenchmarkClaimTarget]
 
 
+class ObservationalChatModelProviderWrapper(ChatModelProvider):
+    """Transparent observational proxy recording all provider interactions with content safety."""
+
+    def __init__(self, provider: ChatModelProvider) -> None:
+        self._inner = provider
+        self.call_history: list[dict[str, Any]] = []
+
+    @property
+    def provider_name(self) -> str:
+        return self._inner.provider_name
+
+    @property
+    def provider_version(self) -> str:
+        return self._inner.provider_version
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
+
+    @property
+    def model_revision(self) -> str:
+        return self._inner.model_revision
+
+    @property
+    def total_calls(self) -> int:
+        return len(self.call_history)
+
+    @property
+    def failed_call_count(self) -> int:
+        return sum(1 for c in self.call_history if not c["call_succeeded"])
+
+    def complete(self, *, system_instruction: str, user_prompt: str) -> str:
+        call_idx = len(self.call_history)
+        t0 = perf_counter()
+        completion: str = ""
+        success = False
+        exc_type: str | None = None
+        exc_msg_sha: str | None = None
+
+        sys_sha = sha256(system_instruction.encode("utf-8")).hexdigest()
+        prompt_sha = sha256(user_prompt.encode("utf-8")).hexdigest()
+
+        try:
+            completion = self._inner.complete(
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+            )
+            success = True
+            return completion
+        except Exception as exc:
+            exc_type = type(exc).__name__
+            exc_msg_sha = sha256(str(exc).encode("utf-8")).hexdigest()
+            raise
+        finally:
+            latency = (perf_counter() - t0) * 1000.0
+            comp_sha = sha256(completion.encode("utf-8")).hexdigest() if success else None
+            record: dict[str, Any] = {
+                "call_index": call_idx,
+                "timestamp_utc": datetime.now(UTC).isoformat(),
+                "system_instruction_sha256": sys_sha,
+                "user_prompt_sha256": prompt_sha,
+                "user_prompt_length": len(user_prompt),
+                "call_succeeded": success,
+                "completion_sha256": comp_sha,
+                "completion_length": len(completion) if success else 0,
+                "latency_ms": round(latency, 2),
+            }
+            if not success:
+                record["exception_type"] = exc_type
+                record["exception_message_sha256"] = exc_msg_sha
+            self.call_history.append(record)
+
+
 class V2D3DevelopmentBenchmarkEvaluator:
     """Evaluates candidate V2-D3 against the composite 38-claim development benchmark."""
 
@@ -167,6 +241,7 @@ class V2D3DevelopmentBenchmarkEvaluator:
         timeout_seconds: float = CANONICAL_V3_TIMEOUT_SECONDS,
         repeat_count: int = CANONICAL_REPEAT_COUNT,
         preflight_only: bool = False,
+        custom_provider: ChatModelProvider | None = None,
     ) -> None:
         self._forensic_packets_path = forensic_packets_path
         self._forensic_labels_path = forensic_labels_path
@@ -185,6 +260,7 @@ class V2D3DevelopmentBenchmarkEvaluator:
         self._timeout_seconds = timeout_seconds
         self._repeat_count = repeat_count
         self._preflight_only = preflight_only
+        self._custom_provider = custom_provider
 
     def evaluate(self) -> dict[str, Any]:
         """Execute full benchmark evaluation workflow with provenance and safety gates."""
@@ -222,39 +298,45 @@ class V2D3DevelopmentBenchmarkEvaluator:
             self._write_reports(preflight_report, is_preflight=True)
             return preflight_report
 
-        # 6. Initialize V2-D3 verifier provider
-        provider = self._init_transformers_provider()
+        # 6. Canonical Execution Config Validation (Fail-Closed)
+        self._validate_canonical_provenance()
+
+        # 7. Initialize V2-D3 verifier provider & validate runtime identity
+        raw_provider = self._init_v3_provider()
+        self._validate_runtime_provider_identity(raw_provider)
+
+        obs_provider = ObservationalChatModelProviderWrapper(raw_provider)
         verifier = StructuredSemanticCitationVerifierD3(
-            provider=provider,
+            provider=obs_provider,
             max_structured_output_retries=self._max_structured_output_retries,
         )
 
-        # 7. Execute Pass 1 (Primary Development Evaluation)
+        # 8. Execute Pass 1 (Primary Development Evaluation)
         _LOGGER.info("Executing V2-D3 Development Pass 1 (Benchmark Evaluation)...")
         pass1_arm_results, pass1_claim_preds, pass1_telemetry = self._run_inference_pass(
             verifier=verifier,
-            provider=provider,
+            provider=obs_provider,
             arm_targets=arm_targets,
             pass_index=1,
         )
 
-        # 8. Execute Pass 2 (Stability Evaluation)
+        # 9. Execute Pass 2 (Stability Evaluation)
         _LOGGER.info("Executing V2-D3 Development Pass 2 (Two-Pass Stability)...")
         pass2_arm_results, pass2_claim_preds, pass2_telemetry = self._run_inference_pass(
             verifier=verifier,
-            provider=provider,
+            provider=obs_provider,
             arm_targets=arm_targets,
             pass_index=2,
         )
 
-        # 9. Stability Analysis
+        # 10. Stability Analysis
         stability_info = self._evaluate_stability(
             claim_targets=claim_targets,
             pass1_preds=pass1_claim_preds,
             pass2_preds=pass2_claim_preds,
         )
 
-        # 10. Compute Metrics (Pass 1 as authoritative primary evaluation)
+        # 11. Compute Metrics (Pass 1 as authoritative primary evaluation)
         all_metrics = self._compute_all_metrics(
             claim_targets=claim_targets,
             arm_targets=arm_targets,
@@ -265,13 +347,13 @@ class V2D3DevelopmentBenchmarkEvaluator:
             v2_arm_results=pass1_arm_results,
         )
 
-        # 11. Compute Dimension Diagnostics & Failure Telemetry
+        # 12. Compute Dimension Diagnostics & Failure Telemetry (Pass 1 Scientific Diagnostics)
         dim_diagnostics = self._compute_dimension_diagnostics(
             targets=claim_targets,
             v2_preds=pass1_claim_preds,
         )
 
-        # 12. Build Final Evaluation and Decision Reports
+        # 13. Build Final Evaluation and Decision Reports
         total_duration = perf_counter() - start_time
         final_report, decision_report = self._build_reports(
             sources_info=sources_info,
@@ -286,7 +368,7 @@ class V2D3DevelopmentBenchmarkEvaluator:
             total_duration=total_duration,
         )
 
-        # 13. Write output artifacts
+        # 14. Write output artifacts
         self._write_reports(
             final_report,
             decision_report=decision_report,
@@ -296,7 +378,7 @@ class V2D3DevelopmentBenchmarkEvaluator:
             pass1_claim_preds=pass1_claim_preds,
             pass2_claim_preds=pass2_claim_preds,
             exec_identity=exec_identity,
-            provider=provider,
+            provider=obs_provider,
             is_preflight=False,
         )
 
@@ -630,19 +712,9 @@ class V2D3DevelopmentBenchmarkEvaluator:
     def _load_v1_baseline_predictions(self) -> list[dict[str, Any]]:
         """Extract canonical V1 baseline predictions directly from the canonical evidence archive."""
         with zipfile.ZipFile(self._v1_evidence_path, "r") as zf:
-            if "results/v1_claim_predictions_pass1.jsonl" not in zf.namelist():
-                raise DataValidationError("Missing 'results/v1_claim_predictions_pass1.jsonl' in canonical V1 evidence archive")
-            content = zf.read("results/v1_claim_predictions_pass1.jsonl").decode("utf-8")
-
-        preds: list[dict[str, Any]] = []
-        for line in content.splitlines():
-            line = line.strip()
-            if line:
-                preds.append(json.loads(line))
-
-        if len(preds) != 38:
-            raise DataValidationError(f"Canonical V1 archive must contain 38 predictions, got {len(preds)}")
-        return preds
+            with zf.open("results/v1_claim_predictions_pass1.jsonl") as f:
+                lines = [line.decode("utf-8").strip() for line in f if line.strip()]
+        return [json.loads(line) for line in lines]
 
     def _replay_v0_baseline(
         self, arm_targets: list[BenchmarkArmTarget]
@@ -691,40 +763,153 @@ class V2D3DevelopmentBenchmarkEvaluator:
         }
         return arm_results, claim_preds, fidelity_stats
 
-    def _init_transformers_provider(self) -> TransformersChatProvider:
-        """Initialize pinned HuggingFace Transformers provider for Qwen2.5-3B-Instruct."""
-        inference_config = SemanticVerificationConfig(
-            provider="transformers",
-            model=CANONICAL_V3_MODEL_NAME,
+    def _validate_package_provenance(self) -> None:
+        """Assert that source and installed distribution package versions match canonical 0.50.7."""
+        source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+        try:
+            dist_ver = importlib.metadata.version("legal-agentic-rag")
+        except Exception as exc:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Failed to read installed distribution version: {exc}"
+            ) from exc
+
+        if (
+            source_ver != CANONICAL_PACKAGE_VERSION
+            or dist_ver != CANONICAL_PACKAGE_VERSION
+            or source_ver != dist_ver
+        ):
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Package version mismatch: source='{source_ver}', installed='{dist_ver}', expected='{CANONICAL_PACKAGE_VERSION}'"
+            )
+
+    def _validate_canonical_provenance(self) -> None:
+        """Assert that runtime configuration strictly matches canonical V2-D3 parameters and clean Git state."""
+        if self._custom_provider is not None:
+            return
+        if self._candidate_id != CANONICAL_CANDIDATE_ID:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Candidate ID mismatch: expected '{CANONICAL_CANDIDATE_ID}', got '{self._candidate_id}'"
+            )
+        self._validate_package_provenance()
+        if not self._is_git_worktree_clean():
+            raise DataValidationError(
+                "INVALID_V2_DEVELOPMENT_PROVENANCE: Git worktree must be clean for canonical real execution"
+            )
+        git_head = self._get_git_commit()
+        if len(git_head) != 40 or not all(c in "0123456789abcdef" for c in git_head.lower()):
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Invalid 40-char Git HEAD commit: '{git_head}'"
+            )
+        if self._device != CANONICAL_V3_DEVICE:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected device '{CANONICAL_V3_DEVICE}', got '{self._device}'"
+            )
+        if self._torch_dtype != CANONICAL_V3_TORCH_DTYPE:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected torch_dtype '{CANONICAL_V3_TORCH_DTYPE}', got '{self._torch_dtype}'"
+            )
+        if self._temperature != CANONICAL_V3_TEMPERATURE:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected temperature {CANONICAL_V3_TEMPERATURE}, got {self._temperature}"
+            )
+        if self._repeat_count != CANONICAL_REPEAT_COUNT:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected repeat count {CANONICAL_REPEAT_COUNT}, got {self._repeat_count}"
+            )
+        if self._max_structured_output_retries != CANONICAL_V3_MAX_STRUCTURED_RETRIES:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected max retries {CANONICAL_V3_MAX_STRUCTURED_RETRIES}, got {self._max_structured_output_retries}"
+            )
+        if self._max_input_tokens != CANONICAL_V3_MAX_INPUT_TOKENS:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected max input tokens {CANONICAL_V3_MAX_INPUT_TOKENS}, got {self._max_input_tokens}"
+            )
+        if self._max_output_tokens != CANONICAL_V3_MAX_OUTPUT_TOKENS:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected max output tokens {CANONICAL_V3_MAX_OUTPUT_TOKENS}, got {self._max_output_tokens}"
+            )
+        if self._timeout_seconds != CANONICAL_V3_TIMEOUT_SECONDS:
+            raise DataValidationError(
+                f"INVALID_V2_DEVELOPMENT_PROVENANCE: Expected timeout {CANONICAL_V3_TIMEOUT_SECONDS}, got {self._timeout_seconds}"
+            )
+        if not self._is_cuda_available():
+            raise DataValidationError(
+                "INVALID_V2_DEVELOPMENT_PROVENANCE: CUDA device is required for canonical real execution"
+            )
+
+    def _init_v3_provider(self) -> ChatModelProvider:
+        """Construct real TransformersChatProvider with canonical parameters."""
+        if self._custom_provider is not None:
+            return self._custom_provider
+
+        cfg = SemanticVerificationConfig(
+            backend=CANONICAL_V3_BACKEND,
+            model_name=CANONICAL_V3_MODEL_NAME,
             model_revision=CANONICAL_V3_MODEL_REVISION,
             device=self._device,
             torch_dtype=self._torch_dtype,
-            temperature=self._temperature,
+            local_files_only=False,
+            timeout_seconds=self._timeout_seconds,
             max_input_tokens=self._max_input_tokens,
             max_output_tokens=self._max_output_tokens,
-            timeout_seconds=self._timeout_seconds,
-            local_files_only=False,
-        ).as_generation_config()
-
-        claim_config = ClaimVerificationConfig(
             max_structured_output_retries=self._max_structured_output_retries,
         )
+        generation_cfg = cfg.as_generation_config()
 
-        return TransformersChatProvider(
-            inference_config=inference_config,
-            claim_config=claim_config,
-        )
+        if (
+            generation_cfg.backend != CANONICAL_V3_BACKEND
+            or generation_cfg.model_name != CANONICAL_V3_MODEL_NAME
+            or generation_cfg.model_revision != CANONICAL_V3_MODEL_REVISION
+            or generation_cfg.device != CANONICAL_V3_DEVICE
+            or generation_cfg.torch_dtype != CANONICAL_V3_TORCH_DTYPE
+            or generation_cfg.local_files_only is not False
+            or generation_cfg.timeout_seconds != CANONICAL_V3_TIMEOUT_SECONDS
+            or generation_cfg.max_input_tokens != CANONICAL_V3_MAX_INPUT_TOKENS
+            or generation_cfg.max_output_tokens != CANONICAL_V3_MAX_OUTPUT_TOKENS
+            or generation_cfg.max_structured_output_retries != CANONICAL_V3_MAX_STRUCTURED_RETRIES
+            or generation_cfg.temperature != 0.0
+        ):
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: GenerationConfig invariants failed: {generation_cfg}"
+            )
+
+        return TransformersChatProvider(generation_cfg)
+
+    def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
+        """Validate that provider runtime identity strictly matches canonical constants."""
+        if self._custom_provider is not None:
+            return
+        p_name = getattr(provider, "provider_name", "unknown")
+        if p_name != CANONICAL_V3_BACKEND:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Provider name mismatch: expected '{CANONICAL_V3_BACKEND}', got '{p_name}'"
+            )
+        p_model = getattr(provider, "model_name", "unknown")
+        if p_model != CANONICAL_V3_MODEL_NAME:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Model name mismatch: expected '{CANONICAL_V3_MODEL_NAME}', got '{p_model}'"
+            )
+        p_rev = getattr(provider, "model_revision", "unknown")
+        if p_rev != CANONICAL_V3_MODEL_REVISION:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Model revision mismatch: expected '{CANONICAL_V3_MODEL_REVISION}', got '{p_rev}'"
+            )
+        p_ver = getattr(provider, "provider_version", "unknown")
+        if not p_ver or p_ver == "unknown" or p_ver != CANONICAL_V3_PROVIDER_VERSION:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Provider version mismatch: expected '{CANONICAL_V3_PROVIDER_VERSION}', got '{p_ver}'"
+            )
 
     def _run_inference_pass(
         self,
         verifier: StructuredSemanticCitationVerifierD3,
-        provider: TransformersChatProvider,
+        provider: ObservationalChatModelProviderWrapper,
         arm_targets: list[BenchmarkArmTarget],
         pass_index: int,
     ) -> tuple[dict[str, CitationVerificationResult], list[dict[str, Any]], dict[str, Any]]:
         """Run complete verifier evaluation pass over all benchmark arms."""
-        start_calls = getattr(provider, "call_count", 0)
-        start_errors = getattr(provider, "error_count", 0)
+        start_calls = provider.total_calls
+        start_errors = provider.failed_call_count
 
         arm_results: dict[str, CitationVerificationResult] = {}
         claim_preds: list[dict[str, Any]] = []
@@ -806,13 +991,39 @@ class V2D3DevelopmentBenchmarkEvaluator:
                     "structured_assessment": assessment_dict,
                 })
 
-        end_calls = getattr(provider, "call_count", 0)
-        end_errors = getattr(provider, "error_count", 0)
+        end_calls = provider.total_calls
+        end_errors = provider.failed_call_count
+
+        provider_calls_in_pass = end_calls - start_calls
+        provider_invocation_errors_in_pass = end_errors - start_errors
+
+        claim_provider_call_count_sum = sum(
+            p.get("telemetry", {}).get("provider_call_count", 0) for p in claim_preds
+        )
+        claim_retry_count_sum = sum(
+            p.get("telemetry", {}).get("retry_count", 0) for p in claim_preds
+        )
+        semantic_execution_error_count = sum(
+            1 for p in claim_preds if p.get("v2_d3_three_way_prediction") == "EXECUTION_ERROR"
+        )
+        draft_rejection_categories: dict[str, int] = defaultdict(int)
+        for p in claim_preds:
+            for cat in p.get("telemetry", {}).get("draft_rejection_categories", []):
+                draft_rejection_categories[cat] += 1
+
+        if claim_provider_call_count_sum != provider_calls_in_pass:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Provider call reconciliation mismatch in Pass {pass_index}: "
+                f"claim_provider_call_count_sum={claim_provider_call_count_sum} != provider_calls_in_pass={provider_calls_in_pass}"
+            )
 
         pass_telemetry = {
             "pass_index": pass_index,
-            "provider_calls_in_pass": end_calls - start_calls,
-            "provider_errors_in_pass": end_errors - start_errors,
+            "provider_calls": provider_calls_in_pass,
+            "provider_invocation_errors": provider_invocation_errors_in_pass,
+            "structured_retries": claim_retry_count_sum,
+            "semantic_execution_errors": semantic_execution_error_count,
+            "draft_rejection_categories": dict(draft_rejection_categories),
         }
         return arm_results, claim_preds, pass_telemetry
 
@@ -1371,6 +1582,10 @@ class V2D3DevelopmentBenchmarkEvaluator:
                     diagnostic_flag_counts[flag] += 1
 
         return {
+            "schema_version": "1.0",
+            "artifact_type": "v2_d3_dimension_diagnostics",
+            "candidate_id": self._candidate_id,
+            "diagnostic_pass": 1,
             "total_claims": len(targets),
             "successfully_structured_claim_count": successfully_structured_claims,
             "execution_error_claim_count": claims_with_exec_error,
@@ -1443,12 +1658,21 @@ class V2D3DevelopmentBenchmarkEvaluator:
         total_duration: float,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Construct final comprehensive benchmark evaluation report and decision report."""
-        total_calls = (
-            pass1_telemetry["provider_calls_in_pass"] + pass2_telemetry["provider_calls_in_pass"]
+        total_provider_calls = (
+            pass1_telemetry["provider_calls"] + pass2_telemetry["provider_calls"]
         )
-        model_errors = (
-            pass1_telemetry["provider_errors_in_pass"] + pass2_telemetry["provider_errors_in_pass"]
+        total_provider_invocation_errors = (
+            pass1_telemetry["provider_invocation_errors"]
+            + pass2_telemetry["provider_invocation_errors"]
         )
+        total_structured_retries = (
+            pass1_telemetry["structured_retries"] + pass2_telemetry["structured_retries"]
+        )
+        total_semantic_execution_errors = (
+            pass1_telemetry["semantic_execution_errors"]
+            + pass2_telemetry["semantic_execution_errors"]
+        )
+        model_errors = total_semantic_execution_errors
 
         v2_claim_binary = all_metrics["v2_d3_claim_binary"]
         v2_three_way = all_metrics["v2_d3_three_way"]
@@ -1456,7 +1680,11 @@ class V2D3DevelopmentBenchmarkEvaluator:
         v2_answer = all_metrics["v2_d3_answer_metrics"]
 
         # Canonical Verdict Precedence
-        if model_errors > 0 or stability_info["execution_error_in_any_pass_count"] > 0:
+        if (
+            total_semantic_execution_errors > 0
+            or stability_info["execution_error_in_any_pass_count"] > 0
+            or total_provider_invocation_errors > 0
+        ):
             verdict = "V2_DEVELOPMENT_EXECUTION_ERROR"
         elif stability_info["unstable_semantic_claim_count"] > 0:
             verdict = "V2_DEVELOPMENT_LABEL_INSTABILITY"
@@ -1493,12 +1721,19 @@ class V2D3DevelopmentBenchmarkEvaluator:
             "total_claims": len(claim_targets),
             "model_run_executed": True,
             "telemetry": {
-                "provider_calls": total_calls,
                 "model_errors": model_errors,
-                "structured_output_retries": dim_diagnostics["rejection_telemetry_summary"]["total_retries"],
+                "provider_invocation_errors": total_provider_invocation_errors,
+                "structured_output_retries": total_structured_retries,
+                "total_provider_calls": total_provider_calls,
                 "total_duration_seconds": round(total_duration, 2),
-                "pass1_telemetry": pass1_telemetry,
-                "pass2_telemetry": pass2_telemetry,
+                "pass1": pass1_telemetry,
+                "pass2": pass2_telemetry,
+                "aggregate": {
+                    "total_provider_calls": total_provider_calls,
+                    "total_provider_invocation_errors": total_provider_invocation_errors,
+                    "total_structured_retries": total_structured_retries,
+                    "total_semantic_execution_errors": total_semantic_execution_errors,
+                },
             },
             "stability": stability_info,
             "metrics": all_metrics,
@@ -1547,7 +1782,7 @@ class V2D3DevelopmentBenchmarkEvaluator:
         pass1_claim_preds: list[dict[str, Any]] | None = None,
         pass2_claim_preds: list[dict[str, Any]] | None = None,
         exec_identity: dict[str, Any] | None = None,
-        provider: TransformersChatProvider | None = None,
+        provider: ObservationalChatModelProviderWrapper | None = None,
         is_preflight: bool = False,
     ) -> None:
         """Write all JSON reports, prediction JSONLs, and evidence package ZIP."""

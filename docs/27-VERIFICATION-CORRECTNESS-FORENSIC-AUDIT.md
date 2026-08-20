@@ -1894,6 +1894,18 @@ assert zip_report["execution_identity"]["execution_git_commit"] == report["execu
 assert zip_decision["promotion_authorized"] == decision["promotion_authorized"]
 assert zip_dim_diag["total_claims"] == dim_diag["total_claims"]
 
+# Verify provider_calls.jsonl rows and prompt SHA
+with zipfile.ZipFile(pkg_path, "r") as zf:
+    p_calls_lines = [
+        json.loads(line)
+        for line in zf.read("telemetry/provider_calls.jsonl").decode("utf-8").splitlines()
+        if line.strip()
+    ]
+total_prov_calls = report["telemetry"]["total_provider_calls"]
+assert len(p_calls_lines) == total_prov_calls, f"provider_calls.jsonl row count mismatch: {len(p_calls_lines)} != {total_prov_calls}"
+for p_rec in p_calls_lines:
+    assert p_rec["system_instruction_sha256"] == "546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b", "Provider call system instruction SHA mismatch"
+
 # Extract canonical schema fields
 candidate = report["candidate_id"]
 execution_commit = report["execution_identity"]["execution_git_commit"]
@@ -1903,7 +1915,11 @@ verdict = report["verdict"]
 dev_decision = decision["development_evaluation_decision"]
 promotion_authorized = decision["promotion_authorized"]
 model_errors = report["telemetry"]["model_errors"]
+provider_errors = report["telemetry"].get("provider_invocation_errors", 0)
 structured_retries = report["telemetry"]["structured_output_retries"]
+pass1_telem = report["telemetry"]["pass1"]
+pass2_telem = report["telemetry"]["pass2"]
+aggregate_telem = report["telemetry"]["aggregate"]
 
 stability_info = report["stability"]
 v1_claim_metrics = report["metrics"]["v1_claim_binary"]
@@ -1925,8 +1941,13 @@ print("Installed Package Version:    ", installed_pkg_ver)
 print("Verdict:                      ", verdict)
 print("Development Decision:         ", dev_decision)
 print("Promotion Authorized:         ", promotion_authorized)
-print("Model Errors:                 ", model_errors)
-print("Structured Retries:           ", structured_retries)
+print("Semantic Execution Errors:    ", model_errors)
+print("Provider Invocation Errors:   ", provider_errors)
+print("Total Provider Calls:         ", total_prov_calls)
+print("Total Structured Retries:     ", structured_retries)
+print("Pass 1 Operational Telemetry: ", json.dumps(pass1_telem, indent=2))
+print("Pass 2 Operational Telemetry: ", json.dumps(pass2_telem, indent=2))
+print("Aggregate Telemetry:          ", json.dumps(aggregate_telem, indent=2))
 
 print("\n--- TWO-PASS STABILITY ---")
 print("Total Claims:                 ", stability_info.get("total_claims", 38))
@@ -1974,7 +1995,8 @@ print("  Invalid Answers Caught:     ", f"{v2_answer_metrics['invalid_answers_ca
 print("  Evaluated Answer Accuracy:  ", f"{v2_answer_metrics.get('evaluated_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
 print("  Full Denom Answer Accuracy: ", f"{v2_answer_metrics.get('full_denominator_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
 
-print("\n--- RELATION & DIAGNOSTIC DISTRIBUTIONS ---")
+print("\n--- RELATION & DIAGNOSTIC DISTRIBUTIONS (Pass 1) ---")
+print("Diagnostic Pass:              ", dimension_diagnostics.get("diagnostic_pass", 1))
 print("Total Claims:                 ", dimension_diagnostics.get("total_claims", 38))
 print("Successfully Structured:      ", dimension_diagnostics.get("successfully_structured_claim_count", 0))
 print("Execution Errors:             ", dimension_diagnostics.get("execution_error_claim_count", 0))
@@ -1989,11 +2011,12 @@ if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
     assert execution_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {execution_commit} != {REVIEWED_COMMIT_SHA}"
 assert source_pkg_ver == "0.50.7", f"Source version mismatch: {source_pkg_ver}"
 assert installed_pkg_ver == "0.50.7", f"Installed version mismatch: {installed_pkg_ver}"
-assert report["execution_identity"]["repeat_count"] == 2, f"Repeat count mismatch: {report['execution_identity']['repeat_count']}"
+assert report["execution_identity"]["model_inference_config"]["repeat_count"] == 2, f"Repeat count mismatch: {report['execution_identity']['model_inference_config']['repeat_count']}"
 assert promotion_authorized is False, "CRITICAL: promotion_authorized must be False for development evaluation"
 
 if verdict == "V2_DEVELOPMENT_BENCHMARK_PASS":
     assert model_errors == 0, f"Model errors must be 0 for PASS, got {model_errors}"
+    assert provider_errors == 0, f"Provider invocation errors must be 0 for PASS, got {provider_errors}"
     assert stability_info.get("execution_error_in_any_pass_count", 0) == 0, f"Execution errors in stability passes must be 0 for PASS, got {stability_info.get('execution_error_in_any_pass_count')}"
     assert stability_info.get("unstable_semantic_claim_count", 0) == 0, f"Unstable semantic claims must be 0 for PASS, got {stability_info.get('unstable_semantic_claim_count')}"
     assert stability_info.get("claims_with_two_valid_semantic_labels", 0) == 38, f"All 38 claims must have 2 valid semantic labels for PASS, got {stability_info.get('claims_with_two_valid_semantic_labels')}"
