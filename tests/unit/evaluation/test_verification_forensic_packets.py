@@ -15,11 +15,15 @@ import pytest
 
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, DataValidationError
 from scripts.materialize_verification_forensic_packets import (
+    CANONICAL_B1A_MEMBER_HASHES,
     CANONICAL_B1A_ZIP_SHA256,
     CANONICAL_BASE_RESULTS_SHA256,
     CANONICAL_CANDIDATE_RESULTS_SHA256,
     CANONICAL_DEVELOPMENT_SHA256,
     CANONICAL_MATERIALIZED_QUESTIONS_SHA256,
+    CANONICAL_SERVING_DATASET_NAME,
+    CANONICAL_SERVING_DATASET_REVISION,
+    CANONICAL_SERVING_RECORD_COUNT,
     CANONICAL_TARGET_IDS,
     ForensicSourceMaterializer,
     sha256_bytes,
@@ -36,8 +40,8 @@ def _make_dummy_manifest(
         "schema_version": "1.0",
         "artifact_type": artifact_type,
         "artifact_version": "1.0",
-        "dataset_name": "uit-dsc-2026-task2-selected-contexts",
-        "dataset_revision": "sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e",
+        "dataset_name": CANONICAL_SERVING_DATASET_NAME,
+        "dataset_revision": CANONICAL_SERVING_DATASET_REVISION,
         "created_at": datetime.now(UTC).isoformat(),
         "record_count": record_count,
         "processing_config_hash": "4cd125739ca9b4046654d00c9c5c468ccc4bcfabe8312ca50638c0559d42b843",
@@ -112,7 +116,7 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
         for c in chunks_data:
             f.write(json.dumps(c) + "\n")
 
-    manifest_dict = _make_dummy_manifest("legal_chunks", len(chunks_data))
+    manifest_dict = _make_dummy_manifest("legal_chunks", CANONICAL_SERVING_RECORD_COUNT)
     manifest_dict["metadata"]["payload_sha256"] = sha256_file(records_file)
     (chunks_dir / "manifest.json").write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
 
@@ -154,7 +158,7 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
         # Base record
         cid = f"chunk_{qid}_1" if qid in CANONICAL_TARGET_IDS else "chunk_102047_1"
         is_gen_failed_base = qid == "147239"
-        
+
         if is_gen_failed_base:
             base_rec = {
                 "question_id": qid,
@@ -173,7 +177,13 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
                         },
                         "context": {
                             "selection_trace": [
-                                {"chunk_id": cid, "source_rank": 1, "selected": True, "reason": "selected"}
+                                {
+                                    "chunk_id": cid,
+                                    "source_rank": 1,
+                                    "selection_rank": 1,
+                                    "selected": True,
+                                    "reason": "selected",
+                                }
                             ]
                         },
                         "selected_evidence": [{"evidence_id": "E1", "chunk_id": cid}],
@@ -208,7 +218,13 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
                         },
                         "context": {
                             "selection_trace": [
-                                {"chunk_id": cid, "source_rank": 1, "selected": True, "reason": "selected"}
+                                {
+                                    "chunk_id": cid,
+                                    "source_rank": 1,
+                                    "selection_rank": 1,
+                                    "selected": True,
+                                    "reason": "selected",
+                                }
                             ]
                         },
                         "selected_evidence": [{"evidence_id": "E1", "chunk_id": cid}],
@@ -268,7 +284,13 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
                         },
                         "context": {
                             "selection_trace": [
-                                {"chunk_id": cid, "source_rank": 1, "selected": True, "reason": "selected"}
+                                {
+                                    "chunk_id": cid,
+                                    "source_rank": 1,
+                                    "selection_rank": 1,
+                                    "selected": True,
+                                    "reason": "selected",
+                                }
                             ]
                         },
                         "selected_evidence": [{"evidence_id": "E1", "chunk_id": cid}],
@@ -303,7 +325,13 @@ def _create_mock_environment(tmp_path: Path) -> dict[str, Path]:
                         },
                         "context": {
                             "selection_trace": [
-                                {"chunk_id": cid, "source_rank": 1, "selected": True, "reason": "selected"}
+                                {
+                                    "chunk_id": cid,
+                                    "source_rank": 1,
+                                    "selection_rank": 1,
+                                    "selected": True,
+                                    "reason": "selected",
+                                }
                             ]
                         },
                         "selected_evidence": [{"evidence_id": "E1", "chunk_id": cid}],
@@ -403,11 +431,18 @@ def _run_with_patched_hashes(env: dict[str, Path], **kwargs: Any) -> dict[str, A
     base_sha = sha256_file(env["base_results_file"])
     cand_sha = sha256_file(env["cand_results_file"])
 
+    # Compute mock member hashes
+    mock_member_hashes = {}
+    for req in CANONICAL_B1A_MEMBER_HASHES:
+        member_file = env["bundle_dir"] / req
+        mock_member_hashes[req] = sha256_file(member_file)
+
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_ZIP_SHA256", zip_sha),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", dev_sha),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", base_sha),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_CANDIDATE_RESULTS_SHA256", cand_sha),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
     ):
         materializer = ForensicSourceMaterializer(
             b1a_evidence_path=env["zip_path"],
@@ -421,7 +456,7 @@ def _run_with_patched_hashes(env: dict[str, Path], **kwargs: Any) -> dict[str, A
 
 
 # ----------------------------------------------------------------------
-# 24 UNIT TESTS
+# TESTS (ORIGINAL 24 + NEW PROVENANCE HARDENING TESTS)
 # ----------------------------------------------------------------------
 
 
@@ -470,9 +505,13 @@ def test_02_missing_required_b1a_member_rejected(tmp_path: Path) -> None:
 
 def test_03_base_results_sha_mismatch_rejected(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_ZIP_SHA256", sha256_file(env["zip_path"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", "0" * 64),
         pytest.raises(DataValidationError, match="base_batch results.jsonl SHA mismatch"),
     ):
@@ -487,10 +526,14 @@ def test_03_base_results_sha_mismatch_rejected(tmp_path: Path) -> None:
 
 def test_04_candidate_results_sha_mismatch_rejected(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_ZIP_SHA256", sha256_file(env["zip_path"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_CANDIDATE_RESULTS_SHA256", "0" * 64),
         pytest.raises(DataValidationError, match="candidate_batch results.jsonl SHA mismatch"),
     ):
@@ -511,9 +554,14 @@ def test_05_manifest_results_sha_mismatch_rejected(tmp_path: Path) -> None:
     mf["records_sha256"] = "f" * 64
     manifest_file.write_text(json.dumps(mf), encoding="utf-8")
 
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
         pytest.raises(DataValidationError, match="base_batch manifest records_sha256 mismatch"),
     ):
         materializer = ForensicSourceMaterializer(
@@ -532,9 +580,14 @@ def test_06_record_count_mismatch_rejected(tmp_path: Path) -> None:
     mf["record_count"] = 21
     manifest_file.write_text(json.dumps(mf), encoding="utf-8")
 
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
         pytest.raises(DataValidationError, match="base_batch manifest record_count mismatch: expected 22, got 21"),
     ):
         materializer = ForensicSourceMaterializer(
@@ -554,7 +607,6 @@ def test_07_target_missing_from_base_rejected(tmp_path: Path) -> None:
 
 def test_08_target_missing_from_candidate_rejected(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
-    # Remove one target from candidate batch
     lines = (env["bundle_dir"] / "candidate_batch" / "results.jsonl").read_text().splitlines()
     recs = [json.loads(line) for line in lines if line.strip()]
     recs[0]["question_id"] = "changed_id"
@@ -564,10 +616,15 @@ def test_08_target_missing_from_candidate_rejected(tmp_path: Path) -> None:
     mf["records_sha256"] = sha256_file(cand_file)
     (env["bundle_dir"] / "candidate_batch" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
 
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+
     with (
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
         patch("scripts.materialize_verification_forensic_packets.CANONICAL_CANDIDATE_RESULTS_SHA256", sha256_file(cand_file)),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
         pytest.raises(DataValidationError, match="missing from CANDIDATE batch"),
     ):
         materializer = ForensicSourceMaterializer(
@@ -605,18 +662,23 @@ def test_10_wrong_development_sha_rejected(tmp_path: Path) -> None:
 
 def test_11_selected_chunk_missing_rejected(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
-    # Clear records.jsonl in legal_chunks
-    (env["serving_root"] / "legal_chunks" / "records.jsonl").write_text("", encoding="utf-8")
+    # Clear records.jsonl in legal_chunks and update manifest hash
+    records_file = env["serving_root"] / "legal_chunks" / "records.jsonl"
+    records_file.write_text("", encoding="utf-8")
+    mf = json.loads((env["serving_root"] / "legal_chunks" / "manifest.json").read_text())
+    mf["metadata"]["payload_sha256"] = sha256_file(records_file)
+    (env["serving_root"] / "legal_chunks" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
     with pytest.raises(DataValidationError, match="legal_chunks artifact missing .* required chunk IDs"):
         _run_with_patched_hashes(env)
 
 
 def test_12_selected_evidence_eid_chunk_id_mismatch_rejected(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
-    # Corrupt selected_evidence in base record
     base_file = env["bundle_dir"] / "base_batch" / "results.jsonl"
     lines = base_file.read_text().splitlines()
     recs = [json.loads(line) for line in lines if line.strip()]
+    # Change chunk_id to unknown chunk
     recs[0]["response"]["metadata"]["selected_evidence"] = [{"evidence_id": "E1", "chunk_id": "unknown_chunk_xyz"}]
     base_file.write_text("\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
     mf = json.loads((env["bundle_dir"] / "base_batch" / "manifest.json").read_text())
@@ -751,10 +813,8 @@ def test_21_paired_base_candidate_packet_structure(tmp_path: Path) -> None:
 def test_22_output_packet_content_not_written_into_tracked_repo_paths(tmp_path: Path) -> None:
     env = _create_mock_environment(tmp_path)
     _run_with_patched_hashes(env)
-    # Ensure output was written strictly to tmp_path / "out"
     assert (env["output_dir"] / "forensic_packets").exists()
     assert len(list((env["output_dir"] / "forensic_packets").glob("*.json"))) == 4
-    # Ensure repo tracked docs or src have no packets written into them
     assert not Path("src/forensic_packets").exists()
     assert not Path("docs/forensic_packets").exists()
 
@@ -773,3 +833,206 @@ def test_24_historical_arm_count_equals_8(tmp_path: Path) -> None:
     arm_names = [item["arm"] for item in report["per_arm"]]
     assert arm_names.count("BASE") == 4
     assert arm_names.count("CANDIDATE") == 4
+
+
+# ----------------------------------------------------------------------
+# NEW PROVENANCE HARDENING TESTS (FIX 1 - FIX 5)
+# ----------------------------------------------------------------------
+
+
+def test_25_legal_chunks_payload_checksum_mismatch_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    # Corrupt legal_chunks payload checksum in manifest
+    mf = json.loads((env["serving_root"] / "legal_chunks" / "manifest.json").read_text())
+    mf["metadata"]["payload_sha256"] = "f" * 64
+    (env["serving_root"] / "legal_chunks" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    with pytest.raises(ArtifactCompatibilityError, match="Artifact payload checksum is incompatible"):
+        _run_with_patched_hashes(env)
+
+
+def test_26_wrong_serving_dataset_name_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mf = json.loads((env["serving_root"] / "legal_chunks" / "manifest.json").read_text())
+    mf["dataset_name"] = "wrong-dataset-name"
+    (env["serving_root"] / "legal_chunks" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    with pytest.raises(ArtifactCompatibilityError, match="Serving dataset_name mismatch"):
+        _run_with_patched_hashes(env)
+
+
+def test_27_wrong_serving_dataset_revision_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mf = json.loads((env["serving_root"] / "legal_chunks" / "manifest.json").read_text())
+    mf["dataset_revision"] = "sha256:wrong_revision"
+    (env["serving_root"] / "legal_chunks" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    with pytest.raises(ArtifactCompatibilityError, match="Serving dataset_revision mismatch"):
+        _run_with_patched_hashes(env)
+
+
+def test_28_wrong_serving_record_count_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mf = json.loads((env["serving_root"] / "legal_chunks" / "manifest.json").read_text())
+    mf["record_count"] = 12345
+    (env["serving_root"] / "legal_chunks" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    with pytest.raises(ArtifactCompatibilityError, match="Serving record_count mismatch"):
+        _run_with_patched_hashes(env)
+
+
+def test_29_wrong_b1a_arm_code_version_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mf = json.loads((env["bundle_dir"] / "base_batch" / "manifest.json").read_text())
+    mf["code_version"] = "0.99.0"
+    (env["bundle_dir"] / "base_batch" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+
+    with (
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
+        pytest.raises(DataValidationError, match="base_batch manifest code_version mismatch"),
+    ):
+        materializer = ForensicSourceMaterializer(
+            b1a_evidence_path=env["bundle_dir"],
+            serving_root=env["serving_root"],
+            development_path=env["development"],
+            output_dir=env["output_dir"],
+        )
+        materializer.run()
+
+
+def test_30_wrong_b1a_arm_question_source_sha256_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mf = json.loads((env["bundle_dir"] / "base_batch" / "manifest.json").read_text())
+    mf["question_source_sha256"] = "f" * 64
+    (env["bundle_dir"] / "base_batch" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+
+    with (
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
+        pytest.raises(DataValidationError, match="base_batch manifest question_source_sha256 mismatch"),
+    ):
+        materializer = ForensicSourceMaterializer(
+            b1a_evidence_path=env["bundle_dir"],
+            serving_root=env["serving_root"],
+            development_path=env["development"],
+            output_dir=env["output_dir"],
+        )
+        materializer.run()
+
+
+def test_31_extracted_bundle_wrong_member_sha_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    mock_member_hashes = {
+        req: sha256_file(env["bundle_dir"] / req) for req in CANONICAL_B1A_MEMBER_HASHES
+    }
+    # Corrupt one member file in directory mode
+    (env["bundle_dir"] / "configs" / "base_runtime_config.json").write_text('{"corrupted": true}', encoding="utf-8")
+
+    with (
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_DEVELOPMENT_SHA256", sha256_file(env["development"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_BASE_RESULTS_SHA256", sha256_file(env["base_results_file"])),
+        patch("scripts.materialize_verification_forensic_packets.CANONICAL_B1A_MEMBER_HASHES", mock_member_hashes),
+        pytest.raises(DataValidationError, match="member 'configs/base_runtime_config.json' SHA mismatch"),
+    ):
+        materializer = ForensicSourceMaterializer(
+            b1a_evidence_path=env["bundle_dir"],
+            serving_root=env["serving_root"],
+            development_path=env["development"],
+            output_dir=env["output_dir"],
+        )
+        materializer.run()
+
+
+def test_32_existing_chunk_selected_evidence_trace_mismatch_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    base_file = env["bundle_dir"] / "base_batch" / "results.jsonl"
+    lines = base_file.read_text().splitlines()
+    recs = [json.loads(line) for line in lines if line.strip()]
+    # Point selected_evidence E1 to chunk_102047_2 while selection_trace says chunk_102047_1
+    recs[0]["response"]["metadata"]["selected_evidence"] = [
+        {"evidence_id": "E1", "chunk_id": "chunk_102047_2"}
+    ]
+    # Keep citation matching the new chunk so citation cross-check passes but trace check fails
+    recs[0]["response"]["citations"][0]["chunk_id"] = "chunk_102047_2"
+    recs[0]["response"]["citations"][0]["document_id"] = "doc_chunk_102047_2"
+    recs[0]["response"]["citations"][0]["document_title"] = "Van ban chunk_102047_2"
+    base_file.write_text("\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+    mf = json.loads((env["bundle_dir"] / "base_batch" / "manifest.json").read_text())
+    mf["records_sha256"] = sha256_file(base_file)
+    (env["bundle_dir"] / "base_batch" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    # Repack zip
+    with zipfile.ZipFile(env["zip_path"], "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(env["bundle_dir"]):
+            for file in files:
+                fp = Path(root) / file
+                arcname = fp.relative_to(env["bundle_dir"]).as_posix()
+                z.write(fp, arcname=arcname)
+
+    report = _run_with_patched_hashes(env)
+    assert report["verdict"] == "INVALID_FORENSIC_PROVENANCE"
+    assert report["aggregate"]["source_mapping_pass_count"] == 7  # 1 failed out of 8
+
+
+def test_33_non_cited_generation_failed_arm_trace_mismatch_rejected(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    base_file = env["bundle_dir"] / "base_batch" / "results.jsonl"
+    lines = base_file.read_text().splitlines()
+    recs = [json.loads(line) for line in lines if line.strip()]
+    # Case 147239 is generation_failed in BASE arm (0 citations). Modify selected_evidence vs trace:
+    target_idx = next(i for i, r in enumerate(recs) if r["question_id"] == "147239")
+    recs[target_idx]["response"]["metadata"]["selected_evidence"] = [
+        {"evidence_id": "E1", "chunk_id": "chunk_147239_2"}
+    ]
+    # trace has chunk_147239_1
+    base_file.write_text("\n".join(json.dumps(r) for r in recs) + "\n", encoding="utf-8")
+    mf = json.loads((env["bundle_dir"] / "base_batch" / "manifest.json").read_text())
+    mf["records_sha256"] = sha256_file(base_file)
+    (env["bundle_dir"] / "base_batch" / "manifest.json").write_text(json.dumps(mf), encoding="utf-8")
+
+    # Repack zip
+    with zipfile.ZipFile(env["zip_path"], "w", zipfile.ZIP_DEFLATED) as z:
+        for root, _, files in os.walk(env["bundle_dir"]):
+            for file in files:
+                fp = Path(root) / file
+                arcname = fp.relative_to(env["bundle_dir"]).as_posix()
+                z.write(fp, arcname=arcname)
+
+    report = _run_with_patched_hashes(env)
+    assert report["verdict"] == "INVALID_FORENSIC_PROVENANCE"
+    assert report["aggregate"]["source_mapping_pass_count"] == 7  # 1 failed out of 8
+
+
+def test_34_canonical_packet_contains_no_absolute_windows_path(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    _run_with_patched_hashes(env)
+    for qid in CANONICAL_TARGET_IDS:
+        raw_text = (env["output_dir"] / "forensic_packets" / f"{qid}.json").read_text(encoding="utf-8")
+        assert "C:\\" not in raw_text
+        assert "c:\\" not in raw_text
+        assert "C:/" not in raw_text
+        assert "c:/" not in raw_text
+        assert "Users" not in raw_text
+
+
+def test_35_canonical_source_report_contains_no_local_scratch_path(tmp_path: Path) -> None:
+    env = _create_mock_environment(tmp_path)
+    _run_with_patched_hashes(env)
+    raw_text = (env["output_dir"] / "results" / "forensic_source_report.json").read_text(encoding="utf-8")
+    assert "C:\\" not in raw_text
+    assert "c:\\" not in raw_text
+    assert "C:/" not in raw_text
+    assert "c:/" not in raw_text
+    assert "scratch" not in raw_text
+    assert "antigravity-ide" not in raw_text

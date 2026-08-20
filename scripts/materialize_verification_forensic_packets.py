@@ -49,23 +49,31 @@ CANONICAL_CANDIDATE_RESULTS_SHA256 = (
     "420d2297d529c3d8c246de499111840d4a4a98b010bd95e42639b7ba9f3fb6ad"
 )
 
+CANONICAL_SERVING_DATASET_NAME = "uit-dsc-2026-task2-selected-contexts"
+CANONICAL_SERVING_DATASET_REVISION = (
+    "sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e"
+)
+CANONICAL_SERVING_RECORD_COUNT = 330768
+
 CANONICAL_TARGET_IDS = ["102047", "147239", "26541", "95861"]
 CANONICAL_ARM_NAMES = ["BASE", "CANDIDATE"]
 
-REQUIRED_B1A_MEMBERS = [
-    "configs/phase-b1a-graph-routing-cases.json",
-    "evidence/materialized_questions_identity.json",
-    "configs/base_runtime_config.json",
-    "configs/candidate_runtime_config.json",
-    "results/phase_b1a_paired_report.json",
-    "results/phase_b1a_decision_report.json",
-    "base_batch/manifest.json",
-    "candidate_batch/manifest.json",
-    "base_batch/results.jsonl",
-    "candidate_batch/results.jsonl",
-    "base_batch/batch_state.json",
-    "candidate_batch/batch_state.json",
-]
+CANONICAL_B1A_MEMBER_HASHES: dict[str, str] = {
+    "configs/phase-b1a-graph-routing-cases.json": "b1efe824f320d9323af462869fd8842ef8544fa14d5f81ae35decca99e1ee99f",
+    "evidence/materialized_questions_identity.json": "abad62cb31dc24bc40213ada580f8b464bfe2f98d1340d3820fd10de338ebcd3",
+    "configs/base_runtime_config.json": "03a32009c0dc9a68ac93538710ec741b7a7e68a8ef9e160116ecc6bcb76d64fc",
+    "configs/candidate_runtime_config.json": "27a490b947336a2f3aa0c34e9f7a19494be28193f10e5934c5909930fea7f99a",
+    "results/phase_b1a_paired_report.json": "ed7b5129539a4f31b4f8b9153ef8060d75d58cebee1d7932b346d63b0dc1e0e7",
+    "results/phase_b1a_decision_report.json": "6fce0e2daf6af1a50fdc1ed41bba271b99c7f6844e73edd1f3f52babdd365c5e",
+    "base_batch/manifest.json": "72cb07ae18d9539357e693b0bd4385565980b9d22b5cac054cb7d3a0a0012406",
+    "candidate_batch/manifest.json": "c64baf71ff13ccb2d864e84e875b06bdeb204dd636a45ad25ba6b3bed2499908",
+    "base_batch/results.jsonl": "c72dc38f37945831095c71ba4b0f24f328de2e01dc4f7ecac6e527b997dc3cac",
+    "candidate_batch/results.jsonl": "420d2297d529c3d8c246de499111840d4a4a98b010bd95e42639b7ba9f3fb6ad",
+    "base_batch/batch_state.json": "af15d1676144570ea75c9183119ea6c6890aed062554db516c0a3ddb642cb159",
+    "candidate_batch/batch_state.json": "11054fe5a9568da70f4e3f694185b846a8097eb90e37233825db1a02635ae219",
+}
+
+REQUIRED_B1A_MEMBERS = list(CANONICAL_B1A_MEMBER_HASHES.keys())
 
 
 def sha256_file(path: Path) -> str:
@@ -91,6 +99,7 @@ class ArmValidationSummary:
     replay_applicable: bool
     selected_evidence_count: int
     selected_chunk_lookup_pass: bool
+    source_mapping_pass: bool
     metadata_crosscheck_pass: bool
     rule_verifier_replay_pass: bool
     replay_reason: str | None = None
@@ -126,9 +135,14 @@ class ForensicSourceMaterializer:
         dev_questions, dev_sha = self._load_and_validate_development(self._development_path)
 
         # 2. Validate and Load B1A Evidence Archive/Bundle
-        b1a_bundle_dir, b1a_cleanup_dir, archive_sha = self._resolve_b1a_evidence(
-            self._b1a_evidence_path
-        )
+        (
+            b1a_bundle_dir,
+            b1a_cleanup_dir,
+            source_kind,
+            archive_filename,
+            archive_sha,
+            member_hashes,
+        ) = self._resolve_b1a_evidence(self._b1a_evidence_path)
 
         try:
             # 3. Validate B1A Manifests and Load Historical Records
@@ -142,7 +156,7 @@ class ForensicSourceMaterializer:
             # Validate materialized questions identity
             self._validate_materialized_identity(b1a_bundle_dir)
 
-            # 4. Validate Serving Artifacts and Load Legal Chunks Index
+            # 4. Validate Serving Artifacts with in-protocol payload check and Load Legal Chunks Index
             chunks_dir = self._find_legal_chunks_dir(self._serving_root)
             chunk_manifest, chunks_by_id = self._load_needed_chunks(
                 chunks_dir=chunks_dir,
@@ -192,25 +206,29 @@ class ForensicSourceMaterializer:
                 )
                 arm_summaries.append(cand_summary)
 
-                # Build Paired Packet
+                # Build Paired Packet with Transport-Neutral Provenance
                 packet = {
                     "schema_version": "1.0",
                     "question_id": qid,
                     "source_identity": {
-                        "source_kind": "b1a_frozen_historical_pair",
-                        "archive_path": str(self._b1a_evidence_path),
+                        "source_kind": source_kind,
+                        "archive_filename": archive_filename,
                         "archive_sha256_observed": archive_sha,
+                        "canonical_zip_sha256_expected": CANONICAL_B1A_ZIP_SHA256,
                         "base_results_sha256": CANONICAL_BASE_RESULTS_SHA256,
                         "candidate_results_sha256": CANONICAL_CANDIDATE_RESULTS_SHA256,
                         "code_version": base_manifest.get("code_version", "0.50.6"),
                         "materialized_question_source_sha256": CANONICAL_MATERIALIZED_QUESTIONS_SHA256,
                         "canonical_development_sha256": dev_sha,
+                        "development_filename": self._development_path.name,
                         "serving_artifact_identity": {
                             "artifact_type": chunk_manifest.artifact_type.value,
                             "dataset_name": chunk_manifest.dataset_name,
                             "dataset_revision": chunk_manifest.dataset_revision,
                             "code_version": chunk_manifest.code_version,
                             "record_count": chunk_manifest.record_count,
+                            "payload_integrity_verified": True,
+                            "payload_sha256": chunk_manifest.metadata.get("payload_sha256"),
                         },
                     },
                     "question": canonical_question_text,
@@ -236,6 +254,7 @@ class ForensicSourceMaterializer:
 
             # 6. Check Overall Verdict Invariants
             all_chunks_lookup_pass = all(s.selected_chunk_lookup_pass for s in arm_summaries)
+            all_source_mapping_pass = all(s.source_mapping_pass for s in arm_summaries)
             all_metadata_pass = all(s.metadata_crosscheck_pass for s in arm_summaries)
             all_applicable_replay_pass = all(
                 s.rule_verifier_replay_pass
@@ -243,7 +262,12 @@ class ForensicSourceMaterializer:
                 if s.replay_applicable
             )
 
-            if not (all_chunks_lookup_pass and all_metadata_pass and all_applicable_replay_pass):
+            if not (
+                all_chunks_lookup_pass
+                and all_source_mapping_pass
+                and all_metadata_pass
+                and all_applicable_replay_pass
+            ):
                 verdict = "INVALID_FORENSIC_PROVENANCE"
             else:
                 verdict = "FORENSIC_SOURCE_READY"
@@ -251,20 +275,23 @@ class ForensicSourceMaterializer:
             # 7. Write Materialized Outputs
             report = self._build_report(
                 verdict=verdict,
+                source_kind=source_kind,
+                archive_filename=archive_filename,
                 archive_sha=archive_sha,
                 dev_sha=dev_sha,
                 chunk_manifest=chunk_manifest,
                 base_manifest=base_manifest,
                 cand_manifest=cand_manifest,
                 arm_summaries=arm_summaries,
+                member_hashes=member_hashes,
             )
 
             self._write_outputs(
                 materialized_packets=materialized_packets,
                 report=report,
+                source_kind=source_kind,
+                archive_filename=archive_filename,
                 archive_sha=archive_sha,
-                base_manifest=base_manifest,
-                cand_manifest=cand_manifest,
                 dev_sha=dev_sha,
             )
 
@@ -291,8 +318,10 @@ class ForensicSourceMaterializer:
             raise DataValidationError(f"development.json expected 991 records, got {len(data)}")
         return dict(data), actual_sha
 
-    def _resolve_b1a_evidence(self, path: Path) -> tuple[Path, Path | None, str]:
-        """Verify and resolve B1A evidence ZIP or extracted directory."""
+    def _resolve_b1a_evidence(
+        self, path: Path
+    ) -> tuple[Path, Path | None, str, str, str | None, dict[str, str]]:
+        """Verify and resolve B1A evidence ZIP or extracted directory fail-closed."""
         if not path.exists():
             raise DataValidationError(f"B1A evidence path does not exist: {path}")
 
@@ -304,20 +333,53 @@ class ForensicSourceMaterializer:
                 )
             temp_unpack = Path(tempfile.mkdtemp(prefix="b1a_evidence_unpack_"))
             with zipfile.ZipFile(path, "r") as z:
-                # Check member inventory
                 names = z.namelist()
                 for req in REQUIRED_B1A_MEMBERS:
                     if req not in names:
                         raise DataValidationError(f"B1A evidence missing required member '{req}'")
                 z.extractall(temp_unpack)
-            return temp_unpack, temp_unpack, actual_sha
+
+            # Verify all member hashes
+            member_hashes: dict[str, str] = {}
+            for req, expected_hash in CANONICAL_B1A_MEMBER_HASHES.items():
+                member_file = temp_unpack / req
+                m_sha = sha256_file(member_file)
+                if m_sha != expected_hash:
+                    raise DataValidationError(
+                        f"B1A ZIP unpacked member '{req}' SHA mismatch: expected {expected_hash}, got {m_sha}"
+                    )
+                member_hashes[req] = m_sha
+
+            return (
+                temp_unpack,
+                temp_unpack,
+                "canonical_zip",
+                path.name,
+                actual_sha,
+                member_hashes,
+            )
 
         if path.is_dir():
-            for req in REQUIRED_B1A_MEMBERS:
+            member_hashes = {}
+            for req, expected_hash in CANONICAL_B1A_MEMBER_HASHES.items():
                 member_file = path / req
                 if not member_file.is_file():
                     raise DataValidationError(f"B1A extracted directory missing required member '{req}'")
-            return path, None, "extracted_directory_unhashed"
+                m_sha = sha256_file(member_file)
+                if m_sha != expected_hash:
+                    raise DataValidationError(
+                        f"B1A extracted directory member '{req}' SHA mismatch: expected {expected_hash}, got {m_sha}"
+                    )
+                member_hashes[req] = m_sha
+
+            return (
+                path,
+                None,
+                "canonical_extracted_bundle",
+                path.name,
+                None,
+                member_hashes,
+            )
 
         raise DataValidationError(f"Invalid B1A evidence path: {path}")
 
@@ -347,7 +409,7 @@ class ForensicSourceMaterializer:
         arm_dir_name: str,
         expected_results_sha: str,
     ) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
-        """Load manifest and results.jsonl for one arm, validating count and SHA."""
+        """Load manifest and results.jsonl for one arm, validating full fail-closed gates."""
         manifest_path = bundle_dir / arm_dir_name / "manifest.json"
         results_path = bundle_dir / arm_dir_name / "results.jsonl"
 
@@ -366,6 +428,15 @@ class ForensicSourceMaterializer:
         if manifest.get("record_count") != 22:
             raise DataValidationError(
                 f"{arm_dir_name} manifest record_count mismatch: expected 22, got {manifest.get('record_count')}"
+            )
+        if manifest.get("code_version") != "0.50.6":
+            raise DataValidationError(
+                f"{arm_dir_name} manifest code_version mismatch: expected '0.50.6', got {manifest.get('code_version')}"
+            )
+        if manifest.get("question_source_sha256") != CANONICAL_MATERIALIZED_QUESTIONS_SHA256:
+            raise DataValidationError(
+                f"{arm_dir_name} manifest question_source_sha256 mismatch: "
+                f"expected {CANONICAL_MATERIALIZED_QUESTIONS_SHA256}, got {manifest.get('question_source_sha256')}"
             )
 
         records_raw = [
@@ -422,12 +493,29 @@ class ForensicSourceMaterializer:
         base_records: dict[str, dict[str, Any]],
         cand_records: dict[str, dict[str, Any]],
     ) -> tuple[Any, dict[str, dict[str, Any]]]:
-        """Validate legal_chunks manifest and load only the chunk records needed by target cases."""
+        """Validate legal_chunks payload in-protocol and load only the chunk records needed by target cases."""
         chunk_manifest = load_artifact_manifest(
             chunks_dir,
             expected_type=ArtifactType.LEGAL_CHUNKS,
-            verify_payload=False,
+            verify_payload=True,
         )
+
+        # Gate canonical serving identity
+        if chunk_manifest.dataset_name != CANONICAL_SERVING_DATASET_NAME:
+            raise ArtifactCompatibilityError(
+                f"Serving dataset_name mismatch: expected '{CANONICAL_SERVING_DATASET_NAME}', "
+                f"got '{chunk_manifest.dataset_name}'"
+            )
+        if chunk_manifest.dataset_revision != CANONICAL_SERVING_DATASET_REVISION:
+            raise ArtifactCompatibilityError(
+                f"Serving dataset_revision mismatch: expected '{CANONICAL_SERVING_DATASET_REVISION}', "
+                f"got '{chunk_manifest.dataset_revision}'"
+            )
+        if chunk_manifest.record_count != CANONICAL_SERVING_RECORD_COUNT:
+            raise ArtifactCompatibilityError(
+                f"Serving record_count mismatch: expected {CANONICAL_SERVING_RECORD_COUNT}, "
+                f"got {chunk_manifest.record_count}"
+            )
 
         needed_cids: set[str] = set()
         for qid in target_ids:
@@ -470,7 +558,7 @@ class ForensicSourceMaterializer:
         chunks_by_id: dict[str, dict[str, Any]],
         verifier: RuleBasedCitationVerifier,
     ) -> tuple[dict[str, Any], ArmValidationSummary]:
-        """Reconstruct evidence, validate metadata, and replay rule-based verifier."""
+        """Reconstruct evidence, cross-check selection trace, validate metadata, and replay verifier."""
         resp_dict = record.get("response", {})
         meta = resp_dict.get("metadata", {})
         agent_meta = meta.get("agent", {})
@@ -481,8 +569,29 @@ class ForensicSourceMaterializer:
         context_meta = meta.get("context", {})
         selection_trace = context_meta.get("selection_trace", [])
 
-        # Reconstruct Evidence
+        # FIX 4: Cross-check selected_evidence against selection_trace
         sel_ev_records = meta.get("selected_evidence", [])
+        selected_trace_entries = [
+            t for t in selection_trace if isinstance(t, dict) and t.get("selected") is True
+        ]
+        selected_trace_entries.sort(
+            key=lambda t: t.get("selection_rank") if isinstance(t.get("selection_rank"), int) else 0
+        )
+
+        source_mapping_pass = True
+        if len(sel_ev_records) != len(selected_trace_entries):
+            source_mapping_pass = False
+        else:
+            for idx, (ev_item, trace_item) in enumerate(zip(sel_ev_records, selected_trace_entries, strict=True)):
+                expected_eid = f"E{idx + 1}"
+                if (
+                    ev_item.get("evidence_id") != expected_eid
+                    or ev_item.get("chunk_id") != trace_item.get("chunk_id")
+                ):
+                    source_mapping_pass = False
+                    break
+
+        # Reconstruct Evidence
         evidence_list: list[Evidence] = []
         lookup_pass = True
         metadata_crosscheck_pass = True
@@ -630,6 +739,7 @@ class ForensicSourceMaterializer:
             replay_applicable=replay_applicable,
             selected_evidence_count=len(evidence_list),
             selected_chunk_lookup_pass=lookup_pass and len(evidence_list) == len(sel_ev_records),
+            source_mapping_pass=source_mapping_pass,
             metadata_crosscheck_pass=metadata_crosscheck_pass,
             rule_verifier_replay_pass=replay_pass if replay_applicable else True,
             replay_reason=None if replay_applicable else "historical_verifier_not_reached",
@@ -641,14 +751,17 @@ class ForensicSourceMaterializer:
         self,
         *,
         verdict: str,
-        archive_sha: str,
+        source_kind: str,
+        archive_filename: str,
+        archive_sha: str | None,
         dev_sha: str,
         chunk_manifest: Any,
         base_manifest: dict[str, Any],
         cand_manifest: dict[str, Any],
         arm_summaries: list[ArmValidationSummary],
+        member_hashes: dict[str, str],
     ) -> dict[str, Any]:
-        """Construct the standardized forensic source report."""
+        """Construct the standardized forensic source report without local machine paths."""
         replay_applicable_summaries = [s for s in arm_summaries if s.replay_applicable]
         replay_pass_count = sum(1 for s in replay_applicable_summaries if s.rule_verifier_replay_pass)
 
@@ -656,24 +769,29 @@ class ForensicSourceMaterializer:
             "schema_version": "1.0",
             "verdict": verdict,
             "source_archive_identity": {
-                "archive_path": str(self._b1a_evidence_path),
+                "source_kind": source_kind,
+                "archive_filename": archive_filename,
                 "archive_sha256_observed": archive_sha,
-                "expected_archive_sha256": CANONICAL_B1A_ZIP_SHA256,
+                "canonical_zip_sha256_expected": CANONICAL_B1A_ZIP_SHA256,
+                "canonical_members_verified": len(member_hashes) == len(REQUIRED_B1A_MEMBERS),
+                "member_hashes": member_hashes,
             },
             "base_results_identity": {
                 "manifest_records_sha256": base_manifest.get("records_sha256"),
                 "expected_records_sha256": CANONICAL_BASE_RESULTS_SHA256,
                 "record_count": base_manifest.get("record_count"),
                 "code_version": base_manifest.get("code_version"),
+                "question_source_sha256": base_manifest.get("question_source_sha256"),
             },
             "candidate_results_identity": {
                 "manifest_records_sha256": cand_manifest.get("records_sha256"),
                 "expected_records_sha256": CANONICAL_CANDIDATE_RESULTS_SHA256,
                 "record_count": cand_manifest.get("record_count"),
                 "code_version": cand_manifest.get("code_version"),
+                "question_source_sha256": cand_manifest.get("question_source_sha256"),
             },
             "canonical_development_identity": {
-                "path": str(self._development_path),
+                "filename": self._development_path.name,
                 "sha256": dev_sha,
                 "expected_sha256": CANONICAL_DEVELOPMENT_SHA256,
             },
@@ -683,6 +801,8 @@ class ForensicSourceMaterializer:
                 "dataset_revision": chunk_manifest.dataset_revision,
                 "code_version": chunk_manifest.code_version,
                 "record_count": chunk_manifest.record_count,
+                "payload_integrity_verified": True,
+                "payload_sha256": chunk_manifest.metadata.get("payload_sha256"),
             },
             "target_question_count": len(self._target_ids),
             "historical_arm_count": len(arm_summaries),
@@ -694,6 +814,7 @@ class ForensicSourceMaterializer:
                 "targets_present_candidate": len(self._target_ids),
                 "selected_chunk_lookup_pass_count": sum(1 for s in arm_summaries if s.selected_chunk_lookup_pass),
                 "selected_chunk_lookup_total": len(arm_summaries),
+                "source_mapping_pass_count": sum(1 for s in arm_summaries if s.source_mapping_pass),
                 "metadata_crosscheck_pass_count": sum(1 for s in arm_summaries if s.metadata_crosscheck_pass),
                 "replay_applicable_count": len(replay_applicable_summaries),
                 "replay_pass_count": replay_pass_count,
@@ -707,12 +828,12 @@ class ForensicSourceMaterializer:
         *,
         materialized_packets: dict[str, dict[str, Any]],
         report: dict[str, Any],
-        archive_sha: str,
-        base_manifest: dict[str, Any],
-        cand_manifest: dict[str, Any],
+        source_kind: str,
+        archive_filename: str,
+        archive_sha: str | None,
         dev_sha: str,
     ) -> None:
-        """Write forensic packets and reports to the designated output directory."""
+        """Write forensic packets and reports to the designated output directory without machine paths."""
         exec_dir = self._output_dir / "execution"
         results_dir = self._output_dir / "results"
         packets_dir = self._output_dir / "forensic_packets"
@@ -722,12 +843,14 @@ class ForensicSourceMaterializer:
         packets_dir.mkdir(parents=True, exist_ok=True)
 
         identity = {
-            "source_kind": "b1a_frozen_historical_pair",
-            "archive_path": str(self._b1a_evidence_path),
+            "source_kind": source_kind,
+            "archive_filename": archive_filename,
             "archive_sha256_observed": archive_sha,
+            "canonical_zip_sha256_expected": CANONICAL_B1A_ZIP_SHA256,
             "base_results_sha256": CANONICAL_BASE_RESULTS_SHA256,
             "candidate_results_sha256": CANONICAL_CANDIDATE_RESULTS_SHA256,
             "canonical_development_sha256": dev_sha,
+            "development_filename": self._development_path.name,
             "target_question_ids": self._target_ids,
             "created_at": datetime.now(UTC).isoformat(),
         }
