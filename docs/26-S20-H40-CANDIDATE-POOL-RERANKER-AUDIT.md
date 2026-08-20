@@ -82,12 +82,12 @@ Execution must pass strict reproduction gates against historical frozen baseline
 |---|---|---|
 | `development.json` (991 questions) | `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8` | Source questions |
 | `phase-b1a-graph-routing-cases.json` | 22 frozen canonical question IDs | Test case manifest |
-| Canonical B1A.2 Baseline ZIP | `1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117` | Mandatory baseline ZIP |
+| Canonical B1A.2 Baseline Evidence | Canonical ZIP (`1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117`) or Extracted Bundle (8 verified member hashes) | Mandatory baseline evidence |
 | B1A.2 Results JSONL | `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` | Frozen baseline results |
 | B1A.2 Execution Commit | `9265f3dadcf1ef0170f0abe618519da1657fc55e` | Execution provenance |
 
 ### Fail-Closed Reproduction Gates:
-1. **Mandatory B1A.2 ZIP Check**: ZIP SHA-256, internal results SHA-256, execution commit, and run-summary results SHA-256 are verified before extraction.
+1. **Mandatory B1A.2 Baseline Verification**: Exact ZIP SHA-256 (for canonical ZIP) or exact 8-member package hashes (for extracted bundle), internal results SHA-256, execution commit, run-summary results SHA-256, and verdict `GRAPH_REDUNDANCY_PROVEN` are verified.
 2. **Seed Prefix Invariance**: Current `fused40[:20]` chunk sequence must **exactly match** frozen B1A.2 `s20_arm.seed_hits` chunk sequence for all 22 cases.
 3. **S20 Top-8 Reproduction**: Derived S20 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `s20_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
 4. **H40 Top-8 Reproduction**: Derived H40 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `h40_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
@@ -218,7 +218,19 @@ print("=== R1-K2: Identity-Based Input Discovery ===")
 
 CANONICAL_DEV_SHA = "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
 CANONICAL_B1A2_ZIP_SHA = "1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117"
+CANONICAL_B1A2_RESULTS_SHA = "51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a"
 EXPECTED_CORPUS_DATASET = "uit-dsc-2026-task2-selected-contexts"
+
+CANONICAL_B1A2_MEMBERS = {
+    "configs/phase-b1a-graph-routing-cases.json": "b1efe824f320d9323af462869fd8842ef8544fa14d5f81ae35decca99e1ee99f",
+    "evidence/materialized_questions_identity.json": "055f45c702dde9f8147dbd57e6a198d2938a007dba02efd68857b8b9574b7dc1",
+    "configs/runtime_config.json": "23d154feafa46300215e8498e9738d345c48122739e377dcab43e9e5475b1a31",
+    "evidence/phase_b1a2_run_summary.json": "7f000dc5841b1569a9d2e2a045ba9466ffbb56f31078d4e27d0054a381a904d0",
+    "results/phase_b1a2_retrieval_results.jsonl": "51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a",
+    "results/phase_b1a2_graph_equivalence_report.json": "7f9b477441754328eb4e116fb28f56f6c567e846c878177e1c3762ca8af15058",
+    "results/phase_b1a2_decision_report.json": "bc66414a1f0a30669f46f8edfe3df2d1d4b51ba000ce6a476ca6cd65afa64ed0",
+    "results/phase_b1a2_case_metrics.jsonl": "583d74ef1f81c63d255fefe79eba563a464d78ec38aecad30d2c554a5df50030",
+}
 
 def sha256_file(p: Path) -> str:
     h = hashlib.sha256()
@@ -241,19 +253,49 @@ assert len(matching_devs) == 1, (
 found_dev = matching_devs[0]
 print(f"Found unique canonical development.json at: {found_dev}")
 
-# 2. Discover canonical B1A.2 baseline evidence ZIP uniquely
+# 2. Discover canonical B1A.2 baseline evidence (ZIP mode or Extracted Bundle mode)
 zip_candidates = list(Path("/kaggle/input").rglob("*.zip"))
 matching_b1a2_zips = [
     p for p in zip_candidates
     if p.is_file() and sha256_file(p) == CANONICAL_B1A2_ZIP_SHA
 ]
 
-assert len(matching_b1a2_zips) == 1, (
-    f"Expected exactly 1 canonical B1A.2 baseline ZIP matching SHA {CANONICAL_B1A2_ZIP_SHA}, "
-    f"found {len(matching_b1a2_zips)}: {matching_b1a2_zips}"
-)
-found_b1a2_zip = matching_b1a2_zips[0]
-print(f"Found unique verified B1A.2 baseline ZIP at: {found_b1a2_zip}")
+found_b1a2 = None
+b1a2_source_kind = None
+
+if len(matching_b1a2_zips) == 1:
+    found_b1a2 = matching_b1a2_zips[0]
+    b1a2_source_kind = "canonical_zip"
+    print(f"Found unique canonical B1A.2 baseline ZIP at: {found_b1a2}")
+elif len(matching_b1a2_zips) > 1:
+    raise AssertionError(f"Multiple canonical B1A.2 ZIP archives found: {matching_b1a2_zips}")
+else:
+    print("Zero canonical B1A.2 ZIP archives found. Searching for extracted canonical bundle...")
+    valid_b1a2_dirs = []
+    for res_p in Path("/kaggle/input").rglob("phase_b1a2_retrieval_results.jsonl"):
+        if not res_p.is_file():
+            continue
+        if sha256_file(res_p) != CANONICAL_B1A2_RESULTS_SHA:
+            continue
+        cand_root = res_p.parents[1] if res_p.parent.name == "results" else res_p.parent
+        # Verify all 8 canonical member hashes
+        all_members_match = True
+        for rel_path, exp_sha in CANONICAL_B1A2_MEMBERS.items():
+            member_file = cand_root / rel_path
+            if not member_file.is_file() or sha256_file(member_file) != exp_sha:
+                all_members_match = False
+                break
+        if all_members_match:
+            valid_b1a2_dirs.append(cand_root)
+
+    valid_b1a2_dirs = list(dict.fromkeys(valid_b1a2_dirs))
+    assert len(valid_b1a2_dirs) == 1, (
+        f"Expected exactly 1 valid extracted B1A.2 canonical bundle with all 8 verified member hashes, "
+        f"found {len(valid_b1a2_dirs)}: {valid_b1a2_dirs}"
+    )
+    found_b1a2 = valid_b1a2_dirs[0]
+    b1a2_source_kind = "canonical_extracted_bundle"
+    print(f"Found unique verified extracted B1A.2 canonical bundle at: {found_b1a2}")
 
 # 3. Discover serving artifact root uniquely satisfying full corpus validation contract
 val_candidates = list(Path("/kaggle/input").rglob("build_validation_full_corpus.json"))
@@ -289,7 +331,8 @@ print(f"Found unique validated serving artifact root at: {found_serving_root}")
 # Persist discovered paths for subsequent cells
 discovery_info = {
     "dev_json": str(found_dev),
-    "b1a2_zip": str(found_b1a2_zip),
+    "b1a2_evidence": str(found_b1a2),
+    "b1a2_source_kind": b1a2_source_kind,
     "serving_root": str(found_serving_root),
 }
 Path("/kaggle/working/discovery_info.json").write_text(json.dumps(discovery_info, indent=2))
@@ -392,13 +435,13 @@ echo "=== R1-K5: Execute Stage R1 Audit ==="
 cd /kaggle/working/legal-agentic-rag
 
 DEV_JSON=$(python -c 'import json; print(json.load(open("/kaggle/working/discovery_info.json"))["dev_json"])')
-B1A2_ZIP=$(python -c 'import json; print(json.load(open("/kaggle/working/discovery_info.json"))["b1a2_zip"])')
+B1A2_EVIDENCE=$(python -c 'import json; print(json.load(open("/kaggle/working/discovery_info.json"))["b1a2_evidence"])')
 
 python scripts/candidate_pool_reranker_audit.py \
   --config /kaggle/working/runtime_config_r1.json \
   --manifest configs/phase-b1a-graph-routing-cases.json \
   --questions "${DEV_JSON}" \
-  --baseline-zip "${B1A2_ZIP}" \
+  --baseline-evidence "${B1A2_EVIDENCE}" \
   --output-dir /kaggle/working/artifacts/candidate_pool_audit \
   --staging-root /kaggle/working/staging_graphless
 

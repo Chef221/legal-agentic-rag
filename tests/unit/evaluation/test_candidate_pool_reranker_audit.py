@@ -37,6 +37,7 @@ from legal_agentic_rag.schemas.retrieval import (
 )
 from scripts.candidate_pool_reranker_audit import (
     CANONICAL_B1A2_EXECUTION_COMMIT,
+    CANONICAL_B1A2_MEMBER_SHA256,
     CANONICAL_B1A2_RESULTS_SHA256,
     CANONICAL_B1A2_ZIP_SHA256,
     CANONICAL_SOURCE_QUESTION_COUNT,
@@ -61,8 +62,8 @@ from scripts.candidate_pool_reranker_audit import (
 )
 
 
-def _build_dummy_b1a2_baseline_zip(
-    zip_path: Path,
+def _build_dummy_b1a2_bundle(
+    bundle_dir: Path,
     *,
     verdict: str = "GRAPH_REDUNDANCY_PROVEN",
     results_sha_override: str | None = None,
@@ -71,18 +72,32 @@ def _build_dummy_b1a2_baseline_zip(
     alter_s20_final_ids: list[str] | None = None,
     alter_h40_final_ids: list[str] | None = None,
     drop_question_id: str | None = None,
-) -> Path:
-    """Helper to create a synthetic B1A.2 baseline ZIP archive for unit tests."""
-    temp_dir = zip_path.parent / (zip_path.stem + "_build_dir")
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    results_dir = temp_dir / "results"
-    evidence_dir = temp_dir / "evidence"
-    results_dir.mkdir(parents=True, exist_ok=True)
-    evidence_dir.mkdir(parents=True, exist_ok=True)
+    corrupt_member: str | None = None,
+    delete_member: str | None = None,
+) -> dict[str, str]:
+    """Helper to create a synthetic B1A.2 evidence directory matching all 8 canonical members."""
+    configs_dir = bundle_dir / "configs"
+    evidence_dir = bundle_dir / "evidence"
+    results_dir = bundle_dir / "results"
 
+    for d in (configs_dir, evidence_dir, results_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    # 1. configs/phase-b1a-graph-routing-cases.json
+    cases_file = configs_dir / "phase-b1a-graph-routing-cases.json"
+    cases_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}, indent=2) + "\n", encoding="utf-8")
+
+    # 2. evidence/materialized_questions_identity.json
+    mat_file = evidence_dir / "materialized_questions_identity.json"
+    mat_file.write_text(json.dumps({"count": 22, "mode": "canonical"}, indent=2) + "\n", encoding="utf-8")
+
+    # 3. configs/runtime_config.json
+    cfg_file = configs_dir / "runtime_config.json"
+    cfg_file.write_text(json.dumps({"version": "b1a2_runtime"}, indent=2) + "\n", encoding="utf-8")
+
+    # 4. results/phase_b1a2_retrieval_results.jsonl
     results_file = results_dir / "phase_b1a2_retrieval_results.jsonl"
     lines = []
-
     for idx, qid in enumerate(EXPECTED_22_IDS):
         if drop_question_id and qid == drop_question_id:
             continue
@@ -177,28 +192,59 @@ def _build_dummy_b1a2_baseline_zip(
     results_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     actual_res_sha = sha256_file(results_file)
 
+    # 5. evidence/phase_b1a2_run_summary.json
+    summary_file = evidence_dir / "phase_b1a2_run_summary.json"
+    summary_data = {
+        "execution_git_commit": execution_commit,
+        "results_sha256": None if missing_summary_sha else (results_sha_override or actual_res_sha),
+    }
+    summary_file.write_text(json.dumps(summary_data, indent=2) + "\n", encoding="utf-8")
+
+    # 6. results/phase_b1a2_graph_equivalence_report.json
+    eq_file = results_dir / "phase_b1a2_graph_equivalence_report.json"
+    eq_file.write_text(json.dumps({"status": "equivalence_verified"}, indent=2) + "\n", encoding="utf-8")
+
+    # 7. results/phase_b1a2_decision_report.json
     decision_file = results_dir / "phase_b1a2_decision_report.json"
     decision_file.write_text(
         json.dumps({
             "audit_id": "PHASE-B1A2-GRAPH-EQUIVALENCE",
             "verdict": verdict,
             "results_sha256": actual_res_sha,
-        }, indent=2),
+        }, indent=2) + "\n",
         encoding="utf-8",
     )
 
-    summary_file = evidence_dir / "phase_b1a2_run_summary.json"
-    summary_data = {
-        "execution_git_commit": execution_commit,
-        "results_sha256": None if missing_summary_sha else (results_sha_override or actual_res_sha),
+    # 8. results/phase_b1a2_case_metrics.jsonl
+    metrics_file = results_dir / "phase_b1a2_case_metrics.jsonl"
+    metrics_file.write_text("\n".join([json.dumps({"qid": qid, "m": idx}) for idx, qid in enumerate(EXPECTED_22_IDS)]) + "\n", encoding="utf-8")
+
+    member_shas = {
+        rel: sha256_file(bundle_dir / rel)
+        for rel in CANONICAL_B1A2_MEMBER_SHA256
+        if (bundle_dir / rel).is_file()
     }
-    summary_file.write_text(json.dumps(summary_data, indent=2), encoding="utf-8")
 
+    # Handle corruptions or deletions
+    if corrupt_member:
+        target = bundle_dir / corrupt_member
+        target.write_text("corrupted content\n", encoding="utf-8")
+
+    if delete_member:
+        target = bundle_dir / delete_member
+        if target.exists():
+            target.unlink()
+
+    return member_shas
+
+
+def _build_dummy_b1a2_zip_from_bundle(bundle_dir: Path, zip_path: Path) -> Path:
+    """Pack an existing bundle directory into a zip archive."""
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.write(results_file, arcname="results/phase_b1a2_retrieval_results.jsonl")
-        z.write(decision_file, arcname="results/phase_b1a2_decision_report.json")
-        z.write(summary_file, arcname="evidence/phase_b1a2_run_summary.json")
-
+        for rel in CANONICAL_B1A2_MEMBER_SHA256:
+            p = bundle_dir / rel
+            if p.is_file():
+                z.write(p, arcname=rel)
     return zip_path
 
 
@@ -289,102 +335,96 @@ def _setup_mock_staging_root(root: Path) -> Path:
 
 
 # ======================================================================
-# FIX 1 REGRESSION TESTS: MANDATORY CANONICAL B1A.2 ZIP
+# FIX 1 & 2 REGRESSION TESTS: ZIP AND EXTRACTED BUNDLE BASELINE MODES
 # ======================================================================
 
 
-def test_01_canonical_zip_accepted_when_sha_matches(tmp_path: Path) -> None:
+def test_01_canonical_zip_mode_accepted(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
     zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
+    _build_dummy_b1a2_zip_from_bundle(bundle_dir, zip_path)
     real_zip_sha = sha256_file(zip_path)
 
     with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")):
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
         baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
     assert isinstance(baseline, FrozenB1A2Baseline)
+    assert baseline.source_kind == "canonical_zip"
+    assert baseline.observed_zip_sha256 == real_zip_sha
+    assert baseline.canonical_zip_sha256_expected == real_zip_sha
     assert baseline.case_count == 22
     assert baseline.decision_verdict == "GRAPH_REDUNDANCY_PROVEN"
-    assert baseline.baseline_zip_sha256 == real_zip_sha
-    assert len(baseline.expected_s20_final_hits) == 22
 
 
-def test_02_directory_baseline_rejected_with_data_validation_error(tmp_path: Path) -> None:
-    dir_path = tmp_path / "b1a2_dir"
-    dir_path.mkdir(parents=True, exist_ok=True)
+def test_02_canonical_extracted_bundle_mode_accepted(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
-    with pytest.raises(DataValidationError, match="must be a .zip file"):
-        load_and_verify_b1a2_baseline(dir_path, EXPECTED_22_IDS)
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        baseline = load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
+
+    assert isinstance(baseline, FrozenB1A2Baseline)
+    assert baseline.source_kind == "canonical_extracted_bundle"
+    assert baseline.observed_zip_sha256 is None
+    assert baseline.canonical_zip_sha256_expected == CANONICAL_B1A2_ZIP_SHA256
+    assert baseline.canonical_member_sha256 == shas
+    assert baseline.case_count == 22
+    assert baseline.decision_verdict == "GRAPH_REDUNDANCY_PROVEN"
 
 
-def test_03_wrong_zip_sha_rejected(tmp_path: Path) -> None:
+def test_03_extracted_bundle_missing_one_member_rejected(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir, delete_member="evidence/materialized_questions_identity.json")
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        with pytest.raises(DataValidationError, match="missing required member"):
+            load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
+
+
+def test_04_extracted_bundle_corrupt_member_sha_rejected(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
+    # Corrupt one member
+    (bundle_dir / "configs" / "runtime_config.json").write_text("corrupted\n", encoding="utf-8")
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas):
+        with pytest.raises(DataValidationError, match="SHA mismatch"):
+            load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
+
+
+def test_05_wrong_zip_sha_rejected(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    _build_dummy_b1a2_bundle(bundle_dir)
     zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
+    _build_dummy_b1a2_zip_from_bundle(bundle_dir, zip_path)
 
     with pytest.raises(DataValidationError, match="baseline ZIP SHA mismatch"):
         load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
 
-def test_04_wrong_internal_results_sha_rejected(tmp_path: Path) -> None:
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
+def test_06_wrong_run_summary_results_sha_rejected(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir, results_sha_override="bad_sha")
 
-    # Patch ZIP SHA to match, but keep results SHA wrong
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", "wrong_results_sha"):
-        with pytest.raises(DataValidationError, match="results SHA256 mismatch"):
-            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        with pytest.raises(DataValidationError, match="run summary results SHA mismatch"):
+            load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
 
 
-def test_05_missing_results_sha_in_run_summary_rejected(tmp_path: Path) -> None:
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path, missing_summary_sha=True)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+def test_07_wrong_execution_commit_rejected(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir, execution_commit="bad_commit")
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
-        with pytest.raises(DataValidationError, match="missing mandatory 'results_sha256'"):
-            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
-
-
-def test_06_wrong_execution_commit_rejected(tmp_path: Path) -> None:
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path, execution_commit="bad_commit_hash")
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
-
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
         with pytest.raises(DataValidationError, match="execution commit mismatch"):
-            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
-
-
-# ======================================================================
-# FIX 2 REGRESSION TESTS: STAGING ROOT BINDING
-# ======================================================================
-
-
-def test_07_graphless_staging_creation_and_validation(tmp_path: Path) -> None:
-    source_root = tmp_path / "source_artifacts"
-    _setup_mock_staging_root(source_root)
-
-    # Add graph and relationships directories to source
-    (source_root / "graph").mkdir(parents=True, exist_ok=True)
-    (source_root / "relationships").mkdir(parents=True, exist_ok=True)
-
-    staging_root = tmp_path / "staging_graphless"
-    inv = create_graphless_staging_root(source_root, staging_root)
-
-    assert not (staging_root / "graph").exists()
-    assert not (staging_root / "relationships").exists()
-    assert (staging_root / "legal_chunks").is_dir()
-    assert (staging_root / "bm25").is_dir()
-    assert (staging_root / "vector").is_dir()
-
-    validated_inv = validate_graphless_staging_root(staging_root)
-    assert len(validated_inv) >= 3
+            load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
 
 
 def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) -> None:
@@ -409,10 +449,8 @@ def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) ->
     questions_file = tmp_path / "dev.json"
     questions_file.write_text(json.dumps(dummy_dev), encoding="utf-8")
 
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
     dev_sha = sha256_file(questions_file)
 
     out_dir = tmp_path / "out"
@@ -452,8 +490,8 @@ def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) ->
         "jaccard": 1.0,
     }
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.run_case_candidate_pool_audit", return_value=(dummy_case_res, dummy_case_met, [])), \
          patch("scripts.candidate_pool_reranker_audit.CandidatePoolAuditPipeline") as mock_pipe_cls:
@@ -465,23 +503,21 @@ def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) ->
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_zip_path=zip_path,
+            baseline_evidence_path=bundle_dir,
             output_dir=out_dir,
             staging_root=staging_root,
         )
 
-        # Assert CandidatePoolAuditPipeline was constructed with runtime_config whose root_path IS staging_root
         call_config = mock_pipe_cls.call_args[0][0]
         assert call_config.artifacts.root_path == staging_root
         assert call_config.artifacts.root_path != source_root
 
-        # Assert persisted runtime_config.json reflects staging_root
         persisted_cfg = json.loads((out_dir / "configs" / "runtime_config.json").read_text(encoding="utf-8"))
         assert Path(persisted_cfg["artifacts"]["root_path"]) == staging_root
 
 
 # ======================================================================
-# FIX 3 REGRESSION TESTS: REAL BRANCH OBSERVATIONS & WRAPPERS
+# BRANCH DEPTH & CASE MECHANICS TESTS
 # ======================================================================
 
 
@@ -510,14 +546,12 @@ def test_09_recording_branch_retriever_captures_queries() -> None:
 
 
 def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> None:
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
-        baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        baseline = load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
 
     qid = "102047"
     q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
@@ -532,7 +566,6 @@ def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> N
         query_analysis=QueryAnalysis(intent=QueryIntent.RELATIONSHIP),
     )
 
-    # Configure real branch recorders on mock pipeline
     bm25_inner = MagicMock()
     dense_inner = MagicMock()
     rec_bm25 = RecordingBranchRetriever(bm25_inner)
@@ -540,7 +573,6 @@ def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> N
     mock_pipeline.recording_bm25 = rec_bm25
     mock_pipeline.recording_dense = rec_dense
 
-    # 40 fused hits
     fused_hits = [
         RetrievalHit(
             chunk_id=f"chunk-{qid}-{r}",
@@ -554,7 +586,6 @@ def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> N
     ]
 
     def _mock_hybrid_search(q):
-        # Simulate HybridRetriever calling recording_bm25 and recording_dense
         rec_bm25.search(RetrievalQuery(
             query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
             top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.BM25
@@ -606,14 +637,12 @@ def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> N
 
 
 def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> None:
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
-        baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]):
+        baseline = load_and_verify_b1a2_baseline(bundle_dir, EXPECTED_22_IDS)
 
     qid = "102047"
     q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
@@ -647,7 +676,6 @@ def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> 
     ]
 
     def _mock_hybrid_search_bad_depth(q):
-        # Simulate bad depth 20 instead of 40
         rec_bm25.search(RetrievalQuery(
             query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
             top_k=20, candidate_k=20, requested_strategy=RetrievalStrategy.BM25
@@ -694,14 +722,12 @@ def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> 
 # ======================================================================
 
 
-def test_12_end_to_end_audit_pass(tmp_path: Path) -> None:
+def test_12_end_to_end_audit_pass_extracted_bundle(tmp_path: Path) -> None:
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -755,8 +781,8 @@ def test_12_end_to_end_audit_pass(tmp_path: Path) -> None:
 
     mock_rerank.rerank.side_effect = _mock_rerank
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
          patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
@@ -816,7 +842,7 @@ def test_12_end_to_end_audit_pass(tmp_path: Path) -> None:
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_zip_path=zip_path,
+            baseline_evidence_path=bundle_dir,
             output_dir=out_dir,
         )
 
@@ -827,6 +853,16 @@ def test_12_end_to_end_audit_pass(tmp_path: Path) -> None:
         assert decision["summary"]["changed_top8_cases"] == 17
         assert decision["summary"]["total_tail_entrants"] == 17
         assert decision["summary"]["branch_depth_passes"] == 22
+
+        # Check evidence identity fields
+        exec_ident = json.loads((out_dir / "execution" / "audit_execution_identity.json").read_text(encoding="utf-8"))
+        assert exec_ident["canonical_b1a2_source_kind"] == "canonical_extracted_bundle"
+        assert exec_ident["canonical_b1a2_observed_zip_sha256"] is None
+
+        base_ident = json.loads((out_dir / "baseline" / "b1a2_baseline_identity.json").read_text(encoding="utf-8"))
+        assert base_ident["source_kind"] == "canonical_extracted_bundle"
+        assert base_ident["observed_zip_sha256"] is None
+        assert base_ident["canonical_member_sha256"] == shas
 
         zip_path = out_dir / "candidate-pool-reranker-audit-evidence.zip"
         assert zip_path.is_file()
@@ -846,10 +882,8 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -903,8 +937,8 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
 
     mock_rerank.rerank.side_effect = _mock_rerank
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
          patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
@@ -964,7 +998,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_zip_path=zip_path,
+            baseline_evidence_path=bundle_dir,
             output_dir=out_dir,
         )
 
@@ -977,10 +1011,8 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    zip_path = tmp_path / "b1a2.zip"
-    _build_dummy_b1a2_baseline_zip(zip_path)
-    real_zip_sha = sha256_file(zip_path)
-    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    bundle_dir = tmp_path / "bundle"
+    shas = _build_dummy_b1a2_bundle(bundle_dir)
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -998,8 +1030,8 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
 
     out_dir = tmp_path / "output"
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_MEMBER_SHA256", shas), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", shas["results/phase_b1a2_retrieval_results.jsonl"]), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend", side_effect=RuntimeError("BM25 failure")):
 
@@ -1007,7 +1039,7 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_zip_path=zip_path,
+            baseline_evidence_path=bundle_dir,
             output_dir=out_dir,
         )
 

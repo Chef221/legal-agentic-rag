@@ -76,6 +76,17 @@ CANONICAL_B1A2_EXECUTION_COMMIT = (
     "9265f3dadcf1ef0170f0abe618519da1657fc55e"
 )
 
+CANONICAL_B1A2_MEMBER_SHA256: dict[str, str] = {
+    "configs/phase-b1a-graph-routing-cases.json": "b1efe824f320d9323af462869fd8842ef8544fa14d5f81ae35decca99e1ee99f",
+    "evidence/materialized_questions_identity.json": "055f45c702dde9f8147dbd57e6a198d2938a007dba02efd68857b8b9574b7dc1",
+    "configs/runtime_config.json": "23d154feafa46300215e8498e9738d345c48122739e377dcab43e9e5475b1a31",
+    "evidence/phase_b1a2_run_summary.json": "7f000dc5841b1569a9d2e2a045ba9466ffbb56f31078d4e27d0054a381a904d0",
+    "results/phase_b1a2_retrieval_results.jsonl": "51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a",
+    "results/phase_b1a2_graph_equivalence_report.json": "7f9b477441754328eb4e116fb28f56f6c567e846c878177e1c3762ca8af15058",
+    "results/phase_b1a2_decision_report.json": "bc66414a1f0a30669f46f8edfe3df2d1d4b51ba000ce6a476ca6cd65afa64ed0",
+    "results/phase_b1a2_case_metrics.jsonl": "583d74ef1f81c63d255fefe79eba563a464d78ec38aecad30d2c554a5df50030",
+}
+
 EXPECTED_22_IDS = [
     "102047", "107487", "110287", "111905", "113537",
     "122659", "125393", "133075", "134605", "147239",
@@ -168,7 +179,10 @@ class FrozenB1A2Baseline:
     decision_verdict: str
     results_sha256: str
     execution_git_commit: str
-    baseline_zip_sha256: str
+    source_kind: str  # "canonical_zip" or "canonical_extracted_bundle"
+    canonical_zip_sha256_expected: str
+    observed_zip_sha256: str | None
+    canonical_member_sha256: dict[str, str]
     case_count: int
     expected_s20_seed_hits: dict[str, list[EvaluatedHit]]
     expected_s20_final_hits: dict[str, list[EvaluatedHit]]
@@ -177,54 +191,58 @@ class FrozenB1A2Baseline:
 
 
 def load_and_verify_b1a2_baseline(
-    baseline_zip_path: Path,
+    baseline_path: Path,
     expected_ids: list[str],
 ) -> FrozenB1A2Baseline:
-    """Load and verify frozen B1A.2 baseline evidence strictly from canonical ZIP."""
-    if not baseline_zip_path.exists():
+    """Load and verify frozen B1A.2 baseline evidence from canonical ZIP or canonical extracted bundle."""
+    if not baseline_path.exists():
         raise DataValidationError(
-            f"B1A.2 baseline ZIP path does not exist: {baseline_zip_path}"
+            f"B1A.2 baseline path does not exist: {baseline_path}"
         )
 
-    if not (baseline_zip_path.is_file() and baseline_zip_path.suffix.lower() == ".zip"):
-        raise DataValidationError(
-            f"B1A.2 baseline must be a .zip file, got directory or non-zip path: {baseline_zip_path}"
-        )
+    temp_unpack_dir: Path | None = None
+    target_evidence_dir: Path
+    source_kind: str
+    observed_zip_sha: str | None
 
-    actual_zip_sha = sha256_file(baseline_zip_path)
-    if actual_zip_sha != CANONICAL_B1A2_ZIP_SHA256:
-        raise DataValidationError(
-            f"B1A.2 baseline ZIP SHA mismatch: expected {CANONICAL_B1A2_ZIP_SHA256}, got {actual_zip_sha}"
-        )
-
-    temp_unpack_dir = Path(tempfile.mkdtemp(prefix="b1a2_unpacked_"))
-    try:
-        with zipfile.ZipFile(baseline_zip_path, "r") as zip_ref:
+    if baseline_path.is_file() and baseline_path.suffix.lower() == ".zip":
+        source_kind = "canonical_zip"
+        actual_zip_sha = sha256_file(baseline_path)
+        if actual_zip_sha != CANONICAL_B1A2_ZIP_SHA256:
+            raise DataValidationError(
+                f"B1A.2 baseline ZIP SHA mismatch: expected {CANONICAL_B1A2_ZIP_SHA256}, got {actual_zip_sha}"
+            )
+        observed_zip_sha = actual_zip_sha
+        temp_unpack_dir = Path(tempfile.mkdtemp(prefix="b1a2_unpacked_"))
+        with zipfile.ZipFile(baseline_path, "r") as zip_ref:
             zip_ref.extractall(temp_unpack_dir)
+        target_evidence_dir = temp_unpack_dir
+    elif baseline_path.is_dir():
+        source_kind = "canonical_extracted_bundle"
+        observed_zip_sha = None
+        target_evidence_dir = baseline_path
+    else:
+        raise DataValidationError(
+            f"B1A.2 baseline path must be either a .zip file or an extracted bundle directory, got: {baseline_path}"
+        )
 
-        results_path = temp_unpack_dir / "results" / "phase_b1a2_retrieval_results.jsonl"
-        if not results_path.exists():
-            results_path = temp_unpack_dir / "phase_b1a2_retrieval_results.jsonl"
-        if not results_path.exists():
-            raise DataValidationError(
-                f"Missing B1A.2 results jsonl in ZIP at {results_path}"
-            )
+    try:
+        # Validate all 8 canonical member hashes
+        for rel_path, expected_member_sha in CANONICAL_B1A2_MEMBER_SHA256.items():
+            member_file = target_evidence_dir / rel_path
+            if not member_file.is_file():
+                raise DataValidationError(
+                    f"B1A.2 evidence missing required member '{rel_path}' at {member_file}"
+                )
+            actual_member_sha = sha256_file(member_file)
+            if actual_member_sha != expected_member_sha:
+                raise DataValidationError(
+                    f"B1A.2 evidence member '{rel_path}' SHA mismatch: expected {expected_member_sha}, got {actual_member_sha}"
+                )
 
-        decision_path = temp_unpack_dir / "results" / "phase_b1a2_decision_report.json"
-        if not decision_path.exists():
-            decision_path = temp_unpack_dir / "phase_b1a2_decision_report.json"
-        if not decision_path.exists():
-            raise DataValidationError(
-                f"Missing B1A.2 decision report in ZIP at {decision_path}"
-            )
-
-        summary_path = temp_unpack_dir / "evidence" / "phase_b1a2_run_summary.json"
-        if not summary_path.exists():
-            summary_path = temp_unpack_dir / "phase_b1a2_run_summary.json"
-        if not summary_path.exists():
-            raise DataValidationError(
-                "Missing mandatory B1A.2 run summary in ZIP at evidence/phase_b1a2_run_summary.json"
-            )
+        results_path = target_evidence_dir / "results" / "phase_b1a2_retrieval_results.jsonl"
+        decision_path = target_evidence_dir / "results" / "phase_b1a2_decision_report.json"
+        summary_path = target_evidence_dir / "evidence" / "phase_b1a2_run_summary.json"
 
         actual_results_sha = sha256_file(results_path)
         if actual_results_sha != CANONICAL_B1A2_RESULTS_SHA256:
@@ -324,7 +342,10 @@ def load_and_verify_b1a2_baseline(
             decision_verdict=verdict,
             results_sha256=actual_results_sha,
             execution_git_commit=commit,
-            baseline_zip_sha256=actual_zip_sha,
+            source_kind=source_kind,
+            canonical_zip_sha256_expected=CANONICAL_B1A2_ZIP_SHA256,
+            observed_zip_sha256=observed_zip_sha,
+            canonical_member_sha256=dict(CANONICAL_B1A2_MEMBER_SHA256),
             case_count=len(expected_s20_finals),
             expected_s20_seed_hits=expected_s20_seeds,
             expected_s20_final_hits=expected_s20_finals,
@@ -332,7 +353,8 @@ def load_and_verify_b1a2_baseline(
             expected_s20_vs_h40=expected_s20_vs_h40,
         )
     finally:
-        shutil.rmtree(temp_unpack_dir, ignore_errors=True)
+        if temp_unpack_dir is not None:
+            shutil.rmtree(temp_unpack_dir, ignore_errors=True)
 
 
 # ----------------------------------------------------------------------
@@ -967,11 +989,20 @@ def run_candidate_pool_audit_protocol(
     config_path: Path,
     manifest_path: Path,
     questions_path: Path,
-    baseline_zip_path: Path,
-    output_dir: Path,
+    baseline_evidence_path: Path | None = None,
+    output_dir: Path | None = None,
     staging_root: Path | None = None,
+    *,
+    baseline_zip_path: Path | None = None,
 ) -> tuple[dict[str, object], dict[str, object], str]:
     """Execute Stage R1 Candidate-Pool / Reranker Mechanics Audit."""
+    effective_baseline_path = baseline_evidence_path or baseline_zip_path
+    if effective_baseline_path is None:
+        raise DataValidationError("Missing required baseline evidence path")
+
+    if output_dir is None:
+        raise DataValidationError("Missing required output directory path")
+
     reasons: list[str] = []
     retrieval_model_error_count = 0
     created_at = datetime.now(UTC).isoformat()
@@ -1001,10 +1032,10 @@ def run_candidate_pool_audit_protocol(
             f"Target question IDs do not match canonical 22 IDs: expected {EXPECTED_22_IDS}, got {target_ids}"
         )
 
-    # 3. Load & verify B1A.2 baseline ZIP fail-closed
+    # 3. Load & verify B1A.2 baseline fail-closed (ZIP or extracted bundle)
     baseline: FrozenB1A2Baseline | None = None
     try:
-        baseline = load_and_verify_b1a2_baseline(baseline_zip_path, EXPECTED_22_IDS)
+        baseline = load_and_verify_b1a2_baseline(effective_baseline_path, EXPECTED_22_IDS)
     except Exception as exc:
         reasons.append(f"B1A.2 baseline verification failed: {exc}")
 
@@ -1211,7 +1242,10 @@ def run_candidate_pool_audit_protocol(
         },
         "aggregate_metrics": aggregate_metrics,
         "baseline_provenance": {
-            "baseline_zip_sha256": baseline.baseline_zip_sha256,
+            "source_kind": baseline.source_kind,
+            "canonical_zip_sha256_expected": baseline.canonical_zip_sha256_expected,
+            "observed_zip_sha256": baseline.observed_zip_sha256,
+            "canonical_member_sha256": baseline.canonical_member_sha256,
             "baseline_results_sha256": baseline.results_sha256,
             "baseline_execution_commit": baseline.execution_git_commit,
             "baseline_verdict": baseline.decision_verdict,
@@ -1287,7 +1321,9 @@ def run_candidate_pool_audit_protocol(
             "manifest_path": str(manifest_path),
             "manifest_sha256": manifest_sha,
             "runtime_config_sha256": runtime_config_sha,
-            "canonical_b1a2_zip_sha256": baseline.baseline_zip_sha256,
+            "canonical_b1a2_source_kind": baseline.source_kind,
+            "canonical_b1a2_zip_sha256_expected": baseline.canonical_zip_sha256_expected,
+            "canonical_b1a2_observed_zip_sha256": baseline.observed_zip_sha256,
             "canonical_b1a2_results_sha256": baseline.results_sha256,
             "canonical_b1a2_execution_commit": baseline.execution_git_commit,
         }, indent=2) + "\n", encoding="utf-8"
@@ -1297,10 +1333,13 @@ def run_candidate_pool_audit_protocol(
     )
     (baseline_dir / "b1a2_baseline_identity.json").write_text(
         json.dumps({
-            "baseline_zip_sha256": baseline.baseline_zip_sha256,
-            "baseline_results_sha256": baseline.results_sha256,
-            "baseline_execution_commit": baseline.execution_git_commit,
-            "baseline_verdict": baseline.decision_verdict,
+            "source_kind": baseline.source_kind,
+            "canonical_zip_sha256_expected": baseline.canonical_zip_sha256_expected,
+            "observed_zip_sha256": baseline.observed_zip_sha256,
+            "canonical_member_sha256": baseline.canonical_member_sha256,
+            "results_sha256": baseline.results_sha256,
+            "execution_git_commit": baseline.execution_git_commit,
+            "decision_verdict": baseline.decision_verdict,
             "case_count": baseline.case_count,
         }, indent=2) + "\n", encoding="utf-8"
     )
@@ -1361,10 +1400,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to source questions JSON (e.g. development.json)",
     )
     parser.add_argument(
+        "--baseline-evidence",
         "--baseline-zip",
+        dest="baseline_evidence",
         type=Path,
         required=True,
-        help="Path to frozen canonical B1A.2 evidence ZIP archive",
+        help="Path to frozen canonical B1A.2 evidence (either canonical ZIP archive or extracted bundle directory)",
     )
     parser.add_argument(
         "--output-dir",
@@ -1391,7 +1432,7 @@ def main() -> int:
         config_path=args.config,
         manifest_path=args.manifest,
         questions_path=args.questions,
-        baseline_zip_path=args.baseline_zip,
+        baseline_evidence_path=args.baseline_evidence,
         output_dir=args.output_dir,
         staging_root=args.staging_root,
     )
