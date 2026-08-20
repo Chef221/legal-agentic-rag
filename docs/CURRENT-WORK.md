@@ -35,16 +35,15 @@ Repository:
 
 - `Chef221/legal-agentic-rag`
 - default branch: `main`
+- live `origin/main` MUST be verified at the start of every agent session; `CURRENT-WORK.md` does not pin a live HEAD because this document is itself versioned.
 
-Current remote `main` snapshot:
+Stable provenance & artifact identities:
 
-- HEAD: `923557c3a01654aca979ec917a32993af01ad0d0`
-- commit message: `Add Phase A current-system census runbook`
-- commit date: 2026-08-19 UTC
-
-Current source/package version:
-
-- `0.50.7` (Phase B1B Structural Competition Graph Removal)
+- current package version: `0.50.7`
+- Phase B1B reviewed execution commit: `38a6feec8867a41454c453cce9c54b162801579e`
+- Phase B1B canonical evidence archive SHA-256: `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`
+- Phase B1A.2 frozen baseline results SHA-256: `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`
+- Phase B1A.2 execution commit: `9265f3dadcf1ef0170f0abe618519da1657fc55e`
 
 ---
 
@@ -355,15 +354,15 @@ The immediate next action is:
 
 1. **Phase A Census CLOSED**: The authoritative 991-question census and forensic architecture findings are documented in [`docs/22-PHASE-A-CLOSURE.md`](file:///c:/legal-agentic-rag/docs/22-PHASE-A-CLOSURE.md).
 2. **Phase B1A.2 Graph Equivalence Experiment COMPLETE**: Run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` confirmed `GRAPH_REDUNDANCY_PROVEN` with 22/22 seed match, 22/22 top-8 match, and score diffs within $10^{-6}$.
-3. **Phase B1B Structural Graph Removal VERIFIED & CLOSED**: Post-change equivalence verification on Kaggle dual T4 (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size `14157 bytes`) yielded mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`). Confirmed 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40, candidate query, fusion limit, final top-k, and route plan passes, with 0 retrieval model errors. Competition graph is officially removed from runtime and build ([`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
+3. **Phase B1B Structural Graph Removal VERIFIED & CLOSED**: Kaggle post-change equivalence verification (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size `14157 bytes`) yielded mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`). Confirmed 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40, candidate query, fusion limit, final top-k, and route plan passes, with 0 retrieval model errors. Competition graph is officially removed from runtime and build ([`docs/25-PHASE-B1B-GRAPH-REMOVAL.md`](file:///c:/legal-agentic-rag/docs/25-PHASE-B1B-GRAPH-REMOVAL.md)).
 4. **Immediate Post-B1B Research Priority**: Candidate-pool / reranker audit (S20 vs H40).
    - In Phase B1A.2, S20 vs H40 changed top-8 evidence in 17/22 relationship cases.
    - Research question: Does reranking the fused top 40 introduce distractors compared with reranking the fused top 20, or does the larger pool recover better evidence?
    - Invariant: H40 remains unpromoted. Do NOT claim H40 is superior. A separate controlled experiment is required.
-5. **Additional Research Frontiers**:
-   - Verification-correctness audit (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key cases `102047`, `147239`, `26541`, `95861`).
-   - Retrieval-miss analysis (gold source misses on `26541`, `95861`).
-   - Generation/fine-tuning later (deferred until retrieval/reranker/verifier architecture is better understood).
+5. **Subsequent Planned Research Frontiers (Sequenced Order)**:
+   - Priority B: Verification-correctness audit (known failure modes: legal-condition inversion, actor/role inversion, wrong-source/wrong-document answers; key cases `102047`, `147239`, `26541`, `95861`).
+   - Priority C: Retrieval-miss analysis (gold source misses on `26541`, `95861`).
+   - Priority D: Generation/fine-tuning later (deferred until retrieval/reranker/verifier architecture is better understood).
 
 ---
 
@@ -406,8 +405,8 @@ Current repository state:
     0.50.7 (Phase B1B Structural Competition Graph Removal Closed — B1B_EQUIVALENCE_PASS)
 
 Active development frontier:
-    Candidate-pool / reranker audit (S20 vs H40) and Verification-correctness audit
+    Candidate-pool / reranker audit (S20 vs H40)
 
 Next action:
-    Design and execute controlled candidate-pool / reranker audit (S20 vs H40)
+    Design a controlled candidate-pool / reranker audit comparing S20 vs H40
 ```

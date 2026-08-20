@@ -2427,6 +2427,6 @@ reports are reviewed.
 - reduced online runtime manifest requirement to exact 3 artifacts (`legal_chunks`, `bm25_index`, `vector_index`);
 - removed relationship mapping and graph index construction from offline competition build profile;
 - preserved generic graph capabilities (`KEEP_GENERIC_ONLY`) in generic library packages;
-- executed Kaggle dual T4 post-change verification protocol, confirming 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40 / candidate query / fusion limit / final top-k / route plan passes, 0 retrieval model errors against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`;
+- executed Kaggle post-change equivalence verification protocol, confirming 22/22 exact matches, 22/22 score tolerance passes ($\le 10^{-6}$), 22/22 branch depth 40 / candidate query / fusion limit / final top-k / route plan passes, 0 retrieval model errors against frozen B1A.2 baseline `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a`;
 - officially closed Phase B1B with mechanical verdict `B1B_EQUIVALENCE_PASS`;
 - next active research priority established as candidate-pool / reranker audit (S20 vs H40) without speculative promotion of H40.

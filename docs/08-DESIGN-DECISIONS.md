@@ -2789,7 +2789,7 @@ Canonical run archive `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626
 
 **Context:**
 Authorized by verdict `GRAPH_REDUNDANCY_PROVEN` from Phase B1A.2, Phase B1B removes the zero-edge graph traversal mechanism from the UIT DSC competition online path and offline build while preserving exact S20 retrieval behavior.
-Post-change equivalence verification on Kaggle dual T4 (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, canonical evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size 14,157 bytes) achieved mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`).
+Post-change equivalence verification on Kaggle (reviewed commit `38a6feec8867a41454c453cce9c54b162801579e`, canonical evidence archive `phase-b1b-graphless-equivalence-evidence.zip` SHA-256 `f392cc650699ecc562cb43ea0ea7f6e965455a36a621843ec6a882172913c9c3`, size 14,157 bytes) achieved mechanical verdict **`B1B_EQUIVALENCE_PASS`** (`b1b_verified = true`).
 
 **Decisions & Invariants:**
 1. **Tool Surface**: `ToolName.GRAPH_SEARCH` is removed from active online agent capabilities; `ToolName.RELATIONSHIP_RERANK_SEARCH` (`"relationship_rerank_search"`) is introduced.
