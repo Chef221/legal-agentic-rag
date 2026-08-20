@@ -1128,24 +1128,53 @@ def derive_claim_semantic_label_d2(
 
 - **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier_d2.py) (`StructuredSemanticCitationVerifierD2`).
 - **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_d2_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_d2_development.py).
-- **Candidate Status:** **`V2-D2 IMPLEMENTED — REAL DEVELOPMENT EXECUTION PENDING EXTERNAL REVIEW`**.
-- **Freeze Eligibility Criteria (10-Condition Gate):**
-  1. `verdict == "V2_DEVELOPMENT_BENCHMARK_PASS"`
-  2. `model_error_count == 0`
-  3. `execution_error_in_any_pass_count == 0`
-  4. `unstable_semantic_claim_count == 0`
-  5. `binary.execution_errors == 0`
-  6. `three_way.execution_errors == 0`
-  7. Total Correct $> 23$ (Canonical V1 baseline is 23)
-  8. Negative Catch $> 7$ (Canonical V1 baseline is 7)
-  9. Supported Retention $\ge 16$ (Canonical V1 baseline is 16)
-  10. Paired Net Correctness Delta $> 0$
-
-  `promotion_authorized = false` (always False during development)
+- **Candidate Status:** **`V2-D2 CLOSED — KEEP_ITERATING`**.
 
 ---
 
-## 15. Kaggle Development Runbook (For Real V2-D2 Execution)
+### 14.4 V2-D2 Execution Results & Closure Analysis
+
+- **Execution Commit:** `901ee274c95b0f38397ef070952ae7b71c82f8e2`
+- **Canonical Evidence Package:** `verification-v2-d2-development-evidence.zip`
+  - **SHA-256:** `1b3bf63668d787bdc78658becd0aea60e384745addec27d6d8c72844a16754ef`
+  - **Size:** `29,668 bytes` (10 members)
+- **Verdict:** `V2_DEVELOPMENT_EXECUTION_ERROR`
+- **Decision:** `KEEP_ITERATING` (`promotion_authorized: false`)
+- **Operational Telemetry:**
+  - `model_errors`: 36
+  - `structured_output_retries`: 56
+  - `provider_calls`: 132
+- **Two-Pass Stability & Error Partition:**
+  - Total Claims: 38
+  - Pass 1 execution errors: 18 claims
+  - Pass 2 execution errors: 18 claims
+  - Execution error in any pass: 18 claims
+  - Repeated execution error in both passes: 18 claims
+  - Claims with two valid semantic labels: **20 / 38**
+  - Stable semantic claims on evaluated subset: **20 / 20** (100% stability on the 20-claim evaluated subset, 0 unstable)
+- **Successful-Subset Metrics (Evaluated 20 Claims):**
+  - Binary Counts: $\text{TP}=1, \text{FP}=1, \text{TN}=14, \text{FN}=4, \text{execution\_errors}=18$
+  - Accuracy on evaluated subset: $15 / 20 = 75.00\%$
+  - Supported retention on evaluated subset: $1 / 5 = 20.00\%$
+  - Negative catch on evaluated subset: $14 / 15 = 93.33\%$
+  - Three-Way Ground Truth in evaluated subset: 5 SUPPORTED, 5 CONTRADICTED, 10 INSUFFICIENT
+  - D2 Predicted CONTRADICTED: 0
+- **Important D2 Semantic Failure Finding (Over-Rejection):**
+  - Among the 20 successfully evaluated claims, 5 were ground truth `SUPPORTED`. D2 retained only 1 and over-rejected 4.
+  - Among the 18 execution-error claims, there are 13 ground truth `SUPPORTED` claims.
+  - **Upper Bound Analysis:** Even under the maximally optimistic hypothetical where ALL 13 execution-error supported claims were repaired perfectly to `SUPPORTED`, the maximum possible supported retention would be:
+    $$\text{Max Supported Retention} = \frac{1 + 13}{18} = \frac{14}{18} \approx 77.78\%$$
+  - Since the canonical V1 baseline retained $16 / 18$ ($88.89\%$) and the freeze gate strictly requires $\ge 16 / 18$, fixing parser errors alone **cannot** make D2 freeze-eligible. A new semantic architecture is required.
+- **Dimension Collapse Finding:**
+  - Among the 20 successfully structured claims, coverage was `PARTIAL: 18`, `COMPLETE: 2`, `NONE: 0`.
+  - Zero dimensions produced `CONFLICT`.
+  - D2 swung from D1's mostly-`MATCH` collapse to mostly `NOT_ESTABLISHED` / `NOT_MATERIAL` / `PARTIAL`.
+- **Telemetry Accounting Limitation Identified & Fixed:**
+  - Canonical execution recorded 56 retries across 132 calls, but dimension diagnostics previously skipped rows without structured assessments, dropping permanent-failure telemetry. This is resolved generically in candidate V2-D3.
+
+---
+
+## 15. Historical Kaggle Development Runbook (V2-D2 Archive)
 
 ```python
 # ==============================================================================
@@ -1493,6 +1522,469 @@ print("=" * 60)
 
 # Final safety hard assertions
 assert candidate == "V2-D2", f"Candidate mismatch: {candidate}"
+if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
+    assert execution_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {execution_commit} != {REVIEWED_COMMIT_SHA}"
+assert source_pkg_ver == "0.50.7", f"Source version mismatch: {source_pkg_ver}"
+assert installed_pkg_ver == "0.50.7", f"Installed version mismatch: {installed_pkg_ver}"
+assert report["execution_identity"]["repeat_count"] == 2, f"Repeat count mismatch: {report['execution_identity']['repeat_count']}"
+assert promotion_authorized is False, "CRITICAL: promotion_authorized must be False for development evaluation"
+
+if verdict == "V2_DEVELOPMENT_BENCHMARK_PASS":
+    assert model_errors == 0, f"Model errors must be 0 for PASS, got {model_errors}"
+    assert stability_info.get("execution_error_in_any_pass_count", 0) == 0, f"Execution errors in stability passes must be 0 for PASS, got {stability_info.get('execution_error_in_any_pass_count')}"
+    assert stability_info.get("unstable_semantic_claim_count", 0) == 0, f"Unstable semantic claims must be 0 for PASS, got {stability_info.get('unstable_semantic_claim_count')}"
+    assert stability_info.get("claims_with_two_valid_semantic_labels", 0) == 38, f"All 38 claims must have 2 valid semantic labels for PASS, got {stability_info.get('claims_with_two_valid_semantic_labels')}"
+    assert stability_info.get("stable_semantic_claim_count", 0) == 38, f"All 38 claims must be stable for PASS, got {stability_info.get('stable_semantic_claim_count')}"
+    assert v2_claim_metrics.get("execution_errors", 0) == 0, f"Binary execution errors must be 0 for PASS, got {v2_claim_metrics.get('execution_errors')}"
+    assert v2_three_way.get("execution_errors", 0) == 0, f"Three-way execution errors must be 0 for PASS, got {v2_three_way.get('execution_errors')}"
+    assert dimension_diagnostics.get("successfully_structured_claim_count", 0) == 38, f"All 38 claims must be successfully structured for PASS, got {dimension_diagnostics.get('successfully_structured_claim_count')}"
+    assert dimension_diagnostics.get("execution_error_claim_count", 0) == 0, f"Execution errors in dimension diagnostics must be 0 for PASS, got {dimension_diagnostics.get('execution_error_claim_count')}"
+```
+
+---
+
+## 16. Candidate V2-D3 — Compact Evidence Relation & Diagnostic Flags
+
+### 16.1 V2-D3 Specification & Deterministic Derivation
+
+#### Primary Evidence Relations:
+- **`ENTAILS`:** The cited statutory evidence positively establishes every material proposition in the claim under the question's legal scope. Shared terminology or topical similarity is NOT enough.
+- **`CONTRADICTS`:** The cited evidence establishes a materially incompatible proposition (such as wrong legal actor, opposite modality or polarity, incompatible statutory condition, incompatible quantity/time, or materially different statutory source/scope).
+- **`DOES_NOT_ESTABLISH`:** The cited evidence is related or partial but does not establish the complete claim, and does not explicitly establish a contrary proposition. When uncertain between `ENTAILS` and `DOES_NOT_ESTABLISH`, use `DOES_NOT_ESTABLISH`.
+
+#### Diagnostic Mismatch Flags (Booleans: `true` / `false`):
+- `actor_mismatch`: Cited evidence identifies a different or incompatible legal actor/duty holder than asserted.
+- `condition_exception_mismatch`: Cited evidence establishes incompatible statutory prerequisites, conditions, or exceptions.
+- `quantity_temporal_mismatch`: Numbers, deadlines, durations, or thresholds conflict in their exact statutory semantic role.
+- `negation_modality_mismatch`: Statutory modality (duty vs permission vs prohibition) conflicts with the claim.
+- `source_scope_mismatch`: Statutory authority, governed domain, or article scope conflicts with the claim's scope.
+
+> [!NOTE]
+> Diagnostic mismatch flags are informational only and do NOT silently override the primary evidence relation. A value of `false` indicates that no explicit material mismatch was identified; it does NOT imply positive establishment.
+
+```mermaid
+flowchart TD
+    SingleClaim["Single Claim + Cited Evidence Only"] --> ModelCall["Independent Model Invocation\n(Qwen2.5-3B-Instruct, Temp 0.0)"]
+    ModelCall --> Rel["relation (ENTAILS / CONTRADICTS / DOES_NOT_ESTABLISH)"]
+    ModelCall --> D1["actor_mismatch: bool"]
+    ModelCall --> D2["condition_exception_mismatch: bool"]
+    ModelCall --> D3["quantity_temporal_mismatch: bool"]
+    ModelCall --> D4["negation_modality_mismatch: bool"]
+    ModelCall --> D5["source_scope_mismatch: bool"]
+
+    Rel --> DetDerive{"derive_claim_semantic_label_d3"}
+    DetDerive -->|"CONTRADICTS"| Contradicted["CONTRADICTED"]
+    DetDerive -->|"DOES_NOT_ESTABLISH"| Insufficient["INSUFFICIENT"]
+    DetDerive -->|"ENTAILS"| Supported["SUPPORTED"]
+```
+
+#### Deterministic Derivation Algorithm:
+```python
+def derive_claim_semantic_label_d3(
+    assessment: D3StructuredClaimAssessmentDraft,
+) -> SemanticSupportLabel:
+    if assessment.relation == D3EvidenceRelation.CONTRADICTS:
+        return SemanticSupportLabel.CONTRADICTED
+    if assessment.relation == D3EvidenceRelation.DOES_NOT_ESTABLISH:
+        return SemanticSupportLabel.INSUFFICIENT
+    if assessment.relation == D3EvidenceRelation.ENTAILS:
+        return SemanticSupportLabel.SUPPORTED
+    return SemanticSupportLabel.INSUFFICIENT
+```
+
+---
+
+### 16.2 V2-D3 Single-Claim Output Schema
+
+```json
+{
+  "claim_id": "C1",
+  "relation": "ENTAILS",
+  "actor_mismatch": false,
+  "condition_exception_mismatch": false,
+  "quantity_temporal_mismatch": false,
+  "negation_modality_mismatch": false,
+  "source_scope_mismatch": false
+}
+```
+
+- Exactly one claim evaluated per model invocation.
+- Reduced dimensionality: single 3-way relation enum + 5 boolean diagnostic flags.
+- No explanation or reasoning fields.
+- Content-safe draft rejection telemetry preserved across ALL claims (both successful and permanent execution errors): `provider_call_count`, `retry_count`, `draft_rejection_count`, `draft_rejection_categories`, `semantic_execution_error`.
+
+---
+
+### 16.3 Implementation & Candidate Governance
+
+- **Candidate Implementation:** [`src/legal_agentic_rag/generation/structured_semantic_verifier_d3.py`](file:///c:/legal-agentic-rag/src/legal_agentic_rag/generation/structured_semantic_verifier_d3.py) (`StructuredSemanticCitationVerifierD3`).
+- **Development Benchmark Harness:** [`scripts/evaluate_verification_v2_d3_development.py`](file:///c:/legal-agentic-rag/scripts/evaluate_verification_v2_d3_development.py).
+- **Candidate Status:** **`V2-D3 IMPLEMENTED — REAL DEVELOPMENT EXECUTION PENDING EXTERNAL REVIEW`**.
+- **Freeze Eligibility Criteria (10-Condition Gate):**
+  1. `verdict == "V2_DEVELOPMENT_BENCHMARK_PASS"`
+  2. `model_error_count == 0`
+  3. `execution_error_in_any_pass_count == 0`
+  4. `unstable_semantic_claim_count == 0`
+  5. `binary.execution_errors == 0`
+  6. `three_way.execution_errors == 0`
+  7. Total Correct $> 23$ (Canonical V1 baseline is 23)
+  8. Negative Catch $> 7$ (Canonical V1 baseline is 7)
+  9. Supported Retention $\ge 16$ (Canonical V1 baseline is 16)
+  10. Paired Net Correctness Delta $> 0$
+
+  `promotion_authorized = false` (always False during development)
+
+---
+
+## 17. Kaggle Development Runbook (For Real V2-D3 Execution)
+
+```python
+# ==============================================================================
+# CELL 1: Environment Setup & Pinned Dependency Gate
+# ==============================================================================
+import os, sys, subprocess, importlib.metadata
+
+!git clone https://github.com/Chef221/legal-agentic-rag.git /kaggle/working/legal-agentic-rag
+%cd /kaggle/working/legal-agentic-rag
+
+REVIEWED_COMMIT_SHA = "PLACEHOLDER_REVIEWED_COMMIT_SHA"
+
+!git checkout $REVIEWED_COMMIT_SHA
+!git status --short
+
+!pip install -q -e .
+!python -m pip install -q transformers==4.47.1 accelerate==1.2.1
+
+import torch
+import transformers
+import legal_agentic_rag
+
+actual_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+installed_ver = importlib.metadata.version("legal-agentic-rag")
+
+if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
+    assert actual_commit == REVIEWED_COMMIT_SHA, f"Git commit mismatch: expected {REVIEWED_COMMIT_SHA}, got {actual_commit}"
+
+assert source_ver == "0.50.7", f"Source package version mismatch: expected '0.50.7', got '{source_ver}'"
+assert installed_ver == "0.50.7", f"Installed distribution version mismatch: expected '0.50.7', got '{installed_ver}'"
+assert transformers.__version__ == "4.47.1", f"Transformers version drift: expected '4.47.1', got '{transformers.__version__}'"
+assert torch.cuda.is_available() is True, "CUDA device required for V2-D3 execution"
+
+print("=" * 60)
+print("ENVIRONMENT & PROVENANCE GATE PASSED")
+print("=" * 60)
+print("Git HEAD:                      ", actual_commit)
+print("legal_agentic_rag Source Ver:  ", source_ver)
+print("Installed Distribution Ver:    ", installed_ver)
+print("Transformers Version:          ", transformers.__version__)
+print("Torch Version:                 ", torch.__version__)
+print("CUDA Available:                ", torch.cuda.is_available())
+print("CUDA Version:                  ", torch.version.cuda)
+print("CUDA Device Name:              ", torch.cuda.get_device_name(0))
+print("=" * 60)
+```
+
+```python
+# ==============================================================================
+# CELL 2: Holdout Blindness Guard & Exact SHA-256 Source Discovery (with Base64 Transport)
+# ==============================================================================
+import os, sys, json, base64
+from pathlib import Path
+from hashlib import sha256
+
+def sha256_file(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# Step 1: Recursive scan of all paths, directories, and files in /kaggle/input
+forbidden_patterns = [
+    "verification-v2-holdout",
+    "verification_v2_holdout",
+    "phase-a-current-system-census",
+]
+forbidden_exact = {
+    "verification-v2-holdout-selection-v1.json",
+    "verification-v2-holdout-review-packets-v1.zip",
+    "verification_v2_holdout_output",
+    "phase-a-current-system-census-final-evidence.zip",
+}
+
+for root, dirs, files in os.walk("/kaggle/input"):
+    root_p = Path(root)
+    for part in root_p.parts:
+        part_lower = part.lower()
+        if any(pat in part_lower for pat in forbidden_patterns) or part in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout path component detected in /kaggle/input: {part}")
+    for d in dirs:
+        d_lower = d.lower()
+        if any(pat in d_lower for pat in forbidden_patterns) or d in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout directory detected in /kaggle/input: {d}")
+    for f in files:
+        f_lower = f.lower()
+        if any(pat in f_lower for pat in forbidden_patterns) or f in forbidden_exact:
+            raise RuntimeError(f"CRITICAL SAFETY VIOLATION: Forbidden holdout file detected in /kaggle/input: {f}")
+
+# Step 2: Canonical expected SHA-256 signatures for the 5 development sources
+canonical_sources = {
+    "forensic_packets": {
+        "name": "verification-forensic-review-packets.zip",
+        "sha256": "996909f83c5e3e7d092323153fe780e713509022e64b7eab6135e64ebc2c379a",
+    },
+    "forensic_labels": {
+        "name": "verification-human-forensic-labels-v1.json",
+        "sha256": "bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733",
+    },
+    "control_packets": {
+        "name": "verification-positive-control-review-packets-v1.zip",
+        "sha256": "cbb120bffe4d4592e8f5efafbeae42993dc7b7e49a722f451a3fc4eec9236cc4",
+    },
+    "control_labels": {
+        "name": "verification-positive-control-human-labels-v1.json",
+        "sha256": "60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373",
+    },
+    "v1_evidence": {
+        "name": "verification-semantic-benchmark-evidence.zip",
+        "sha256": "bcded65f2bd72423ac7d6c46ff3f8c05d52bd96ab6095321a8c4b9694ed802c6",
+    },
+}
+
+discovered_paths = {}
+
+# Step 3: Discover files by scanning /kaggle/input and handling base64 chunks if transport encoded
+for key, spec in canonical_sources.items():
+    matched_path = None
+    for root, _, files in os.walk("/kaggle/input"):
+        for fname in files:
+            p = Path(root) / fname
+            if p.is_file() and p.stat().st_size > 0:
+                if p.name == spec["name"] or p.name.startswith(spec["name"]):
+                    if sha256_file(p) == spec["sha256"]:
+                        matched_path = p
+                        break
+        if matched_path:
+            break
+
+    # If not found directly, check for base64 encoded text files
+    if not matched_path:
+        for root, _, files in os.walk("/kaggle/input"):
+            for fname in files:
+                if fname.startswith(spec["name"]) and (fname.endswith(".b64") or fname.endswith(".txt")):
+                    b64_p = Path(root) / fname
+                    raw_bytes = base64.b64decode(b64_p.read_text(encoding="utf-8").strip())
+                    if sha256(raw_bytes).hexdigest() == spec["sha256"]:
+                        out_p = Path("/kaggle/working") / spec["name"]
+                        out_p.write_bytes(raw_bytes)
+                        matched_path = out_p
+                        break
+            if matched_path:
+                break
+
+    if not matched_path:
+        raise FileNotFoundError(f"Could not discover canonical source {spec['name']} with SHA {spec['sha256']}")
+
+    discovered_paths[key] = str(matched_path)
+    print(f"Verified source [{key}]: {matched_path} (SHA: {spec['sha256'][:16]}...)")
+
+# Persist discovered sources map
+sources_map_file = Path("/kaggle/working/v2_development_sources.json")
+sources_map_file.write_text(json.dumps(discovered_paths, indent=2), encoding="utf-8")
+```
+
+```python
+# ==============================================================================
+# CELL 3: Preflight Verification (Validates All 5 Canonical Checksums & V0 Replay)
+# ==============================================================================
+import json
+from pathlib import Path
+
+sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
+
+!python scripts/evaluate_verification_v2_d3_development.py \
+  --forensic-packets "{sources['forensic_packets']}" \
+  --forensic-labels "{sources['forensic_labels']}" \
+  --control-packets "{sources['control_packets']}" \
+  --control-labels "{sources['control_labels']}" \
+  --v1-evidence "{sources['v1_evidence']}" \
+  --output-dir "/kaggle/working/v2_d3_development_preflight" \
+  --preflight-only
+```
+
+```python
+# ==============================================================================
+# CELL 4: Full Real V2-D3 Development Execution (Compact Invocations, 2-Pass Stability & D3 Diagnostics)
+# ==============================================================================
+import json
+from pathlib import Path
+
+sources = json.loads(Path("/kaggle/working/v2_development_sources.json").read_text(encoding="utf-8"))
+
+!python scripts/evaluate_verification_v2_d3_development.py \
+  --forensic-packets "{sources['forensic_packets']}" \
+  --forensic-labels "{sources['forensic_labels']}" \
+  --control-packets "{sources['control_packets']}" \
+  --control-labels "{sources['control_labels']}" \
+  --v1-evidence "{sources['v1_evidence']}" \
+  --output-dir "/kaggle/working/v2_d3_development_output" \
+  --package-zip "/kaggle/working/verification-v2-d3-development-evidence.zip" \
+  --candidate-id "V2-D3" \
+  --device "cuda" \
+  --repeat-count 2
+```
+
+```python
+# ==============================================================================
+# CELL 5: Evidence Package Verification & Summary Assertion
+# ==============================================================================
+import json, zipfile
+from pathlib import Path
+from hashlib import sha256
+
+def sha256_file(path: Path) -> str:
+    h = sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+pkg_path = Path("/kaggle/working/verification-v2-d3-development-evidence.zip")
+assert pkg_path.is_file(), f"Missing evidence package: {pkg_path}"
+pkg_sha = sha256_file(pkg_path)
+pkg_size = pkg_path.stat().st_size
+print(f"Evidence Package SHA-256: {pkg_sha}")
+print(f"Evidence Package Size:    {pkg_size} bytes")
+
+required_members = {
+    "execution/v2_d3_development_source_identity.json",
+    "results/v2_d3_development_report.json",
+    "results/v2_d3_development_decision_report.json",
+    "results/v2_d3_dimension_diagnostics.json",
+    "results/v0_claim_predictions.jsonl",
+    "results/v1_claim_predictions.jsonl",
+    "results/v2_d3_claim_predictions_pass1.jsonl",
+    "results/v2_d3_claim_predictions_pass2.jsonl",
+    "results/v2_d3_claim_comparisons.jsonl",
+    "telemetry/provider_calls.jsonl",
+}
+
+with zipfile.ZipFile(pkg_path, "r") as zf:
+    members = set(zf.namelist())
+    missing = required_members - members
+    assert not missing, f"Missing required archive members in evidence package: {missing}"
+    print(f"Total Archive Members:    {len(members)} (all {len(required_members)} required present)")
+
+    # Read report and decision directly from ZIP as integrity check
+    zip_report = json.loads(zf.read("results/v2_d3_development_report.json").decode("utf-8"))
+    zip_decision = json.loads(zf.read("results/v2_d3_development_decision_report.json").decode("utf-8"))
+    zip_dim_diag = json.loads(zf.read("results/v2_d3_dimension_diagnostics.json").decode("utf-8"))
+
+# Read loose output reports
+decision_path = Path("/kaggle/working/v2_d3_development_output/results/v2_d3_development_decision_report.json")
+decision = json.loads(decision_path.read_text(encoding="utf-8"))
+report = json.loads(Path("/kaggle/working/v2_d3_development_output/results/v2_d3_development_report.json").read_text(encoding="utf-8"))
+dim_diag = json.loads(Path("/kaggle/working/v2_d3_development_output/results/v2_d3_dimension_diagnostics.json").read_text(encoding="utf-8"))
+
+# Verify loose vs ZIP report consistency
+assert zip_report["candidate_id"] == report["candidate_id"]
+assert zip_report["verdict"] == report["verdict"]
+assert zip_report["execution_identity"]["execution_git_commit"] == report["execution_identity"]["execution_git_commit"]
+assert zip_decision["promotion_authorized"] == decision["promotion_authorized"]
+assert zip_dim_diag["total_claims"] == dim_diag["total_claims"]
+
+# Extract canonical schema fields
+candidate = report["candidate_id"]
+execution_commit = report["execution_identity"]["execution_git_commit"]
+source_pkg_ver = report["execution_identity"]["source_package_version"]
+installed_pkg_ver = report["execution_identity"]["installed_distribution_version"]
+verdict = report["verdict"]
+dev_decision = decision["development_evaluation_decision"]
+promotion_authorized = decision["promotion_authorized"]
+model_errors = report["telemetry"]["model_errors"]
+structured_retries = report["telemetry"]["structured_output_retries"]
+
+stability_info = report["stability"]
+v1_claim_metrics = report["metrics"]["v1_claim_binary"]
+v2_claim_metrics = report["metrics"]["v2_d3_claim_binary"]
+v1_three_way = report["metrics"]["v1_three_way"]
+v2_three_way = report["metrics"]["v2_d3_three_way"]
+paired_metrics = report["metrics"]["paired_v1_vs_v2_d3"]
+v1_answer_metrics = report["metrics"]["v1_answer_metrics"]
+v2_answer_metrics = report["metrics"]["v2_d3_answer_metrics"]
+dimension_diagnostics = report["dimension_diagnostics"]
+
+print("\n" + "=" * 60)
+print("V2-D3 DEVELOPMENT EXECUTION SUMMARY")
+print("=" * 60)
+print("Candidate ID:                 ", candidate)
+print("Git Commit:                   ", execution_commit)
+print("Source Package Version:       ", source_pkg_ver)
+print("Installed Package Version:    ", installed_pkg_ver)
+print("Verdict:                      ", verdict)
+print("Development Decision:         ", dev_decision)
+print("Promotion Authorized:         ", promotion_authorized)
+print("Model Errors:                 ", model_errors)
+print("Structured Retries:           ", structured_retries)
+
+print("\n--- TWO-PASS STABILITY ---")
+print("Total Claims:                 ", stability_info.get("total_claims", 38))
+print("Claims w/ 2 Valid Labels:     ", stability_info.get("claims_with_two_valid_semantic_labels"))
+print("Stable Semantic Claims:       ", stability_info.get("stable_semantic_claim_count"))
+print("Unstable Semantic Claims:     ", stability_info.get("unstable_semantic_claim_count"))
+print("Successful Label Stability %: ", f"{stability_info.get('successful_label_stability_percentage', 0.0)}%")
+print("Pass 1 Execution Errors:      ", stability_info.get("pass1_execution_error_count", 0))
+print("Pass 2 Execution Errors:      ", stability_info.get("pass2_execution_error_count", 0))
+print("Exec Error in Any Pass:       ", stability_info.get("execution_error_in_any_pass_count", 0))
+print("Repeated Exec Error Claims:   ", stability_info.get("repeated_execution_error_claim_count", 0))
+
+print("\n--- CLAIM-LEVEL BINARY METRICS ---")
+print("V1 Binary (TP/FP/TN/FN/Err):  ", f"{v1_claim_metrics['tp']}/{v1_claim_metrics['fp']}/{v1_claim_metrics['tn']}/{v1_claim_metrics['fn']}/{v1_claim_metrics.get('execution_errors', 0)}")
+print("V1 Accuracy / Retention / TN: ", f"{v1_claim_metrics['accuracy']*100:.2f}% / {v1_claim_metrics['supported_retention']*100:.2f}% / {v1_claim_metrics['negative_catch']*100:.2f}%")
+print("V2 Binary (TP/FP/TN/FN/Err):  ", f"{v2_claim_metrics['tp']}/{v2_claim_metrics['fp']}/{v2_claim_metrics['tn']}/{v2_claim_metrics['fn']}/{v2_claim_metrics.get('execution_errors', 0)}")
+print("V2 Accuracy / Retention / TN: ", f"{v2_claim_metrics['accuracy']*100:.2f}% / {v2_claim_metrics['supported_retention']*100:.2f}% / {v2_claim_metrics['negative_catch']*100:.2f}%")
+
+print("\n--- CLAIM-LEVEL THREE-WAY METRICS ---")
+print("V1 Three-Way Macro (Acc/P/R/F1):", f"{v1_three_way['accuracy']*100:.2f}% / {v1_three_way['macro_precision']*100:.2f}% / {v1_three_way['macro_recall']*100:.2f}% / {v1_three_way['macro_f1']*100:.2f}% (Errors: {v1_three_way.get('execution_errors', 0)})")
+print("V2 Three-Way Macro (Acc/P/R/F1):", f"{v2_three_way['accuracy']*100:.2f}% / {v2_three_way['macro_precision']*100:.2f}% / {v2_three_way['macro_recall']*100:.2f}% / {v2_three_way['macro_f1']*100:.2f}% (Errors: {v2_three_way.get('execution_errors', 0)})")
+
+print("\n--- PAIRED METRICS (V1 vs V2-D3) ---")
+print("Both Correct:                 ", paired_metrics["both_correct"])
+print("V1 Only Correct:              ", paired_metrics["v1_only_correct"])
+print("V2 Only Correct:              ", paired_metrics["v2_only_correct"])
+print("Both Wrong:                   ", paired_metrics["both_wrong"])
+print("Net Correctness Delta:        ", paired_metrics["net_correctness_delta"])
+print("V2 Fixes Count:               ", paired_metrics["v2_fixes_count"])
+print("V2 Total Regressions Count:   ", paired_metrics["v2_regressions_count"])
+print("Semantic Regressions Count:   ", paired_metrics.get("semantic_regressions_count", "N/A"))
+print("Exec Error Regressions Count: ", paired_metrics.get("execution_error_regressions_count", "N/A"))
+print("V2 Execution Error Count:     ", paired_metrics["v2_execution_error_count"])
+
+print("\n--- ANSWER-LEVEL METRICS ---")
+print("V1 Answer Metrics:            ", f"Total: {v1_answer_metrics['total_answers']}, Valid Retained: {v1_answer_metrics['valid_answers_retained']}/{v1_answer_metrics['valid_ground_truth_answers']} ({v1_answer_metrics['valid_answer_retention_rate']*100:.2f}%), Invalid Caught: {v1_answer_metrics['invalid_answers_caught']}/{v1_answer_metrics['invalid_ground_truth_answers']} ({v1_answer_metrics['invalid_answer_catch_rate']*100:.2f}%), Accuracy: {v1_answer_metrics['answer_level_accuracy']*100:.2f}%")
+print("V2 Error-Aware Answer Metrics:")
+print("  Total Answers:              ", v2_answer_metrics["total_answers"])
+print("  Evaluated Answers:          ", v2_answer_metrics.get("evaluated_answers", v2_answer_metrics["total_answers"] - v2_answer_metrics.get("execution_error_answers", 0)))
+print("  Execution Error Answers:    ", v2_answer_metrics.get("execution_error_answers", 0))
+print("  Ground Truth (Valid/Invalid):", f"{v2_answer_metrics['valid_ground_truth_answers']} / {v2_answer_metrics['invalid_ground_truth_answers']}")
+print("  Evaluated GT (Valid/Invalid):", f"{v2_answer_metrics.get('evaluated_valid_ground_truth_answers', v2_answer_metrics['valid_ground_truth_answers'])} / {v2_answer_metrics.get('evaluated_invalid_ground_truth_answers', v2_answer_metrics['invalid_ground_truth_answers'])}")
+print("  Valid Answers Retained:     ", f"{v2_answer_metrics['valid_answers_retained']} (Rate: {v2_answer_metrics.get('evaluated_valid_answer_retention_rate', v2_answer_metrics['valid_answer_retention_rate'])*100:.2f}%)")
+print("  Invalid Answers Caught:     ", f"{v2_answer_metrics['invalid_answers_caught']} (Rate: {v2_answer_metrics.get('evaluated_invalid_answer_catch_rate', v2_answer_metrics['invalid_answer_catch_rate'])*100:.2f}%)")
+print("  Evaluated Answer Accuracy:  ", f"{v2_answer_metrics.get('evaluated_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
+print("  Full Denom Answer Accuracy: ", f"{v2_answer_metrics.get('full_denominator_answer_accuracy', v2_answer_metrics['answer_level_accuracy'])*100:.2f}%")
+
+print("\n--- RELATION & DIAGNOSTIC DISTRIBUTIONS ---")
+print("Total Claims:                 ", dimension_diagnostics.get("total_claims", 38))
+print("Successfully Structured:      ", dimension_diagnostics.get("successfully_structured_claim_count", 0))
+print("Execution Errors:             ", dimension_diagnostics.get("execution_error_claim_count", 0))
+print("Relation Distribution:        ", json.dumps(dimension_diagnostics.get("relation_distribution", {}), indent=2))
+print("Diagnostic Mismatch Flags:    ", json.dumps(dimension_diagnostics.get("diagnostic_mismatch_flag_counts", {}), indent=2))
+print("Rejection Telemetry Summary:  ", json.dumps(dimension_diagnostics.get("rejection_telemetry_summary", {}), indent=2))
+print("=" * 60)
+
+# Final safety hard assertions
+assert candidate == "V2-D3", f"Candidate mismatch: {candidate}"
 if REVIEWED_COMMIT_SHA != "PLACEHOLDER_REVIEWED_COMMIT_SHA":
     assert execution_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {execution_commit} != {REVIEWED_COMMIT_SHA}"
 assert source_pkg_ver == "0.50.7", f"Source version mismatch: {source_pkg_ver}"
