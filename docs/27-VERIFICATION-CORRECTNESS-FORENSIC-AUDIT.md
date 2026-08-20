@@ -321,3 +321,57 @@ Within each stratum, records were sorted by `(selection_key, question_id)` ascen
   - `positive_control_packets/<16 primary QIDs>.json` (human review status: `unreviewed`, null labels)
 - **Mechanical Verdict**: `POSITIVE_CONTROL_SOURCE_READY`
 
+---
+
+## 8. Task B-FORENSIC-1C — Freeze Human-Approved Positive-Control Labels v1
+
+### 8.1 Approval Provenance & Invariants
+
+- **Approval Kind**: `explicit_user_human_approval`
+- **Approval Date**: `2026-08-20`
+- **Reviewer Identifier**: `human_reviewer_1`
+- **Organizer Ground Truth**: `false`
+- **Legal Expert Credential Asserted**: `false`
+- **Scope Disclaimer**:
+  > *"These labels are internal human forensic annotations over frozen, train-derived development outputs and their exact supplied frozen evidence. They are not official UIT DSC ground truth, retrieval relevance labels, public/private test annotations, or training labels."*
+- **Usage Policy**:
+  - **Allowed Initial Uses**: `["verification_correctness_evaluation", "forensic_analysis"]`
+  - **Prohibited Initial Uses**: `["training", "fine_tuning", "retrieval_relevance_supervision", "public_test_annotation", "private_test_annotation", "manual_submission_correction"]`
+
+### 8.2 Positive-Control Label Overlay Counts
+
+| Scope | Count |
+| :--- | :--- |
+| **Questions** | 16 |
+| **Historical Arms** | 16 |
+| **Total Labeled Claims** | 27 |
+| **`SUPPORTED`** | 16 |
+| **`CONTRADICTED`** | 2 |
+| **`INSUFFICIENT`** | 9 |
+
+> [!NOTE]
+> **Claim-Level Entailment Boundary**: These annotations evaluate strict claim-to-evidence entailment against cited frozen evidence only. They do not encode overall answer completeness or question responsiveness.
+
+### 8.3 Canonical External Artifacts
+
+- **Canonical JSON Overlay**: `verification-positive-control-human-labels-v1.json`
+  - **SHA-256**: `60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373`
+  - **Size**: `27,642 bytes`
+- **Packaged Transport ZIP**: `verification-positive-control-human-labels-v1.zip`
+  - **SHA-256**: `bf8efc191c74786af76b1580247d02989254fa2ee65063bfaccaea0035a4ecf2`
+  - **Size**: `6,427 bytes`
+  - **Members**: `verification-positive-control-human-labels-v1.json`, `control_human_label_identity.json`
+- **Mechanical Verdict**: `POSITIVE_CONTROL_HUMAN_LABELS_FROZEN`
+
+### 8.4 Combined Benchmark Specification (38 Claims)
+
+With both suspicious failure cases (B-FORENSIC-1A) and positive-control candidates (B-FORENSIC-1C) frozen into content-bound overlays, the composite forensic evaluation benchmark is established:
+
+| Benchmark Slice | Source Artifact SHA-256 | Labeled Claims | `SUPPORTED` | `CONTRADICTED` | `INSUFFICIENT` |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Suspicious Forensic** | `bad739b6d4faff74d028c9f18594564c5d0bb58babde9a6498b298ec4fee7733` | 11 | 2 | 5 | 4 |
+| **Positive Controls** | `60037c4353063357d993e727586581660244b8fdca77483f6fe3c42397053373` | 27 | 16 | 2 | 9 |
+| **Total Composite Benchmark** | — | **38** | **18** | **7** | **13** |
+
+> [!WARNING]
+> **Prevalence Disclaimer**: This combined benchmark is an intentionally stratified evaluation set containing deliberate failure cases and stratified controls. The distribution ($18/7/13$) does **not** reflect production system error prevalence.
