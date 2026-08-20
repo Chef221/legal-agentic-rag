@@ -9,13 +9,15 @@ reranker scoring without modifying production routing or promoting H40.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping, Sequence
-from dataclasses import asdict, dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
 import logging
+import os
 from pathlib import Path
+import shutil
 from statistics import fmean, median
 import subprocess
 import tempfile
@@ -24,7 +26,6 @@ import zipfile
 
 from legal_agentic_rag import __version__
 from legal_agentic_rag.configuration import ApplicationConfig
-from legal_agentic_rag.configuration.online import RerankerConfig, RetrievalConfig
 from legal_agentic_rag.contracts.embedding_provider import EmbeddingProvider
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.embeddings.sentence_transformer_provider import (
@@ -33,7 +34,6 @@ from legal_agentic_rag.embeddings.sentence_transformer_provider import (
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
     DataValidationError,
-    RetrievalError,
 )
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
@@ -48,7 +48,7 @@ from legal_agentic_rag.runtime.startup_validation import (
     validate_competition_artifact_lineage,
     validate_startup_report,
 )
-from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
+from legal_agentic_rag.schemas.manifests import ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
     RetrievalHit,
     RetrievalQuery,
@@ -168,6 +168,7 @@ class FrozenB1A2Baseline:
     decision_verdict: str
     results_sha256: str
     execution_git_commit: str
+    baseline_zip_sha256: str
     case_count: int
     expected_s20_seed_hits: dict[str, list[EvaluatedHit]]
     expected_s20_final_hits: dict[str, list[EvaluatedHit]]
@@ -176,52 +177,53 @@ class FrozenB1A2Baseline:
 
 
 def load_and_verify_b1a2_baseline(
-    baseline_dir_or_zip: Path,
+    baseline_zip_path: Path,
     expected_ids: list[str],
 ) -> FrozenB1A2Baseline:
-    """Load and verify frozen B1A.2 baseline evidence against strict gates."""
-    if not baseline_dir_or_zip.exists():
+    """Load and verify frozen B1A.2 baseline evidence strictly from canonical ZIP."""
+    if not baseline_zip_path.exists():
         raise DataValidationError(
-            f"B1A.2 baseline path does not exist: {baseline_dir_or_zip}"
+            f"B1A.2 baseline ZIP path does not exist: {baseline_zip_path}"
         )
 
-    temp_unpack_dir: Path | None = None
-    if baseline_dir_or_zip.is_file() and baseline_dir_or_zip.suffix == ".zip":
-        actual_zip_sha = sha256_file(baseline_dir_or_zip)
-        if actual_zip_sha != CANONICAL_B1A2_ZIP_SHA256:
-            raise DataValidationError(
-                f"B1A.2 baseline ZIP SHA mismatch: expected {CANONICAL_B1A2_ZIP_SHA256}, got {actual_zip_sha}"
-            )
-        temp_unpack_dir = Path(tempfile.mkdtemp(prefix="b1a2_unpacked_"))
-        with zipfile.ZipFile(baseline_dir_or_zip, "r") as zip_ref:
-            zip_ref.extractall(temp_unpack_dir)
-        base_path = temp_unpack_dir
-    else:
-        base_path = baseline_dir_or_zip
+    if not (baseline_zip_path.is_file() and baseline_zip_path.suffix.lower() == ".zip"):
+        raise DataValidationError(
+            f"B1A.2 baseline must be a .zip file, got directory or non-zip path: {baseline_zip_path}"
+        )
 
+    actual_zip_sha = sha256_file(baseline_zip_path)
+    if actual_zip_sha != CANONICAL_B1A2_ZIP_SHA256:
+        raise DataValidationError(
+            f"B1A.2 baseline ZIP SHA mismatch: expected {CANONICAL_B1A2_ZIP_SHA256}, got {actual_zip_sha}"
+        )
+
+    temp_unpack_dir = Path(tempfile.mkdtemp(prefix="b1a2_unpacked_"))
     try:
-        results_path = base_path / "results" / "phase_b1a2_retrieval_results.jsonl"
+        with zipfile.ZipFile(baseline_zip_path, "r") as zip_ref:
+            zip_ref.extractall(temp_unpack_dir)
+
+        results_path = temp_unpack_dir / "results" / "phase_b1a2_retrieval_results.jsonl"
         if not results_path.exists():
-            results_path = base_path / "phase_b1a2_retrieval_results.jsonl"
+            results_path = temp_unpack_dir / "phase_b1a2_retrieval_results.jsonl"
         if not results_path.exists():
             raise DataValidationError(
-                f"Missing B1A.2 results jsonl at {results_path}"
+                f"Missing B1A.2 results jsonl in ZIP at {results_path}"
             )
 
-        decision_path = base_path / "results" / "phase_b1a2_decision_report.json"
+        decision_path = temp_unpack_dir / "results" / "phase_b1a2_decision_report.json"
         if not decision_path.exists():
-            decision_path = base_path / "phase_b1a2_decision_report.json"
+            decision_path = temp_unpack_dir / "phase_b1a2_decision_report.json"
         if not decision_path.exists():
             raise DataValidationError(
-                f"Missing B1A.2 decision report at {decision_path}"
+                f"Missing B1A.2 decision report in ZIP at {decision_path}"
             )
 
-        summary_path = base_path / "evidence" / "phase_b1a2_run_summary.json"
+        summary_path = temp_unpack_dir / "evidence" / "phase_b1a2_run_summary.json"
         if not summary_path.exists():
-            summary_path = base_path / "phase_b1a2_run_summary.json"
+            summary_path = temp_unpack_dir / "phase_b1a2_run_summary.json"
         if not summary_path.exists():
             raise DataValidationError(
-                "Missing mandatory B1A.2 run summary at evidence/phase_b1a2_run_summary.json"
+                "Missing mandatory B1A.2 run summary in ZIP at evidence/phase_b1a2_run_summary.json"
             )
 
         actual_results_sha = sha256_file(results_path)
@@ -322,6 +324,7 @@ def load_and_verify_b1a2_baseline(
             decision_verdict=verdict,
             results_sha256=actual_results_sha,
             execution_git_commit=commit,
+            baseline_zip_sha256=actual_zip_sha,
             case_count=len(expected_s20_finals),
             expected_s20_seed_hits=expected_s20_seeds,
             expected_s20_final_hits=expected_s20_finals,
@@ -329,9 +332,7 @@ def load_and_verify_b1a2_baseline(
             expected_s20_vs_h40=expected_s20_vs_h40,
         )
     finally:
-        if temp_unpack_dir is not None:
-            import shutil
-            shutil.rmtree(temp_unpack_dir, ignore_errors=True)
+        shutil.rmtree(temp_unpack_dir, ignore_errors=True)
 
 
 # ----------------------------------------------------------------------
@@ -339,59 +340,103 @@ def load_and_verify_b1a2_baseline(
 # ----------------------------------------------------------------------
 
 
+def create_graphless_staging_root(
+    source_root: Path,
+    staging_root: Path,
+) -> list[dict[str, object]]:
+    """Create an immutable graphless staging root exposing only required serving artifacts."""
+    if not source_root.exists():
+        raise DataValidationError(f"Source artifact root does not exist: {source_root}")
+
+    if source_root.resolve() == staging_root.resolve():
+        raise ArtifactCompatibilityError(
+            "Cannot create staging root: source_root and staging_root resolve to the same path"
+        )
+
+    staging_root.mkdir(parents=True, exist_ok=True)
+    inventory: list[dict[str, object]] = []
+
+    for item in source_root.iterdir():
+        if item.name in ("graph", "relationships"):
+            continue
+        dest = staging_root / item.name
+        if dest.exists() or dest.is_symlink():
+            continue
+        is_symlink = False
+        try:
+            os.symlink(item.resolve(), dest, target_is_directory=item.is_dir())
+            is_symlink = True
+        except (OSError, NotImplementedError):
+            if item.is_dir():
+                shutil.copytree(item, dest, symlinks=True)
+            else:
+                shutil.copy2(item, dest)
+        inventory.append({
+            "name": item.name,
+            "is_symlink": is_symlink,
+            "is_dir": item.is_dir(),
+            "source_path": str(item.resolve()),
+        })
+
+    # Hard assert graph and relationships are absent
+    if (staging_root / "graph").exists() or (staging_root / "graph").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'graph'")
+    if (staging_root / "relationships").exists() or (staging_root / "relationships").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'relationships'")
+
+    return inventory
+
+
 def validate_graphless_staging_root(staging_root: Path) -> list[dict[str, object]]:
-    """Verify graphless staging directory contains exactly the 3 online artifacts."""
+    """Verify graphless staging directory contains exactly the required non-graph serving artifacts."""
     if not staging_root.is_dir():
         raise ArtifactCompatibilityError(f"Staging root is not a directory: {staging_root}")
 
-    required_artifacts = {"legal_chunks", "bm25", "vector"}
-    forbidden_artifacts = {"graph", "relationships"}
+    if (staging_root / "graph").exists() or (staging_root / "graph").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'graph'")
+    if (staging_root / "relationships").exists() or (staging_root / "relationships").is_symlink():
+        raise ArtifactCompatibilityError("Staging root illegally contains 'relationships'")
 
-    found = set()
-    inventory = []
-    for child in staging_root.iterdir():
-        if not child.is_dir():
-            continue
-        name = child.name
-        if name in forbidden_artifacts:
+    required_dirs = ["legal_chunks", "bm25", "vector"]
+    for req in required_dirs:
+        if not (staging_root / req).is_dir():
             raise ArtifactCompatibilityError(
-                f"Graphless staging root MUST NOT contain forbidden artifact '{name}'"
+                f"Staging root missing required active directory: '{req}'"
             )
-        manifest_path = child / "manifest.json"
-        if manifest_path.is_file():
-            found.add(name)
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            inventory.append({
-                "name": name,
-                "path": str(child),
-                "artifact_type": manifest.get("artifact_type"),
-                "artifact_version": manifest.get("artifact_version"),
-                "record_count": manifest.get("record_count"),
-            })
 
-    missing = required_artifacts - found
-    if missing:
-        raise ArtifactCompatibilityError(
-            f"Staging root is missing required graphless artifacts: {sorted(missing)}"
-        )
+    inventory = []
+    for item in staging_root.iterdir():
+        inventory.append({
+            "name": item.name,
+            "is_symlink": item.is_symlink(),
+            "is_dir": item.is_dir(),
+            "target_path": str(item.resolve()),
+        })
+
+    if not inventory:
+        raise ArtifactCompatibilityError("Staging root inventory is empty")
 
     return sorted(inventory, key=lambda x: x["name"])
 
 
-class CandidatePoolAuditPipeline:
-    """Assembles query understanding, hybrid retrieval, and reranking backends."""
+class RecordingBranchRetriever:
+    """Observational proxy around a sparse or dense branch retriever."""
 
-    config: ApplicationConfig
-    chunk_manifest: ArtifactManifest
-    bm25_manifest: ArtifactManifest
-    vector_manifest: ArtifactManifest
-    bm25_backend: SQLiteFTS5BM25Backend
-    vector_backend: NumpyVectorBackend
-    embedding_provider: EmbeddingProvider
-    dense_retriever: DenseRetriever
-    hybrid_retriever: HybridRetriever
-    query_understanding: QueryUnderstandingService
-    reranker: Reranker
+    def __init__(self, inner_branch: object) -> None:
+        self._inner = inner_branch
+        self.recorded_queries: list[RetrievalQuery] = []
+
+    @property
+    def source_artifact_identity(self) -> tuple[str, str, str]:
+        return getattr(self._inner, "source_artifact_identity")
+
+    def search(self, query: RetrievalQuery) -> RetrievalResponse:
+        self.recorded_queries.append(query)
+        return getattr(self._inner, "search")(query)
+
+
+class CandidatePoolAuditPipeline:
+    """Assembles query understanding, hybrid retrieval with branch recorders, and reranking backends."""
 
     def __init__(
         self,
@@ -424,6 +469,15 @@ class CandidatePoolAuditPipeline:
         )
 
         deep_validation = config.online.startup_validation.mode == "full"
+        if not deep_validation:
+            report_path = (
+                config.artifacts.root_path
+                / config.build_validation.report_filename
+            )
+            validate_startup_report(
+                report_path,
+                (self.chunk_manifest, self.bm25_manifest, self.vector_manifest),
+            )
 
         self.bm25_backend = SQLiteFTS5BM25Backend(
             config.offline.bm25,
@@ -451,9 +505,13 @@ class CandidatePoolAuditPipeline:
             self.embedding_provider, self.vector_backend
         )
 
+        # Observational branch recorders
+        self.recording_bm25 = RecordingBranchRetriever(self.bm25_backend)
+        self.recording_dense = RecordingBranchRetriever(self.dense_retriever)
+
         self.hybrid_retriever = HybridRetriever(
-            self.bm25_backend,
-            self.dense_retriever,
+            bm25_retriever=self.recording_bm25,
+            dense_retriever=self.recording_dense,
             config=config.online.retrieval,
             query_understanding_config=config.online.query_understanding,
         )
@@ -509,7 +567,10 @@ def run_case_candidate_pool_audit(
     enriched_query = pipeline.query_understanding.enrich(base_query)
     q_analysis = enriched_query.query_analysis
 
-    # 1. Execute ONE top-level HYBRID search retrieving fused top 40
+    # 1. Capture branch query counts before the single top-level HYBRID call
+    sparse_queries_before = len(pipeline.recording_bm25.recorded_queries)
+    dense_queries_before = len(pipeline.recording_dense.recorded_queries)
+
     candidate_query = enriched_query.model_copy(
         update={
             "top_k": FUSED_POOL_LIMIT,
@@ -519,6 +580,47 @@ def run_case_candidate_pool_audit(
     )
     hybrid_resp = pipeline.hybrid_retriever.search(candidate_query)
     fused_hits_40 = list(hybrid_resp.hits)
+
+    # 2. Observe real branch depth calls caused by this single HYBRID retrieval
+    sparse_queries = pipeline.recording_bm25.recorded_queries[sparse_queries_before:]
+    dense_queries = pipeline.recording_dense.recorded_queries[dense_queries_before:]
+
+    if not sparse_queries or not dense_queries:
+        reasons.append(f"Case {question_id} failed to execute sparse and dense branch queries")
+
+    all_sparse_depth_40 = bool(
+        sparse_queries and all(
+            q.candidate_k == BRANCH_CANDIDATE_DEPTH
+            and q.top_k == BRANCH_CANDIDATE_DEPTH
+            and q.requested_strategy == RetrievalStrategy.BM25
+            for q in sparse_queries
+        )
+    )
+    all_dense_depth_40 = bool(
+        dense_queries and all(
+            q.candidate_k == BRANCH_CANDIDATE_DEPTH
+            and q.top_k == BRANCH_CANDIDATE_DEPTH
+            and q.requested_strategy == RetrievalStrategy.DENSE
+            for q in dense_queries
+        )
+    )
+    branch_depth_fidelity = all_sparse_depth_40 and all_dense_depth_40
+    if not branch_depth_fidelity:
+        reasons.append(
+            f"Case {question_id} branch depth fidelity failed: sparse_40={all_sparse_depth_40}, dense_40={all_dense_depth_40}"
+        )
+
+    branch_depth_observations = {
+        "sparse_query_count": len(sparse_queries),
+        "dense_query_count": len(dense_queries),
+        "sparse_candidate_depths": [q.candidate_k for q in sparse_queries],
+        "dense_candidate_depths": [q.candidate_k for q in dense_queries],
+        "sparse_top_ks": [q.top_k for q in sparse_queries],
+        "dense_top_ks": [q.top_k for q in dense_queries],
+        "all_sparse_depth_40": all_sparse_depth_40,
+        "all_dense_depth_40": all_dense_depth_40,
+        "branch_depth_fidelity": branch_depth_fidelity,
+    }
 
     # Project fused 40 candidates with traces
     fused_candidate_records: list[dict[str, object]] = []
@@ -546,7 +648,7 @@ def run_case_candidate_pool_audit(
             f"Case {question_id} fused40[:20] prefix does not match frozen B1A.2 s20 seed hits"
         )
 
-    # 2. Score the SAME fused40 candidate list once with CrossEncoder
+    # 3. Score the SAME fused40 candidate list once with CrossEncoder
     rerank_query = enriched_query.model_copy(
         update={
             "top_k": len(fused_hits_40),
@@ -571,7 +673,7 @@ def run_case_candidate_pool_audit(
             "reranker_score": round(h.score, 8),
         })
 
-    # 3. Derive S20 ranking:
+    # 4. Derive S20 ranking:
     # Filter scored candidates to fused ranks 1..20, apply production tie-break (-score, fused_rank, chunk_id)
     s20_candidate_hits = fused_hits_40[:S20_CANDIDATE_LIMIT]
     s20_ordered_indices = sorted(
@@ -596,7 +698,7 @@ def run_case_candidate_pool_audit(
             "strategy": RetrievalStrategy.HYBRID_RERANK.value,
         })
 
-    # 4. Derive H40 ranking:
+    # 5. Derive H40 ranking:
     # Use scored fused ranks 1..40, apply production tie-break (-score, fused_rank, chunk_id)
     h40_ordered_indices = sorted(
         range(len(fused_hits_40)),
@@ -652,7 +754,7 @@ def run_case_candidate_pool_audit(
             f"Case {question_id} derived H40 final top8 differs from frozen B1A.2 (chunks={h40_chunks_match}, docs={h40_docs_match}, score_diff={h40_max_score_diff:.8f})"
         )
 
-    # 5. S20 vs H40 Diagnostics & Entrants Analysis
+    # 6. S20 vs H40 Diagnostics & Entrants Analysis
     s20_top8_ids = [h["chunk_id"] for h in derived_s20_top8]
     h40_top8_ids = [h["chunk_id"] for h in derived_h40_top8]
 
@@ -713,10 +815,7 @@ def run_case_candidate_pool_audit(
         "question_id": question_id,
         "query_intent": q_analysis.intent.value if q_analysis else None,
         "query_variants_count": len(enriched_query.query_variants),
-        "branch_depth_observations": {
-            "sparse_branch_candidate_depth": BRANCH_CANDIDATE_DEPTH,
-            "dense_branch_candidate_depth": BRANCH_CANDIDATE_DEPTH,
-        },
+        "branch_depth_observations": branch_depth_observations,
         "fused_candidates_40": fused_candidate_records,
         "cross_encoder_scored_candidates_40": scored_records_40,
         "derived_s20_final_hits": derived_s20_top8,
@@ -731,6 +830,7 @@ def run_case_candidate_pool_audit(
             "h40_docs_match": h40_docs_match,
             "h40_scores_match": h40_scores_match,
             "h40_max_score_diff": h40_max_score_diff,
+            "branch_depth_fidelity": branch_depth_fidelity,
         },
         "s20_vs_h40_comparison": {
             "top8_identical": top8_identical,
@@ -763,6 +863,7 @@ def run_case_candidate_pool_audit(
         "displaced_s20_count": len(displaced_s20),
         "displaced_s20_fused_ranks": [d["fused_rank"] for d in displaced_s20],
         "entrant_margin": entrant_margin,
+        "branch_depth_fidelity": branch_depth_fidelity,
     }
 
     return case_result, case_metrics, reasons
@@ -866,7 +967,7 @@ def run_candidate_pool_audit_protocol(
     config_path: Path,
     manifest_path: Path,
     questions_path: Path,
-    baseline_dir_or_zip: Path,
+    baseline_zip_path: Path,
     output_dir: Path,
     staging_root: Path | None = None,
 ) -> tuple[dict[str, object], dict[str, object], str]:
@@ -876,6 +977,7 @@ def run_candidate_pool_audit_protocol(
     created_at = datetime.now(UTC).isoformat()
     script_path = Path(__file__)
     execution_commit = resolve_execution_git_commit(script_path)
+    script_sha = sha256_file(script_path)
 
     # 1. Validate questions input
     questions_sha = sha256_file(questions_path)
@@ -891,6 +993,7 @@ def run_candidate_pool_audit_protocol(
         )
 
     # 2. Validate manifest input
+    manifest_sha = sha256_file(manifest_path)
     manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
     target_ids: list[str] = manifest_data.get("question_ids", [])
     if target_ids != EXPECTED_22_IDS:
@@ -898,22 +1001,47 @@ def run_candidate_pool_audit_protocol(
             f"Target question IDs do not match canonical 22 IDs: expected {EXPECTED_22_IDS}, got {target_ids}"
         )
 
-    # 3. Load & verify B1A.2 baseline
+    # 3. Load & verify B1A.2 baseline ZIP fail-closed
     baseline: FrozenB1A2Baseline | None = None
     try:
-        baseline = load_and_verify_b1a2_baseline(baseline_dir_or_zip, EXPECTED_22_IDS)
+        baseline = load_and_verify_b1a2_baseline(baseline_zip_path, EXPECTED_22_IDS)
     except Exception as exc:
         reasons.append(f"B1A.2 baseline verification failed: {exc}")
 
-    # 4. Load config & staging root
+    # 4. Load source app config & resolve actual graphless staging root
     app_config = load_application_config(config_path)
-    active_staging_root = staging_root or app_config.artifacts.root_path
+    source_artifacts_root = app_config.artifacts.root_path
 
-    staging_inventory = []
+    staging_inventory: list[dict[str, object]] = []
+    active_staging_root: Path
+    if staging_root is not None:
+        active_staging_root = staging_root
+    elif (source_artifacts_root / "graph").exists() or (source_artifacts_root / "relationships").exists():
+        active_staging_root = output_dir / "staging_graphless"
+        try:
+            staging_inventory = create_graphless_staging_root(
+                source_artifacts_root, active_staging_root
+            )
+        except Exception as exc:
+            reasons.append(f"Failed to create graphless staging root: {exc}")
+    else:
+        active_staging_root = source_artifacts_root
+
     try:
         staging_inventory = validate_graphless_staging_root(active_staging_root)
     except Exception as exc:
         reasons.append(f"Graphless staging root validation failed: {exc}")
+
+    # Create immutable runtime_config binding root_path to the active staging root
+    runtime_config = app_config.model_copy(
+        update={
+            "artifacts": app_config.artifacts.model_copy(
+                update={"root_path": active_staging_root}
+            )
+        }
+    )
+    runtime_config_json = json.dumps(runtime_config.model_dump(mode="json"), indent=2)
+    runtime_config_sha = sha256_bytes(runtime_config_json.encode("utf-8"))
 
     if reasons:
         invalid_report = {
@@ -938,6 +1066,7 @@ def run_candidate_pool_audit_protocol(
                 "seed_prefix_passes": 0,
                 "s20_top8_passes": 0,
                 "h40_top8_passes": 0,
+                "branch_depth_passes": 0,
                 "identical_top8_cases": 0,
                 "changed_top8_cases": 0,
                 "total_tail_entrants": 0,
@@ -950,10 +1079,10 @@ def run_candidate_pool_audit_protocol(
 
     assert baseline is not None
 
-    # 5. Build pipeline
+    # 5. Build pipeline strictly from runtime_config
     pipeline: CandidatePoolAuditPipeline | None = None
     try:
-        pipeline = CandidatePoolAuditPipeline(app_config)
+        pipeline = CandidatePoolAuditPipeline(runtime_config)
     except Exception as exc:
         reasons.append(f"Retrieval stack construction failed: {exc}")
         invalid_report = {
@@ -978,6 +1107,7 @@ def run_candidate_pool_audit_protocol(
                 "seed_prefix_passes": 0,
                 "s20_top8_passes": 0,
                 "h40_top8_passes": 0,
+                "branch_depth_passes": 0,
                 "identical_top8_cases": 0,
                 "changed_top8_cases": 0,
                 "total_tail_entrants": 0,
@@ -995,6 +1125,7 @@ def run_candidate_pool_audit_protocol(
     seed_prefix_passes = 0
     s20_top8_passes = 0
     h40_top8_passes = 0
+    branch_depth_passes = 0
 
     for qid in target_ids:
         q_data = raw_dev.get(qid, {})
@@ -1024,6 +1155,8 @@ def run_candidate_pool_audit_protocol(
                 and c_res["reproduction_gates"]["h40_scores_match"]
             ):
                 h40_top8_passes += 1
+            if c_res["reproduction_gates"]["branch_depth_fidelity"]:
+                branch_depth_passes += 1
 
             if c_reasons:
                 reasons.extend(c_reasons)
@@ -1038,7 +1171,11 @@ def run_candidate_pool_audit_protocol(
     )
 
     # 8. Decision Determination
-    if retrieval_model_error_count > 0 or len(case_results) != EXPECTED_CASE_COUNT:
+    if (
+        retrieval_model_error_count > 0
+        or len(case_results) != EXPECTED_CASE_COUNT
+        or branch_depth_passes != EXPECTED_CASE_COUNT
+    ):
         verdict = "INVALID_EXPERIMENT"
     elif (
         seed_prefix_passes != EXPECTED_CASE_COUNT
@@ -1069,10 +1206,12 @@ def run_candidate_pool_audit_protocol(
             "seed_prefix_passes": seed_prefix_passes,
             "s20_top8_passes": s20_top8_passes,
             "h40_top8_passes": h40_top8_passes,
+            "branch_depth_passes": branch_depth_passes,
             "retrieval_model_error_count": retrieval_model_error_count,
         },
         "aggregate_metrics": aggregate_metrics,
         "baseline_provenance": {
+            "baseline_zip_sha256": baseline.baseline_zip_sha256,
             "baseline_results_sha256": baseline.results_sha256,
             "baseline_execution_commit": baseline.execution_git_commit,
             "baseline_verdict": baseline.decision_verdict,
@@ -1092,6 +1231,7 @@ def run_candidate_pool_audit_protocol(
             "seed_prefix_passes": seed_prefix_passes,
             "s20_top8_passes": s20_top8_passes,
             "h40_top8_passes": h40_top8_passes,
+            "branch_depth_passes": branch_depth_passes,
             "identical_top8_cases": aggregate_metrics.get("identical_top8_cases", 0),
             "changed_top8_cases": aggregate_metrics.get("changed_top8_cases", 0),
             "total_tail_entrants": aggregate_metrics.get("total_tail_entrants", 0),
@@ -1132,9 +1272,7 @@ def run_candidate_pool_audit_protocol(
     decision_path.write_text(json.dumps(decision, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     # Save configs & execution metadata
-    (configs_dir / "runtime_config.json").write_text(
-        json.dumps(app_config.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8"
-    )
+    (configs_dir / "runtime_config.json").write_text(runtime_config_json + "\n", encoding="utf-8")
     (configs_dir / "phase-b1a-graph-routing-cases.json").write_text(
         json.dumps(manifest_data, indent=2) + "\n", encoding="utf-8"
     )
@@ -1142,10 +1280,16 @@ def run_candidate_pool_audit_protocol(
         json.dumps({
             "code_version": __version__,
             "execution_git_commit": execution_commit,
+            "script_sha256": script_sha,
             "created_at": created_at,
             "questions_path": str(questions_path),
             "questions_sha256": questions_sha,
             "manifest_path": str(manifest_path),
+            "manifest_sha256": manifest_sha,
+            "runtime_config_sha256": runtime_config_sha,
+            "canonical_b1a2_zip_sha256": baseline.baseline_zip_sha256,
+            "canonical_b1a2_results_sha256": baseline.results_sha256,
+            "canonical_b1a2_execution_commit": baseline.execution_git_commit,
         }, indent=2) + "\n", encoding="utf-8"
     )
     (execution_dir / "graphless_root_inventory.json").write_text(
@@ -1153,6 +1297,7 @@ def run_candidate_pool_audit_protocol(
     )
     (baseline_dir / "b1a2_baseline_identity.json").write_text(
         json.dumps({
+            "baseline_zip_sha256": baseline.baseline_zip_sha256,
             "baseline_results_sha256": baseline.results_sha256,
             "baseline_execution_commit": baseline.execution_git_commit,
             "baseline_verdict": baseline.decision_verdict,
@@ -1216,10 +1361,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to source questions JSON (e.g. development.json)",
     )
     parser.add_argument(
-        "--baseline-evidence-dir",
+        "--baseline-zip",
         type=Path,
         required=True,
-        help="Path to frozen B1A.2 evidence directory or evidence ZIP",
+        help="Path to frozen canonical B1A.2 evidence ZIP archive",
     )
     parser.add_argument(
         "--output-dir",
@@ -1231,7 +1376,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--staging-root",
         type=Path,
         default=None,
-        help="Optional path to graphless staging root (defaults to config artifacts root)",
+        help="Optional path to graphless staging root (defaults to creating from config artifacts root)",
     )
     return parser
 
@@ -1246,7 +1391,7 @@ def main() -> int:
         config_path=args.config,
         manifest_path=args.manifest,
         questions_path=args.questions,
-        baseline_dir_or_zip=args.baseline_evidence_dir,
+        baseline_zip_path=args.baseline_zip,
         output_dir=args.output_dir,
         staging_root=args.staging_root,
     )
@@ -1262,6 +1407,7 @@ def main() -> int:
         print(f"Seed Prefix Passes:        {s.get('seed_prefix_passes')} / 22")
         print(f"S20 Top-8 Passes:          {s.get('s20_top8_passes')} / 22")
         print(f"H40 Top-8 Passes:          {s.get('h40_top8_passes')} / 22")
+        print(f"Branch Depth Passes:       {s.get('branch_depth_passes')} / 22")
         print(f"Identical Top-8 Cases:     {s.get('identical_top8_cases')} (expected 5)")
         print(f"Changed Top-8 Cases:       {s.get('changed_top8_cases')} (expected 17)")
         print(f"Total Tail Entrants:       {s.get('total_tail_entrants')}")

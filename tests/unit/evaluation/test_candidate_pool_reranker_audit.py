@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import sys
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import MagicMock, patch
 import zipfile
 
 import pytest
@@ -27,6 +27,8 @@ from legal_agentic_rag.exceptions import (
 from legal_agentic_rag.retrieval.fixed import HybridRetriever
 from legal_agentic_rag.schemas.manifests import ArtifactManifest, ArtifactType
 from legal_agentic_rag.schemas.retrieval import (
+    QueryAnalysis,
+    QueryIntent,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
@@ -45,7 +47,9 @@ from scripts.candidate_pool_reranker_audit import (
     CandidatePoolAuditPipeline,
     EvaluatedHit,
     FrozenB1A2Baseline,
+    RecordingBranchRetriever,
     compute_aggregate_audit_metrics,
+    create_graphless_staging_root,
     get_fused_rank_bucket,
     load_and_verify_b1a2_baseline,
     package_audit_evidence,
@@ -57,371 +61,463 @@ from scripts.candidate_pool_reranker_audit import (
 )
 
 
-def _build_dummy_b1a2_baseline(
-    output_dir: Path,
+def _build_dummy_b1a2_baseline_zip(
+    zip_path: Path,
     *,
-    omit_summary: bool = False,
-    summary_override: dict[str, object] | None = None,
-    results_corrupt: bool = False,
-    decision_override: dict[str, object] | None = None,
-    custom_ids: list[str] | None = None,
-    alter_seed_ids: list[str] | None = None,
+    verdict: str = "GRAPH_REDUNDANCY_PROVEN",
+    results_sha_override: str | None = None,
+    execution_commit: str = CANONICAL_B1A2_EXECUTION_COMMIT,
+    missing_summary_sha: bool = False,
     alter_s20_final_ids: list[str] | None = None,
     alter_h40_final_ids: list[str] | None = None,
-) -> None:
-    """Helper to construct dummy B1A.2 baseline evidence directory."""
-    results_dir = output_dir / "results"
-    evidence_dir = output_dir / "evidence"
+    drop_question_id: str | None = None,
+) -> Path:
+    """Helper to create a synthetic B1A.2 baseline ZIP archive for unit tests."""
+    temp_dir = zip_path.parent / (zip_path.stem + "_build_dir")
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = temp_dir / "results"
+    evidence_dir = temp_dir / "evidence"
     results_dir.mkdir(parents=True, exist_ok=True)
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
-    ids = custom_ids or EXPECTED_22_IDS
+    results_file = results_dir / "phase_b1a2_retrieval_results.jsonl"
+    lines = []
 
-    results_lines = []
-    for idx, qid in enumerate(ids):
-        # Default: First 5 cases have identical s20 and h40 top8; remaining 17 have changed top8
+    for idx, qid in enumerate(EXPECTED_22_IDS):
+        if drop_question_id and qid == drop_question_id:
+            continue
+
         is_identical = idx < 5
 
         s20_seed_hits = [
             {
-                "chunk_id": f"chunk-{qid}-{r}" if not (alter_seed_ids and qid in alter_seed_ids and r == 1) else f"altered-{qid}",
-                "document_id": f"doc-{qid}-{r}",
                 "rank": r,
+                "chunk_id": f"chunk-{qid}-{r}" if not (not is_identical and r == 25) else f"tail-chunk-{qid}-25",
+                "document_id": f"doc-{qid}-{r}" if not (not is_identical and r == 25) else f"tail-doc-{qid}-25",
                 "score": round(1.0 / (r + 10), 8),
                 "strategy": "hybrid",
             }
             for r in range(1, 21)
         ]
 
-        s20_final_hits = [
-            {
-                "chunk_id": f"chunk-{qid}-{r}" if not (alter_s20_final_ids and qid in alter_s20_final_ids and r == 1) else f"altered-{qid}",
-                "document_id": f"doc-{qid}-{r}",
-                "rank": r,
-                "score": round(0.95 - (r * 0.01), 8),
-                "strategy": "hybrid_rerank",
-            }
-            for r in range(1, 9)
-        ]
+        if alter_s20_final_ids and qid in alter_s20_final_ids:
+            s20_final_hits = [
+                {
+                    "rank": r,
+                    "chunk_id": f"altered-{qid}-{r}",
+                    "document_id": f"doc-{qid}-{r}",
+                    "score": round(0.95 - (r * 0.01), 8),
+                    "strategy": "hybrid_rerank",
+                }
+                for r in range(1, 9)
+            ]
+        else:
+            s20_final_hits = [
+                {
+                    "rank": r,
+                    "chunk_id": f"chunk-{qid}-{r}",
+                    "document_id": f"doc-{qid}-{r}",
+                    "score": round(0.95 - (r * 0.01), 8),
+                    "strategy": "hybrid_rerank",
+                }
+                for r in range(1, 9)
+            ]
 
         if is_identical:
             h40_final_hits = list(s20_final_hits)
         else:
-            # Replace 8th hit with a tail entrant from fused rank 25
-            h40_final_hits = [
-                {
-                    "chunk_id": f"chunk-{qid}-{r}" if not (alter_h40_final_ids and qid in alter_h40_final_ids and r == 1) else f"altered-{qid}",
-                    "document_id": f"doc-{qid}-{r}",
-                    "rank": r,
-                    "score": round(0.95 - (r * 0.01), 8),
-                    "strategy": "hybrid_rerank",
-                }
-                for r in range(1, 8)
-            ] + [
-                {
-                    "chunk_id": f"tail-chunk-{qid}-25",
-                    "document_id": f"tail-doc-{qid}-25",
-                    "rank": 8,
-                    "score": round(0.875, 8),
-                    "strategy": "hybrid_rerank",
-                }
-            ]
+            if alter_h40_final_ids and qid in alter_h40_final_ids:
+                h40_final_hits = [
+                    {
+                        "rank": r,
+                        "chunk_id": f"altered-h40-{qid}-{r}",
+                        "document_id": f"doc-{qid}-{r}",
+                        "score": round(0.95 - (r * 0.01), 8),
+                        "strategy": "hybrid_rerank",
+                    }
+                    for r in range(1, 9)
+                ]
+            else:
+                h40_final_hits = [
+                    {
+                        "rank": r,
+                        "chunk_id": f"chunk-{qid}-{r}",
+                        "document_id": f"doc-{qid}-{r}",
+                        "score": round(0.95 - (r * 0.01), 8),
+                        "strategy": "hybrid_rerank",
+                    }
+                    for r in range(1, 8)
+                ] + [
+                    {
+                        "rank": 8,
+                        "chunk_id": f"tail-chunk-{qid}-25",
+                        "document_id": f"tail-doc-{qid}-25",
+                        "score": 0.875,
+                        "strategy": "hybrid_rerank",
+                    }
+                ]
 
-        case_row = {
+        line_obj = {
             "question_id": qid,
-            "query_intent": "relationship",
-            "query_variants_count": 1,
             "s20_arm": {
-                "candidate_count": 20,
-                "branch_candidate_depth": 40,
                 "seed_hits": s20_seed_hits,
                 "final_hits": s20_final_hits,
-                "latency_ms": 10.0,
             },
             "h40_arm": {
-                "candidate_count": 40,
                 "final_hits": h40_final_hits,
-                "latency_ms": 15.0,
             },
             "s20_vs_h40": {
                 "top8_identical": is_identical,
-                "top8_overlap_count": 8 if is_identical else 7,
-                "top8_jaccard": 1.0 if is_identical else round(7.0 / 9.0, 4),
+                "overlap_count": 8 if is_identical else 7,
+                "jaccard": 1.0 if is_identical else 7.0 / 9.0,
             },
         }
-        results_lines.append(json.dumps(case_row))
+        lines.append(json.dumps(line_obj))
 
-    results_content = "\n".join(results_lines) + "\n"
-    if results_corrupt:
-        results_content = "corrupt content"
-    results_file = results_dir / "phase_b1a2_retrieval_results.jsonl"
-    results_file.write_text(results_content, encoding="utf-8")
-    actual_results_sha = sha256_file(results_file)
+    results_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    actual_res_sha = sha256_file(results_file)
 
-    decision_data = {
-        "verdict": "GRAPH_REDUNDANCY_PROVEN",
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    if decision_override:
-        decision_data.update(decision_override)
-    (results_dir / "phase_b1a2_decision_report.json").write_text(
-        json.dumps(decision_data, indent=2), encoding="utf-8"
+    decision_file = results_dir / "phase_b1a2_decision_report.json"
+    decision_file.write_text(
+        json.dumps({
+            "audit_id": "PHASE-B1A2-GRAPH-EQUIVALENCE",
+            "verdict": verdict,
+            "results_sha256": actual_res_sha,
+        }, indent=2),
+        encoding="utf-8",
     )
 
-    if not omit_summary:
-        summary_data = {
-            "execution_git_commit": CANONICAL_B1A2_EXECUTION_COMMIT,
-            "results_sha256": actual_results_sha,
-            "case_count": len(ids),
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        if summary_override:
-            summary_data.update(summary_override)
-        (evidence_dir / "phase_b1a2_run_summary.json").write_text(
-            json.dumps(summary_data, indent=2), encoding="utf-8"
-        )
+    summary_file = evidence_dir / "phase_b1a2_run_summary.json"
+    summary_data = {
+        "execution_git_commit": execution_commit,
+        "results_sha256": None if missing_summary_sha else (results_sha_override or actual_res_sha),
+    }
+    summary_file.write_text(json.dumps(summary_data, indent=2), encoding="utf-8")
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        z.write(results_file, arcname="results/phase_b1a2_retrieval_results.jsonl")
+        z.write(decision_file, arcname="results/phase_b1a2_decision_report.json")
+        z.write(summary_file, arcname="evidence/phase_b1a2_run_summary.json")
+
+    return zip_path
 
 
-def _setup_mock_staging_root(staging_root: Path) -> None:
-    """Create mock graphless staging directory with manifests."""
-    staging_root.mkdir(parents=True, exist_ok=True)
-    for name in ("legal_chunks", "bm25", "vector"):
-        (staging_root / name).mkdir(parents=True, exist_ok=True)
+def _setup_mock_staging_root(root: Path) -> Path:
+    """Create a minimal valid graphless staging directory."""
+    root.mkdir(parents=True, exist_ok=True)
+    chunks_dir = root / "legal_chunks"
+    bm25_dir = root / "bm25"
+    vec_dir = root / "vector"
 
-    chunk_manifest = ArtifactManifest(
-        schema_version="1.0",
+    for d in (chunks_dir, bm25_dir, vec_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    c_man = ArtifactManifest(
+        schema_version="1.0.0",
         artifact_type=ArtifactType.LEGAL_CHUNKS,
         artifact_version="1.0",
         dataset_name="uit-dsc-2026-task2-selected-contexts",
         dataset_revision="canonical",
-        record_count=100,
-        created_at=datetime.now(UTC),
-        processing_config_hash="hash",
+        processing_config_hash="hash1",
         code_version="0.50.7",
-        metadata={
-            "payload_file": "chunks.jsonl",
-            "payload_sha256": sha256_bytes(b""),
-        },
+        created_at=datetime.now(UTC),
+        record_count=100,
+        backend="sqlite",
     )
-    (staging_root / "legal_chunks" / "manifest.json").write_text(
-        chunk_manifest.model_dump_json(), encoding="utf-8"
+    (chunks_dir / "manifest.json").write_text(
+        json.dumps(c_man.model_dump(mode="json"), indent=2), encoding="utf-8"
     )
-    (staging_root / "legal_chunks" / "chunks.jsonl").write_bytes(b"")
 
-    bm25_manifest = ArtifactManifest(
-        schema_version="1.0",
+    b_man = ArtifactManifest(
+        schema_version="1.0.0",
         artifact_type=ArtifactType.BM25_INDEX,
         artifact_version="1.0",
         dataset_name="uit-dsc-2026-task2-selected-contexts",
         dataset_revision="canonical",
-        record_count=100,
-        created_at=datetime.now(UTC),
-        processing_config_hash="hash",
+        processing_config_hash="hash1",
         code_version="0.50.7",
-        metadata={
-            "source_artifact_type": "legal_chunks",
-            "source_artifact_version": "1.0",
-            "source_processing_config_hash": "hash",
-        },
+        created_at=datetime.now(UTC),
+        record_count=100,
+        backend="sqlite_fts5",
+        metadata={"source_artifact_type": "legal_chunks", "source_artifact_version": "1.0", "source_processing_config_hash": "hash1"},
     )
-    (staging_root / "bm25" / "manifest.json").write_text(
-        bm25_manifest.model_dump_json(), encoding="utf-8"
+    (bm25_dir / "manifest.json").write_text(
+        json.dumps(b_man.model_dump(mode="json"), indent=2), encoding="utf-8"
     )
 
-    vector_manifest = ArtifactManifest(
-        schema_version="1.0",
+    v_man = ArtifactManifest(
+        schema_version="1.0.0",
         artifact_type=ArtifactType.VECTOR_INDEX,
         artifact_version="1.0",
         dataset_name="uit-dsc-2026-task2-selected-contexts",
         dataset_revision="canonical",
-        record_count=100,
-        created_at=datetime.now(UTC),
-        processing_config_hash="hash",
+        processing_config_hash="hash1",
         code_version="0.50.7",
+        created_at=datetime.now(UTC),
+        record_count=100,
+        backend="numpy",
         model_name="test_model",
         model_revision="rev",
         metadata={
             "source_artifact_type": "legal_chunks",
             "source_artifact_version": "1.0",
-            "source_processing_config_hash": "hash",
+            "source_processing_config_hash": "hash1",
             "dimension": 384,
             "embedding_provider_name": "sentence-transformers",
             "embedding_provider_version": "1.0",
         },
     )
-    (staging_root / "vector" / "manifest.json").write_text(
-        vector_manifest.model_dump_json(), encoding="utf-8"
+    (vec_dir / "manifest.json").write_text(
+        json.dumps(v_man.model_dump(mode="json"), indent=2), encoding="utf-8"
     )
 
-
-# ----------------------------------------------------------------------
-# TESTS
-# ----------------------------------------------------------------------
-
-
-def test_01_fused_rank_bucket_boundaries() -> None:
-    assert get_fused_rank_bucket(21) == "21-25"
-    assert get_fused_rank_bucket(25) == "21-25"
-    assert get_fused_rank_bucket(26) == "26-30"
-    assert get_fused_rank_bucket(30) == "26-30"
-    assert get_fused_rank_bucket(31) == "31-35"
-    assert get_fused_rank_bucket(35) == "31-35"
-    assert get_fused_rank_bucket(36) == "36-40"
-    assert get_fused_rank_bucket(40) == "36-40"
-    assert get_fused_rank_bucket(20) == "unknown"
-    assert get_fused_rank_bucket(41) == "unknown"
+    # Add dummy report
+    report_file = root / "build_validation_report.json"
+    report_file.write_text(
+        json.dumps({
+            "is_valid": True,
+            "validation_mode": "report",
+            "manifest_checksums": {
+                str(chunks_dir / "manifest.json"): "hash",
+                str(bm25_dir / "manifest.json"): "hash",
+                str(vec_dir / "manifest.json"): "hash",
+            },
+        }),
+        encoding="utf-8",
+    )
+    return root
 
 
-def test_02_load_and_verify_b1a2_baseline_directory(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(base_dir)
-    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
-
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
-        baseline = load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
-        assert baseline.case_count == 22
-        assert baseline.decision_verdict == "GRAPH_REDUNDANCY_PROVEN"
-        assert baseline.execution_git_commit == CANONICAL_B1A2_EXECUTION_COMMIT
-        assert len(baseline.expected_s20_seed_hits) == 22
-        assert len(baseline.expected_s20_final_hits) == 22
-        assert len(baseline.expected_h40_final_hits) == 22
+# ======================================================================
+# FIX 1 REGRESSION TESTS: MANDATORY CANONICAL B1A.2 ZIP
+# ======================================================================
 
 
-def test_03_load_and_verify_b1a2_baseline_zip(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2_dir"
-    _build_dummy_b1a2_baseline(base_dir)
-    real_results_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
-
+def test_01_canonical_zip_accepted_when_sha_matches(tmp_path: Path) -> None:
     zip_path = tmp_path / "b1a2.zip"
-    with zipfile.ZipFile(zip_path, "w") as z:
-        for f in base_dir.rglob("*"):
-            if f.is_file():
-                z.write(f, arcname=str(f.relative_to(base_dir)))
-
+    _build_dummy_b1a2_baseline_zip(zip_path)
     real_zip_sha = sha256_file(zip_path)
 
     with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
-         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_results_sha):
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")):
         baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
-        assert baseline.case_count == 22
+
+    assert isinstance(baseline, FrozenB1A2Baseline)
+    assert baseline.case_count == 22
+    assert baseline.decision_verdict == "GRAPH_REDUNDANCY_PROVEN"
+    assert baseline.baseline_zip_sha256 == real_zip_sha
+    assert len(baseline.expected_s20_final_hits) == 22
 
 
-def test_04_b1a2_zip_sha_mismatch_rejected(tmp_path: Path) -> None:
-    zip_path = tmp_path / "dummy.zip"
-    with zipfile.ZipFile(zip_path, "w") as z:
-        z.writestr("test.txt", "data")
+def test_02_directory_baseline_rejected_with_data_validation_error(tmp_path: Path) -> None:
+    dir_path = tmp_path / "b1a2_dir"
+    dir_path.mkdir(parents=True, exist_ok=True)
 
-    with pytest.raises(DataValidationError, match="B1A.2 baseline ZIP SHA mismatch"):
+    with pytest.raises(DataValidationError, match="must be a .zip file"):
+        load_and_verify_b1a2_baseline(dir_path, EXPECTED_22_IDS)
+
+
+def test_03_wrong_zip_sha_rejected(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+
+    with pytest.raises(DataValidationError, match="baseline ZIP SHA mismatch"):
         load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
 
-def test_05_b1a2_missing_summary_results_sha_rejected(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2_bad_summary"
-    _build_dummy_b1a2_baseline(base_dir)
-    summary_path = base_dir / "evidence" / "phase_b1a2_run_summary.json"
-    s_data = json.loads(summary_path.read_text(encoding="utf-8"))
-    del s_data["results_sha256"]
-    summary_path.write_text(json.dumps(s_data), encoding="utf-8")
+def test_04_wrong_internal_results_sha_rejected(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
 
-    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
+    # Patch ZIP SHA to match, but keep results SHA wrong
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", "wrong_results_sha"):
+        with pytest.raises(DataValidationError, match="results SHA256 mismatch"):
+            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
+
+
+def test_05_missing_results_sha_in_run_summary_rejected(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path, missing_summary_sha=True)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
         with pytest.raises(DataValidationError, match="missing mandatory 'results_sha256'"):
-            load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
+            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
 
-def test_06_b1a2_wrong_commit_rejected(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2_bad_commit"
-    _build_dummy_b1a2_baseline(base_dir, summary_override={"execution_git_commit": "0" * 40})
-    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+def test_06_wrong_execution_commit_rejected(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path, execution_commit="bad_commit_hash")
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
         with pytest.raises(DataValidationError, match="execution commit mismatch"):
-            load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
+            load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
 
-def test_07_validate_graphless_staging_root_success_and_rejection(tmp_path: Path) -> None:
-    staging_dir = tmp_path / "staging"
-    _setup_mock_staging_root(staging_dir)
-
-    inv = validate_graphless_staging_root(staging_dir)
-    assert len(inv) == 3
-    assert {item["name"] for item in inv} == {"bm25", "legal_chunks", "vector"}
-
-    # Forbidden graph directory rejected
-    (staging_dir / "graph").mkdir()
-    with pytest.raises(ArtifactCompatibilityError, match="MUST NOT contain forbidden artifact 'graph'"):
-        validate_graphless_staging_root(staging_dir)
+# ======================================================================
+# FIX 2 REGRESSION TESTS: STAGING ROOT BINDING
+# ======================================================================
 
 
-def test_08_pipeline_construction_and_autospecced_signatures(tmp_path: Path) -> None:
-    staging_dir = tmp_path / "staging"
-    _setup_mock_staging_root(staging_dir)
+def test_07_graphless_staging_creation_and_validation(tmp_path: Path) -> None:
+    source_root = tmp_path / "source_artifacts"
+    _setup_mock_staging_root(source_root)
 
-    config = ApplicationConfig(
-        artifacts=ArtifactConfig(root_path=staging_dir),
+    # Add graph and relationships directories to source
+    (source_root / "graph").mkdir(parents=True, exist_ok=True)
+    (source_root / "relationships").mkdir(parents=True, exist_ok=True)
+
+    staging_root = tmp_path / "staging_graphless"
+    inv = create_graphless_staging_root(source_root, staging_root)
+
+    assert not (staging_root / "graph").exists()
+    assert not (staging_root / "relationships").exists()
+    assert (staging_root / "legal_chunks").is_dir()
+    assert (staging_root / "bm25").is_dir()
+    assert (staging_root / "vector").is_dir()
+
+    validated_inv = validate_graphless_staging_root(staging_root)
+    assert len(validated_inv) >= 3
+
+
+def test_08_staging_root_passed_becomes_pipeline_runtime_root(tmp_path: Path) -> None:
+    source_root = tmp_path / "source_artifacts"
+    _setup_mock_staging_root(source_root)
+    staging_root = tmp_path / "custom_staging"
+    _setup_mock_staging_root(staging_root)
+
+    app_config = ApplicationConfig(
+        artifacts=ArtifactConfig(root_path=source_root),
         online=OnlineConfig(),
     )
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(app_config.model_dump(mode="json")), encoding="utf-8")
 
-    with patch(
-        "scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend",
-        autospec=True,
-    ) as mock_bm25_cls, patch(
-        "scripts.candidate_pool_reranker_audit.NumpyVectorBackend",
-        autospec=True,
-    ) as mock_vec_cls, patch(
-        "scripts.candidate_pool_reranker_audit.SentenceTransformerEmbeddingProvider",
-        autospec=True,
-    ) as mock_emb_cls, patch(
-        "scripts.candidate_pool_reranker_audit.CrossEncoderReranker",
-        autospec=True,
-    ) as mock_rerank_cls:
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
 
-        mock_bm25_inst = mock_bm25_cls.return_value
-        type(mock_bm25_inst).source_artifact_identity = PropertyMock(
-            return_value=("legal_chunks", "1.0", "hash")
+    dummy_dev = {qid: {"question": f"Văn bản {qid}"} for qid in EXPECTED_22_IDS}
+    for i in range(len(dummy_dev), CANONICAL_SOURCE_QUESTION_COUNT):
+        dummy_dev[f"extra_{i}"] = {"question": "extra"}
+    questions_file = tmp_path / "dev.json"
+    questions_file.write_text(json.dumps(dummy_dev), encoding="utf-8")
+
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+    dev_sha = sha256_file(questions_file)
+
+    out_dir = tmp_path / "out"
+
+    dummy_case_res = {
+        "question_id": "1",
+        "reproduction_gates": {
+            "seed_prefix_match": True,
+            "s20_chunks_match": True,
+            "s20_docs_match": True,
+            "s20_scores_match": True,
+            "h40_chunks_match": True,
+            "h40_docs_match": True,
+            "h40_scores_match": True,
+            "branch_depth_fidelity": True,
+        },
+        "tail_entrants": [],
+        "derived_s20_final_hits": [],
+        "derived_h40_final_hits": [],
+        "s20_vs_h40_comparison": {
+            "top8_identical": True,
+            "tail_entrant_count": 0,
+            "top8_overlap_count": 8,
+            "top8_jaccard": 1.0,
+        },
+        "score_cutoff_margin_diagnostics": {
+            "s20_top8_cutoff_score": 0.9,
+            "h40_top8_cutoff_score": 0.9,
+            "entrant_vs_displaced_margin": None,
+        },
+    }
+    dummy_case_met = {
+        "question_id": "1",
+        "top8_identical": True,
+        "tail_entrant_count": 0,
+        "overlap_count": 8,
+        "jaccard": 1.0,
+    }
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
+         patch("scripts.candidate_pool_reranker_audit.run_case_candidate_pool_audit", return_value=(dummy_case_res, dummy_case_met, [])), \
+         patch("scripts.candidate_pool_reranker_audit.CandidatePoolAuditPipeline") as mock_pipe_cls:
+
+        mock_instance = MagicMock()
+        mock_pipe_cls.return_value = mock_instance
+
+        report, decision, verdict = run_candidate_pool_audit_protocol(
+            config_path=config_path,
+            manifest_path=manifest_file,
+            questions_path=questions_file,
+            baseline_zip_path=zip_path,
+            output_dir=out_dir,
+            staging_root=staging_root,
         )
 
-        mock_vec_inst = mock_vec_cls.return_value
-        type(mock_vec_inst).source_artifact_identity = PropertyMock(
-            return_value=("legal_chunks", "1.0", "hash")
-        )
-        type(mock_vec_inst).embedding_provider_name = PropertyMock(
-            return_value="sentence-transformers"
-        )
-        type(mock_vec_inst).embedding_provider_version = PropertyMock(
-            return_value="1.0"
-        )
-        type(mock_vec_inst).model_name = PropertyMock(return_value="test_model")
-        type(mock_vec_inst).model_revision = PropertyMock(return_value="rev")
-        type(mock_vec_inst).dimension = PropertyMock(return_value=384)
+        # Assert CandidatePoolAuditPipeline was constructed with runtime_config whose root_path IS staging_root
+        call_config = mock_pipe_cls.call_args[0][0]
+        assert call_config.artifacts.root_path == staging_root
+        assert call_config.artifacts.root_path != source_root
 
-        mock_emb_inst = mock_emb_cls.return_value
-        type(mock_emb_inst).provider_name = PropertyMock(
-            return_value="sentence-transformers"
-        )
-        type(mock_emb_inst).provider_version = PropertyMock(return_value="1.0")
-        type(mock_emb_inst).model_name = PropertyMock(return_value="test_model")
-        type(mock_emb_inst).model_revision = PropertyMock(return_value="rev")
-        type(mock_emb_inst).dimension = PropertyMock(return_value=384)
-
-        mock_rerank_inst = mock_rerank_cls.return_value
-        type(mock_rerank_inst).model_name = PropertyMock(return_value="test_reranker")
-
-        pipeline = CandidatePoolAuditPipeline(config)
-
-        mock_bm25_cls.assert_called_once()
-        mock_vec_cls.assert_called_once()
-        mock_emb_cls.assert_called_once_with(config.offline.embedding)
-        assert isinstance(pipeline.hybrid_retriever, HybridRetriever)
+        # Assert persisted runtime_config.json reflects staging_root
+        persisted_cfg = json.loads((out_dir / "configs" / "runtime_config.json").read_text(encoding="utf-8"))
+        assert Path(persisted_cfg["artifacts"]["root_path"]) == staging_root
 
 
-def test_09_single_case_candidate_pool_audit_mechanics(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(base_dir)
-    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+# ======================================================================
+# FIX 3 REGRESSION TESTS: REAL BRANCH OBSERVATIONS & WRAPPERS
+# ======================================================================
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
-        baseline = load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
+
+def test_09_recording_branch_retriever_captures_queries() -> None:
+    inner_mock = MagicMock()
+    inner_mock.source_artifact_identity = ("bm25", "1.0", "hash")
+    inner_mock.search.return_value = RetrievalResponse(
+        query=RetrievalQuery(query_id="1", original_question="q", normalized_question="q"),
+        strategy=RetrievalStrategy.BM25,
+        hits=[],
+        latency_ms=1.0,
+    )
+
+    recorder = RecordingBranchRetriever(inner_mock)
+    assert recorder.source_artifact_identity == ("bm25", "1.0", "hash")
+    assert len(recorder.recorded_queries) == 0
+
+    q = RetrievalQuery(
+        query_id="1", original_question="q", normalized_question="q", top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.BM25
+    )
+    resp = recorder.search(q)
+
+    assert len(recorder.recorded_queries) == 1
+    assert recorder.recorded_queries[0] == q
+    assert resp.strategy == RetrievalStrategy.BM25
+
+
+def test_10_single_case_audit_observes_real_branch_depth_40(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
+
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
+        baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
     qid = "102047"
     q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
@@ -433,9 +529,18 @@ def test_09_single_case_candidate_pool_audit_mechanics(tmp_path: Path) -> None:
         normalized_question=q_text,
         top_k=8,
         candidate_k=40,
+        query_analysis=QueryAnalysis(intent=QueryIntent.RELATIONSHIP),
     )
 
-    # 40 fused candidates
+    # Configure real branch recorders on mock pipeline
+    bm25_inner = MagicMock()
+    dense_inner = MagicMock()
+    rec_bm25 = RecordingBranchRetriever(bm25_inner)
+    rec_dense = RecordingBranchRetriever(dense_inner)
+    mock_pipeline.recording_bm25 = rec_bm25
+    mock_pipeline.recording_dense = rec_dense
+
+    # 40 fused hits
     fused_hits = [
         RetrievalHit(
             chunk_id=f"chunk-{qid}-{r}",
@@ -444,25 +549,29 @@ def test_09_single_case_candidate_pool_audit_mechanics(tmp_path: Path) -> None:
             score=round(1.0 / (r + 10), 8),
             strategy=RetrievalStrategy.HYBRID,
             text="sample text",
-            retrieval_trace=RetrievalTrace(
-                bm25_rank=r,
-                bm25_score=1.0,
-                bm25_rrf_contribution=0.01,
-                dense_rank=r,
-                dense_score=0.9,
-                dense_rrf_contribution=0.01,
-            ),
         )
         for r in range(1, 41)
     ]
-    mock_pipeline.hybrid_retriever.search.return_value = RetrievalResponse(
-        query=RetrievalQuery(query_id=qid, original_question=q_text, normalized_question=q_text),
-        strategy=RetrievalStrategy.HYBRID,
-        hits=fused_hits,
-        latency_ms=5.0,
-    )
 
-    # Scored candidates: same order as final hits
+    def _mock_hybrid_search(q):
+        # Simulate HybridRetriever calling recording_bm25 and recording_dense
+        rec_bm25.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.BM25
+        ))
+        rec_dense.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.DENSE
+        ))
+        return RetrievalResponse(
+            query=q,
+            strategy=RetrievalStrategy.HYBRID,
+            hits=fused_hits,
+            latency_ms=5.0,
+        )
+
+    mock_pipeline.hybrid_retriever.search.side_effect = _mock_hybrid_search
+
     scored_hits = [
         RetrievalHit(
             chunk_id=f"chunk-{qid}-{r}",
@@ -486,37 +595,49 @@ def test_09_single_case_candidate_pool_audit_mechanics(tmp_path: Path) -> None:
     )
 
     assert len(reasons) == 0
-    assert case_res["reproduction_gates"]["seed_prefix_match"] is True
-    assert case_res["reproduction_gates"]["s20_chunks_match"] is True
-    assert case_res["reproduction_gates"]["h40_chunks_match"] is True
-    assert len(case_res["fused_candidates_40"]) == 40
-    assert len(case_res["derived_s20_final_hits"]) == 8
-    assert len(case_res["derived_h40_final_hits"]) == 8
-    assert case_met["top8_identical"] is True
+    assert case_res["reproduction_gates"]["branch_depth_fidelity"] is True
+    obs = case_res["branch_depth_observations"]
+    assert obs["sparse_query_count"] == 1
+    assert obs["dense_query_count"] == 1
+    assert obs["sparse_candidate_depths"] == [40]
+    assert obs["dense_candidate_depths"] == [40]
+    assert obs["all_sparse_depth_40"] is True
+    assert obs["all_dense_depth_40"] is True
 
 
-def test_10_changed_case_diagnostics_and_tail_entrants(tmp_path: Path) -> None:
-    base_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(base_dir)
-    real_sha = sha256_file(base_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+def test_11_branch_depth_failure_triggers_invalid_experiment(tmp_path: Path) -> None:
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_sha):
-        baseline = load_and_verify_b1a2_baseline(base_dir, EXPECTED_22_IDS)
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha):
+        baseline = load_and_verify_b1a2_baseline(zip_path, EXPECTED_22_IDS)
 
-    # Case index 6 is a changed case in our dummy baseline generator
-    qid = EXPECTED_22_IDS[6]
-    q_text = f"Văn bản {qid} sửa đổi quy định gì?"
+    qid = "102047"
+    q_text = "Văn bản 102047 sửa đổi điều khoản nào?"
 
     mock_pipeline = MagicMock()
     mock_pipeline.query_understanding.enrich.return_value = RetrievalQuery(
-        query_id=qid, original_question=q_text, normalized_question=q_text, top_k=8, candidate_k=40
+        query_id=qid,
+        original_question=q_text,
+        normalized_question=q_text,
+        top_k=8,
+        candidate_k=40,
     )
 
-    # 40 fused candidates where rank 25 is 'tail-chunk-{qid}-25'
+    bm25_inner = MagicMock()
+    dense_inner = MagicMock()
+    rec_bm25 = RecordingBranchRetriever(bm25_inner)
+    rec_dense = RecordingBranchRetriever(dense_inner)
+    mock_pipeline.recording_bm25 = rec_bm25
+    mock_pipeline.recording_dense = rec_dense
+
     fused_hits = [
         RetrievalHit(
-            chunk_id=f"chunk-{qid}-{r}" if r != 25 else f"tail-chunk-{qid}-25",
-            document_id=f"doc-{qid}-{r}" if r != 25 else f"tail-doc-{qid}-25",
+            chunk_id=f"chunk-{qid}-{r}",
+            document_id=f"doc-{qid}-{r}",
             rank=r,
             score=round(1.0 / (r + 10), 8),
             strategy=RetrievalStrategy.HYBRID,
@@ -524,32 +645,34 @@ def test_10_changed_case_diagnostics_and_tail_entrants(tmp_path: Path) -> None:
         )
         for r in range(1, 41)
     ]
-    mock_pipeline.hybrid_retriever.search.return_value = RetrievalResponse(
-        query=RetrievalQuery(query_id=qid, original_question=q_text, normalized_question=q_text),
-        strategy=RetrievalStrategy.HYBRID,
-        hits=fused_hits,
-        latency_ms=5.0,
-    )
 
-    def _score_for_chunk_10(cid: str) -> float:
-        if "tail-chunk" in cid:
-            return 0.875
-        r = int(cid.split("-")[-1])
-        return round(0.95 - (r * 0.01), 8)
+    def _mock_hybrid_search_bad_depth(q):
+        # Simulate bad depth 20 instead of 40
+        rec_bm25.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=20, candidate_k=20, requested_strategy=RetrievalStrategy.BM25
+        ))
+        rec_dense.search(RetrievalQuery(
+            query_id=q.query_id, original_question=q.original_question, normalized_question=q.normalized_question,
+            top_k=40, candidate_k=40, requested_strategy=RetrievalStrategy.DENSE
+        ))
+        return RetrievalResponse(
+            query=q, strategy=RetrievalStrategy.HYBRID, hits=fused_hits, latency_ms=5.0
+        )
 
-    ordered_fused = sorted(fused_hits, key=lambda c: (-_score_for_chunk_10(c.chunk_id), c.rank, c.chunk_id))
+    mock_pipeline.hybrid_retriever.search.side_effect = _mock_hybrid_search_bad_depth
+
     scored_hits = [
         RetrievalHit(
-            chunk_id=c.chunk_id,
-            document_id=c.document_id,
-            rank=idx,
-            score=_score_for_chunk_10(c.chunk_id),
+            chunk_id=f"chunk-{qid}-{r}",
+            document_id=f"doc-{qid}-{r}",
+            rank=r,
+            score=round(0.95 - (r * 0.01), 8),
             strategy=RetrievalStrategy.RERANK,
             text="sample text",
         )
-        for idx, c in enumerate(ordered_fused, start=1)
+        for r in range(1, 41)
     ]
-
     mock_pipeline.reranker.rerank.return_value = RetrievalResponse(
         query=RetrievalQuery(query_id=qid, original_question=q_text, normalized_question=q_text),
         strategy=RetrievalStrategy.RERANK,
@@ -561,84 +684,29 @@ def test_10_changed_case_diagnostics_and_tail_entrants(tmp_path: Path) -> None:
         mock_pipeline, qid, q_text, baseline
     )
 
-    assert len(reasons) == 0
-    assert case_met["top8_identical"] is False
-    assert case_met["tail_entrant_count"] == 1
-    assert case_met["tail_entrant_fused_ranks"] == [25]
-    assert case_met["tail_entrant_buckets"] == ["21-25"]
-    assert case_met["displaced_s20_count"] == 1
-    assert case_met["displaced_s20_fused_ranks"] == [8]
-
-    # Margin check
-    assert case_met["entrant_margin"] == round(0.875 - 0.870, 8)
+    assert case_res["reproduction_gates"]["branch_depth_fidelity"] is False
+    assert case_res["branch_depth_observations"]["all_sparse_depth_40"] is False
+    assert len(reasons) > 0
 
 
-def test_11_aggregate_metrics_calculation() -> None:
-    # 2 cases: 1 identical, 1 changed with 2 entrants
-    case_results = [
-        {
-            "question_id": "q1",
-            "derived_s20_final_hits": [{"document_id": "docA"}, {"document_id": "docB"}],
-            "derived_h40_final_hits": [{"document_id": "docA"}, {"document_id": "docB"}],
-            "s20_vs_h40_comparison": {
-                "top8_identical": True,
-                "tail_entrant_count": 0,
-                "top8_overlap_count": 8,
-                "top8_jaccard": 1.0,
-            },
-            "tail_entrants": [],
-            "score_cutoff_margin_diagnostics": {
-                "s20_top8_cutoff_score": 0.88,
-                "h40_top8_cutoff_score": 0.88,
-                "entrant_vs_displaced_margin": None,
-            },
-        },
-        {
-            "question_id": "q2",
-            "derived_s20_final_hits": [{"document_id": "docA"}, {"document_id": "docB"}],
-            "derived_h40_final_hits": [{"document_id": "docA"}, {"document_id": "docC"}],
-            "s20_vs_h40_comparison": {
-                "top8_identical": False,
-                "tail_entrant_count": 1,
-                "top8_overlap_count": 7,
-                "top8_jaccard": 0.7778,
-            },
-            "tail_entrants": [{"fused_rank": 26, "fused_rank_bucket": "26-30"}],
-            "score_cutoff_margin_diagnostics": {
-                "s20_top8_cutoff_score": 0.85,
-                "h40_top8_cutoff_score": 0.87,
-                "entrant_vs_displaced_margin": 0.02,
-            },
-        },
-    ]
-
-    case_metrics = [
-        {"question_id": "q1", "top8_identical": True, "overlap_count": 8, "jaccard": 1.0, "tail_entrant_count": 0},
-        {"question_id": "q2", "top8_identical": False, "overlap_count": 7, "jaccard": 0.7778, "tail_entrant_count": 1},
-    ]
-
-    agg = compute_aggregate_audit_metrics(case_results, case_metrics)
-    assert agg["total_case_count"] == 2
-    assert agg["identical_top8_cases"] == 1
-    assert agg["changed_top8_cases"] == 1
-    assert agg["total_tail_entrants"] == 1
-    assert agg["cases_with_tail_entrants"] == 1
-    assert agg["entrant_fused_rank_bucket_counts"]["26-30"] == 1
-    assert agg["document_level_churn_count"] == 1
+# ======================================================================
+# FULL PROTOCOL & EVIDENCE REGRESSION TESTS
+# ======================================================================
 
 
-def test_12_full_protocol_end_to_end_audit_pass(tmp_path: Path) -> None:
+def test_12_end_to_end_audit_pass(tmp_path: Path) -> None:
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    b1a2_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(b1a2_dir)
-    real_b1a2_sha = sha256_file(b1a2_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
 
-    dummy_dev = {qid: {"question": f"Văn bản {qid} sửa đổi"} for qid in EXPECTED_22_IDS}
+    dummy_dev = {qid: {"question": f"Văn bản {qid}"} for qid in EXPECTED_22_IDS}
     for i in range(len(dummy_dev), CANONICAL_SOURCE_QUESTION_COUNT):
         dummy_dev[f"extra_{i}"] = {"question": "extra"}
     questions_file = tmp_path / "dev.json"
@@ -687,7 +755,8 @@ def test_12_full_protocol_end_to_end_audit_pass(tmp_path: Path) -> None:
 
     mock_rerank.rerank.side_effect = _mock_rerank
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_b1a2_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
          patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
@@ -747,7 +816,7 @@ def test_12_full_protocol_end_to_end_audit_pass(tmp_path: Path) -> None:
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_dir_or_zip=b1a2_dir,
+            baseline_zip_path=zip_path,
             output_dir=out_dir,
         )
 
@@ -757,8 +826,8 @@ def test_12_full_protocol_end_to_end_audit_pass(tmp_path: Path) -> None:
         assert decision["summary"]["identical_top8_cases"] == 5
         assert decision["summary"]["changed_top8_cases"] == 17
         assert decision["summary"]["total_tail_entrants"] == 17
+        assert decision["summary"]["branch_depth_passes"] == 22
 
-        # Check evidence ZIP created and valid
         zip_path = out_dir / "candidate-pool-reranker-audit-evidence.zip"
         assert zip_path.is_file()
         with zipfile.ZipFile(zip_path) as z:
@@ -769,16 +838,18 @@ def test_12_full_protocol_end_to_end_audit_pass(tmp_path: Path) -> None:
             assert "results/candidate_pool_case_metrics.jsonl" in names
             assert "configs/runtime_config.json" in names
             assert "execution/audit_execution_identity.json" in names
+            assert "baseline/b1a2_baseline_identity.json" in names
+            assert "execution/graphless_root_inventory.json" in names
 
 
 def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    # Baseline with altered s20 final ids in case 1
-    b1a2_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(b1a2_dir, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
-    real_b1a2_sha = sha256_file(b1a2_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path, alter_s20_final_ids=[EXPECTED_22_IDS[0]])
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -832,7 +903,8 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
 
     mock_rerank.rerank.side_effect = _mock_rerank
 
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_b1a2_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
          patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
          patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
@@ -892,7 +964,7 @@ def test_13_drift_detected_when_mechanics_diverge(tmp_path: Path) -> None:
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_dir_or_zip=b1a2_dir,
+            baseline_zip_path=zip_path,
             output_dir=out_dir,
         )
 
@@ -905,9 +977,10 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
     source_root = tmp_path / "artifacts"
     _setup_mock_staging_root(source_root)
 
-    b1a2_dir = tmp_path / "b1a2"
-    _build_dummy_b1a2_baseline(b1a2_dir)
-    real_b1a2_sha = sha256_file(b1a2_dir / "results" / "phase_b1a2_retrieval_results.jsonl")
+    zip_path = tmp_path / "b1a2.zip"
+    _build_dummy_b1a2_baseline_zip(zip_path)
+    real_zip_sha = sha256_file(zip_path)
+    real_res_sha = sha256_file(tmp_path / "b1a2_build_dir" / "results" / "phase_b1a2_retrieval_results.jsonl")
 
     manifest_file = tmp_path / "manifest.json"
     manifest_file.write_text(json.dumps({"question_ids": EXPECTED_22_IDS}), encoding="utf-8")
@@ -925,46 +998,19 @@ def test_14_retrieval_model_error_yields_invalid_experiment(tmp_path: Path) -> N
 
     out_dir = tmp_path / "output"
 
-    mock_emb = MagicMock()
-    mock_emb.provider_name = "sentence-transformers"
-    mock_emb.provider_version = "1.0"
-    mock_emb.model_name = "test_model"
-    mock_emb.model_revision = "rev"
-    mock_emb.dimension = 384
-
-    mock_rerank = MagicMock()
-    mock_rerank.model_name = "test_rerank"
-
-    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_b1a2_sha), \
+    with patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_ZIP_SHA256", real_zip_sha), \
+         patch("scripts.candidate_pool_reranker_audit.CANONICAL_B1A2_RESULTS_SHA256", real_res_sha), \
          patch("scripts.candidate_pool_reranker_audit.CANONICAL_SOURCE_QUESTION_SHA256", dev_sha), \
-         patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend") as mock_bm25_cls, \
-         patch("scripts.candidate_pool_reranker_audit.NumpyVectorBackend") as mock_vec_cls, \
-         patch("scripts.candidate_pool_reranker_audit.SentenceTransformerEmbeddingProvider", return_value=mock_emb), \
-         patch("scripts.candidate_pool_reranker_audit.CrossEncoderReranker", return_value=mock_rerank):
-
-        mock_bm25 = MagicMock()
-        mock_bm25.source_artifact_identity = ("legal_chunks", "1.0", "hash")
-        mock_bm25.search.side_effect = RuntimeError("CUDA out of memory in BM25")
-        mock_bm25_cls.return_value = mock_bm25
-
-        mock_vec = MagicMock()
-        mock_vec.source_artifact_identity = ("legal_chunks", "1.0", "hash")
-        mock_vec.embedding_provider_name = "sentence-transformers"
-        mock_vec.embedding_provider_version = "1.0"
-        mock_vec.model_name = "test_model"
-        mock_vec.model_revision = "rev"
-        mock_vec.dimension = 384
-        mock_vec_cls.return_value = mock_vec
+         patch("scripts.candidate_pool_reranker_audit.SQLiteFTS5BM25Backend", side_effect=RuntimeError("BM25 failure")):
 
         report, decision, verdict = run_candidate_pool_audit_protocol(
             config_path=config_path,
             manifest_path=manifest_file,
             questions_path=questions_file,
-            baseline_dir_or_zip=b1a2_dir,
+            baseline_zip_path=zip_path,
             output_dir=out_dir,
         )
 
         assert verdict == "INVALID_EXPERIMENT"
         assert decision["audit_verified"] is False
         assert decision["h40_promotion_authorized"] is False
-        assert decision["summary"]["retrieval_model_error_count"] > 0

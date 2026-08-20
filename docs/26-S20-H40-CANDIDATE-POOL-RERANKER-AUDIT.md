@@ -67,9 +67,10 @@ flowchart TD
 
 ### Protocol Invariants:
 1. **Single Branch Search & Fusion**: Hybrid retrieval is called exactly once with `top_k=40, candidate_k=40`. Both arms share the exact same fused ranking.
-2. **Shared Scoring**: Cross-encoder scoring is executed once on the 40 fused candidates. A candidate's score is identical regardless of whether it is evaluated under S20 or H40.
-3. **Exact Production Tie-Breaking**: Sorting for both candidate pools uses `(-score, fused_rank, chunk_id)`.
-4. **Graphless & Generator-Free**: Online runtime loads exactly 3 serving artifacts (`legal_chunks`, `bm25_index`, `vector_index`). `graph/` and `relationships/` are absent. Qwen and generation are not invoked.
+2. **Real Branch Depth Observations**: `RecordingBranchRetriever` wrappers record every branch query. Every sparse query and dense query must have `top_k=40, candidate_k=40`.
+3. **Shared Scoring**: Cross-encoder scoring is executed once on the 40 fused candidates. A candidate's score is identical regardless of whether it is evaluated under S20 or H40.
+4. **Exact Production Tie-Breaking**: Sorting for both candidate pools uses `(-score, fused_rank, chunk_id)`.
+5. **Graphless & Generator-Free**: Online runtime loads exactly 3 serving artifacts (`legal_chunks`, `bm25_index`, `vector_index`). `graph/` and `relationships/` are absent. Qwen and generation are not invoked.
 
 ---
 
@@ -81,15 +82,17 @@ Execution must pass strict reproduction gates against historical frozen baseline
 |---|---|---|
 | `development.json` (991 questions) | `8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8` | Source questions |
 | `phase-b1a-graph-routing-cases.json` | 22 frozen canonical question IDs | Test case manifest |
-| B1A.2 Evidence ZIP | `1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117` | Baseline evidence |
+| Canonical B1A.2 Baseline ZIP | `1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117` | Mandatory baseline ZIP |
 | B1A.2 Results JSONL | `51ed1d8ba99690973f16ff023300b060d6b03e60d905efe6498325626484e39a` | Frozen baseline results |
 | B1A.2 Execution Commit | `9265f3dadcf1ef0170f0abe618519da1657fc55e` | Execution provenance |
 
 ### Fail-Closed Reproduction Gates:
-1. **Seed Prefix Invariance**: Current `fused40[:20]` chunk sequence must **exactly match** frozen B1A.2 `s20_arm.seed_hits` chunk sequence for all 22 cases.
-2. **S20 Top-8 Reproduction**: Derived S20 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `s20_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
-3. **H40 Top-8 Reproduction**: Derived H40 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `h40_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
-4. **Historical Divergence Reproduction**: Must reproduce exactly 5 identical top-8 cases and 17 changed top-8 cases.
+1. **Mandatory B1A.2 ZIP Check**: ZIP SHA-256, internal results SHA-256, execution commit, and run-summary results SHA-256 are verified before extraction.
+2. **Seed Prefix Invariance**: Current `fused40[:20]` chunk sequence must **exactly match** frozen B1A.2 `s20_arm.seed_hits` chunk sequence for all 22 cases.
+3. **S20 Top-8 Reproduction**: Derived S20 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `s20_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
+4. **H40 Top-8 Reproduction**: Derived H40 final top-8 chunk IDs, document IDs, and scores must match frozen B1A.2 `h40_arm.final_hits` within $|score\_diff| \le 10^{-6}$ for all 22 cases.
+5. **Real Branch-Depth Fidelity**: 22/22 cases must execute branch queries with candidate depth 40 and top-k 40.
+6. **Historical Divergence Reproduction**: Must reproduce exactly 5 identical top-8 cases and 17 changed top-8 cases.
 
 ---
 
@@ -97,15 +100,16 @@ Execution must pass strict reproduction gates against historical frozen baseline
 
 | Verdict | Meaning | Authority / Next Action |
 |---|---|---|
-| **`CANDIDATE_POOL_AUDIT_PASS`** | Protocol executed cleanly, frozen B1A.2 mechanics reproduced (22/22 seed match, 22/22 S20 top-8 match, 22/22 H40 top-8 match, 5 identical / 17 changed), candidate-pool churn characterized. | `"h40_promotion_authorized": false`. H40 remains in Attempt 2. Proceed to Priority B verification audit. |
+| **`CANDIDATE_POOL_AUDIT_PASS`** | Protocol executed cleanly, frozen B1A.2 mechanics reproduced (22/22 seed match, 22/22 S20 top-8 match, 22/22 H40 top-8 match, 22/22 branch depth fidelity, 5 identical / 17 changed), candidate-pool churn characterized. | `"h40_promotion_authorized": false`. H40 remains in Attempt 2. Proceed to Priority B verification audit. |
 | **`CANDIDATE_POOL_DRIFT_DETECTED`** | Execution completed with 0 model errors, but derived S20/H40 hits diverged from frozen baseline expectations. | Protocol halted. Investigate ranking or retrieval drift. |
-| **`INVALID_EXPERIMENT`** | Artifact corruption, SHA mismatch, missing baseline summary, or $\ge 1$ `retrieval:model_error`. | Protocol invalidated. Fix runtime environment. |
+| **`INVALID_EXPERIMENT`** | Artifact corruption, SHA mismatch, missing baseline summary, branch depth violation, or $\ge 1$ `retrieval:model_error`. | Protocol invalidated. Fix runtime environment. |
 
 ---
 
 ## 5. Per-Case and Aggregate Diagnostic Schema
 
 ### Per-Case Diagnostics:
+- `branch_depth_observations`: real count and candidate depths of sparse and dense queries for this case.
 - `fused_candidates_40`: 40 fused items with fused rank, chunk ID, doc ID, RRF score, BM25 rank/contribution, dense rank/contribution.
 - `cross_encoder_scored_candidates_40`: 40 items sorted by cross-encoder score with reranker rank, fused rank, chunk ID, doc ID, score.
 - `derived_s20_final_hits`: Final top-8 hits derived from fused 1..20.
@@ -145,23 +149,20 @@ Deterministic archive contents:
 
 ---
 
-## 7. Kaggle Execution Runbook (Copy-Paste)
+## 7. Kaggle Execution Runbook (Copy-Paste Cells)
+
+### Cell R1-K1 — Environment & Commit Verification
 
 ```bash
-#!/usr/bin/env bash
-# ==============================================================================
-# S20 vs H40 Candidate-Pool / Reranker Mechanics Audit — Stage R1
-# Runbook for Kaggle Environment (GPU x1, Internet ON)
-# ==============================================================================
+%%bash
 set -euo pipefail
 
-# 1. PIN EXECUTION COMMIT (Reviewed commit SHA)
 REVIEWED_COMMIT_SHA="PLACEHOLDER_REVIEWED_COMMIT_SHA"
 
-echo "=== Stage R1 Candidate-Pool Audit Execution ==="
-echo "Target Commit: ${REVIEWED_COMMIT_SHA}"
+echo "=== R1-K1: Environment & Commit Verification ==="
+echo "Target Execution Commit: ${REVIEWED_COMMIT_SHA}"
 
-# 2. CLONE AND CHECKOUT REPOSITORY
+# 1. Clone repository or checkout exact commit
 if [ -d "legal-agentic-rag" ]; then
   cd legal-agentic-rag
   git fetch origin main --prune
@@ -173,28 +174,301 @@ fi
 git checkout "${REVIEWED_COMMIT_SHA}"
 ACTUAL_COMMIT=$(git rev-parse HEAD)
 echo "Checked out commit: ${ACTUAL_COMMIT}"
-test "${ACTUAL_COMMIT}" = "${REVIEWED_COMMIT_SHA}" || { echo "FATAL: Commit SHA mismatch!"; exit 1; }
+test "${ACTUAL_COMMIT}" = "${REVIEWED_COMMIT_SHA}" || { echo "FATAL: Execution SHA mismatch!"; exit 1; }
 
-# 3. ENVIRONMENT & DEPENDENCIES
-pip install -q -e .
-pip install -q pytest sentence-transformers
+# 2. Pin exact reviewed dependency versions
+pip uninstall -y torchao || true
+pip install -q \
+  transformers==4.51.3 \
+  sentence-transformers==5.4.1 \
+  accelerate==1.6.0 \
+  nltk==3.7
 
-# 4. VERIFY TEST SUITE
-python -m pytest tests/unit/evaluation/test_candidate_pool_reranker_audit.py -q
-python -m pytest -q
+# 3. Install repository in editable mode
+pip install -q --no-deps -e .
 
-# 5. EXECUTE AUDIT PROTOCOL
+# 4. Verify environment identity
+python -c '
+import torch, transformers, sentence_transformers, nltk
+import legal_agentic_rag
+
+print("Package version:      ", legal_agentic_rag.__version__)
+assert legal_agentic_rag.__version__ == "0.50.7"
+print("PyTorch version:      ", torch.__version__)
+print("CUDA available:       ", torch.cuda.is_available())
+assert torch.cuda.is_available(), "FATAL: CUDA GPU is required for retrieval audit"
+print("Device name:          ", torch.cuda.get_device_name(0))
+print("Transformers version: ", transformers.__version__)
+print("SentenceTransformers: ", sentence_transformers.__version__)
+print("NLTK version:         ", nltk.__version__)
+'
+echo "=== R1-K1: PASS ==="
+```
+
+---
+
+### Cell R1-K2 — Identity-Based Input Discovery
+
+```python
+import hashlib
+import json
+from pathlib import Path
+
+print("=== R1-K2: Identity-Based Input Discovery ===")
+
+CANONICAL_DEV_SHA = "8678791de5194cbac073732a59541cbba8336aad74ff384410e2025c92bd0bd8"
+CANONICAL_B1A2_ZIP_SHA = "1fcc9150840573023d8ae443324d431635f59b54cd8325aa3324611bc1cb7117"
+EXPECTED_CORPUS_DATASET = "uit-dsc-2026-task2-selected-contexts"
+
+def sha256_file(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+# 1. Discover canonical development.json
+dev_candidates = list(Path("/kaggle/input").rglob("development.json"))
+found_dev = None
+for p in dev_candidates:
+    if sha256_file(p) == CANONICAL_DEV_SHA:
+        found_dev = p
+        break
+
+assert found_dev is not None, f"FATAL: Canonical development.json ({CANONICAL_DEV_SHA}) not found under /kaggle/input"
+print(f"Discovered development.json: {found_dev}")
+
+# 2. Discover canonical B1A.2 evidence ZIP
+zip_candidates = list(Path("/kaggle/input").rglob("*.zip"))
+found_b1a2_zip = None
+for p in zip_candidates:
+    if sha256_file(p) == CANONICAL_B1A2_ZIP_SHA:
+        found_b1a2_zip = p
+        break
+
+assert found_b1a2_zip is not None, f"FATAL: Canonical B1A.2 ZIP ({CANONICAL_B1A2_ZIP_SHA}) not found under /kaggle/input"
+print(f"Discovered B1A.2 evidence ZIP: {found_b1a2_zip}")
+
+# 3. Discover validated serving artifacts root
+serving_roots = []
+for p in Path("/kaggle/input").rglob("legal_chunks/manifest.json"):
+    root = p.parent.parent
+    if (root / "bm25/manifest.json").exists() and (root / "vector/manifest.json").exists():
+        manifest = json.loads(p.read_text(encoding="utf-8"))
+        if manifest.get("dataset_name") == EXPECTED_CORPUS_DATASET:
+            serving_roots.append(root)
+
+assert len(serving_roots) == 1, f"FATAL: Expected exactly 1 serving root, found {len(serving_roots)}: {serving_roots}"
+found_serving_root = serving_roots[0]
+print(f"Discovered serving root: {found_serving_root}")
+
+# Persist discovered paths for subsequent cells
+discovery_info = {
+    "dev_json": str(found_dev),
+    "b1a2_zip": str(found_b1a2_zip),
+    "serving_root": str(found_serving_root),
+}
+Path("/kaggle/working/discovery_info.json").write_text(json.dumps(discovery_info, indent=2))
+print("=== R1-K2: PASS ===")
+```
+
+---
+
+### Cell R1-K3 — Graphless Staging Preparation
+
+```python
+import json
+import os
+from pathlib import Path
+import shutil
+
+print("=== R1-K3: Graphless Staging Preparation ===")
+
+discovery = json.loads(Path("/kaggle/working/discovery_info.json").read_text())
+source_root = Path(discovery["serving_root"])
+staging_root = Path("/kaggle/working/staging_graphless")
+
+if staging_root.exists():
+    shutil.rmtree(staging_root)
+staging_root.mkdir(parents=True, exist_ok=True)
+
+# Copy/link required serving components excluding graph and relationships
+for item in source_root.iterdir():
+    if item.name in ("graph", "relationships"):
+        continue
+    dest = staging_root / item.name
+    try:
+        os.symlink(item.resolve(), dest, target_is_directory=item.is_dir())
+    except (OSError, NotImplementedError):
+        if item.is_dir():
+            shutil.copytree(item, dest, symlinks=True)
+        else:
+            shutil.copy2(item, dest)
+
+# Hard assertions
+assert not (staging_root / "graph").exists(), "FATAL: Staging root contains graph"
+assert not (staging_root / "relationships").exists(), "FATAL: Staging root contains relationships"
+assert (staging_root / "legal_chunks").is_dir(), "FATAL: Missing legal_chunks"
+assert (staging_root / "bm25").is_dir(), "FATAL: Missing bm25"
+assert (staging_root / "vector").is_dir(), "FATAL: Missing vector"
+
+print(f"Graphless staging root prepared at: {staging_root}")
+print("Active components:", [p.name for p in staging_root.iterdir()])
+print("=== R1-K3: PASS ===")
+```
+
+---
+
+### Cell R1-K4 — Runtime Configuration Freeze
+
+```python
+import json
+from pathlib import Path
+
+from legal_agentic_rag.configuration import ApplicationConfig
+
+print("=== R1-K4: Runtime Configuration Freeze ===")
+
+example_config_path = Path("/kaggle/working/legal-agentic-rag/configs/phase-a-current-system-census-kaggle.example.json")
+raw_cfg = json.loads(example_config_path.read_text(encoding="utf-8"))
+
+# Set staging root
+staging_root = "/kaggle/working/staging_graphless"
+raw_cfg["artifacts"]["root_path"] = staging_root
+
+# Set retrieval devices to CUDA
+raw_cfg["online"]["vector_runtime"]["search_device"] = "cuda"
+raw_cfg["offline"]["embedding"]["device"] = "cuda"
+raw_cfg["online"]["reranker"]["device"] = "cuda"
+
+# Enforce retrieval invariants
+raw_cfg["online"]["retrieval"]["top_k"] = 8
+raw_cfg["online"]["retrieval"]["candidate_k"] = 40
+raw_cfg["online"]["query_understanding"]["multi_query_enabled"] = True
+
+# Validate full config schema
+app_config = ApplicationConfig.model_validate(raw_cfg)
+
+runtime_config_path = Path("/kaggle/working/runtime_config_r1.json")
+runtime_config_path.write_text(json.dumps(app_config.model_dump(mode="json"), indent=2), encoding="utf-8")
+
+print(f"Validated and froze runtime config at: {runtime_config_path}")
+print("=== R1-K4: PASS ===")
+```
+
+---
+
+### Cell R1-K5 — Execute Stage R1 Audit
+
+```bash
+%%bash
+set -euo pipefail
+
+echo "=== R1-K5: Execute Stage R1 Audit ==="
+cd /kaggle/working/legal-agentic-rag
+
+DEV_JSON=$(python -c 'import json; print(json.load(open("/kaggle/working/discovery_info.json"))["dev_json"])')
+B1A2_ZIP=$(python -c 'import json; print(json.load(open("/kaggle/working/discovery_info.json"))["b1a2_zip"])')
+
 python scripts/candidate_pool_reranker_audit.py \
-  --config configs/serving_config.json \
+  --config /kaggle/working/runtime_config_r1.json \
   --manifest configs/phase-b1a-graph-routing-cases.json \
-  --questions data/raw/development.json \
-  --baseline-evidence-dir data/evidence/phase-b1a2-graph-equivalence-evidence.zip \
-  --output-dir artifacts/candidate_pool_audit \
-  --staging-root artifacts/serving
+  --questions "${DEV_JSON}" \
+  --baseline-zip "${B1A2_ZIP}" \
+  --output-dir /kaggle/working/artifacts/candidate_pool_audit \
+  --staging-root /kaggle/working/staging_graphless
 
-# 6. VERIFY EVIDENCE PACKAGE
-ls -lh artifacts/candidate_pool_audit/candidate-pool-reranker-audit-evidence.zip
-sha256sum artifacts/candidate_pool_audit/candidate-pool-reranker-audit-evidence.zip
+echo "=== R1-K5: Execution Complete ==="
+```
 
-echo "=== Stage R1 Candidate-Pool Audit Complete ==="
+---
+
+### Cell R1-K6 — Mechanical Verdict Gate
+
+```python
+import json
+from pathlib import Path
+
+print("=== R1-K6: Mechanical Verdict Gate ===")
+
+out_dir = Path("/kaggle/working/artifacts/candidate_pool_audit")
+decision_path = out_dir / "results" / "candidate_pool_decision_report.json"
+report_path = out_dir / "results" / "candidate_pool_audit_report.json"
+
+assert decision_path.is_file(), f"FATAL: Decision report missing at {decision_path}"
+assert report_path.is_file(), f"FATAL: Audit report missing at {report_path}"
+
+decision = json.loads(decision_path.read_text(encoding="utf-8"))
+report = json.loads(report_path.read_text(encoding="utf-8"))
+summary = decision.get("summary", {})
+
+print(f"Verdict:                    {decision.get('verdict')}")
+print(f"Audit Verified:             {decision.get('audit_verified')}")
+print(f"H40 Promotion Authorized:   {decision.get('h40_promotion_authorized')} (MUST BE FALSE)")
+print(f"Total Cases Evaluated:      {summary.get('total_cases')} / 22")
+print(f"Seed Prefix Passes:         {summary.get('seed_prefix_passes')} / 22")
+print(f"S20 Top-8 Passes:           {summary.get('s20_top8_passes')} / 22")
+print(f"H40 Top-8 Passes:           {summary.get('h40_top8_passes')} / 22")
+print(f"Branch Depth Passes:        {summary.get('branch_depth_passes')} / 22")
+print(f"Identical Top-8 Cases:      {summary.get('identical_top8_cases')} (expected 5)")
+print(f"Changed Top-8 Cases:        {summary.get('changed_top8_cases')} (expected 17)")
+print(f"Total Tail Entrants:        {summary.get('total_tail_entrants')}")
+print(f"Document Churn Count:       {summary.get('document_level_churn_count')}")
+print(f"Retrieval Model Errors:     {summary.get('retrieval_model_error_count')}")
+
+# Hard assertions
+assert decision["verdict"] == "CANDIDATE_POOL_AUDIT_PASS", f"FATAL: Verdict was {decision['verdict']}, reasons: {decision.get('reasons')}"
+assert decision["audit_verified"] is True, "FATAL: audit_verified must be True"
+assert decision["h40_promotion_authorized"] is False, "FATAL: h40_promotion_authorized must be False"
+assert summary["total_cases"] == 22, "FATAL: Must evaluate exactly 22 cases"
+assert summary["seed_prefix_passes"] == 22, "FATAL: Seed prefix match failed"
+assert summary["s20_top8_passes"] == 22, "FATAL: S20 top-8 reproduction failed"
+assert summary["h40_top8_passes"] == 22, "FATAL: H40 top-8 reproduction failed"
+assert summary["branch_depth_passes"] == 22, "FATAL: Branch depth fidelity failed"
+assert summary["identical_top8_cases"] == 5, "FATAL: Identical top-8 case count mismatch"
+assert summary["changed_top8_cases"] == 17, "FATAL: Changed top-8 case count mismatch"
+assert summary["retrieval_model_error_count"] == 0, "FATAL: Retrieval model errors occurred"
+
+print("\n>>> MECHANICAL VERDICT: CANDIDATE_POOL_AUDIT_PASS <<<")
+print("=== R1-K6: PASS ===")
+```
+
+---
+
+### Cell R1-K7 — Evidence Package Verification
+
+```python
+import hashlib
+from pathlib import Path
+import zipfile
+
+print("=== R1-K7: Evidence Package Verification ===")
+
+evidence_zip = Path("/kaggle/working/artifacts/candidate_pool_audit/candidate-pool-reranker-audit-evidence.zip")
+assert evidence_zip.is_file(), f"FATAL: Evidence ZIP not found at {evidence_zip}"
+
+# Verify ZIP integrity
+with zipfile.ZipFile(evidence_zip, "r") as z:
+    names = sorted(z.namelist())
+    print(f"Archive contains {len(names)} files:")
+    for n in names:
+        info = z.getinfo(n)
+        print(f"  - {n:50s} ({info.file_size} bytes)")
+
+# Compute SHA-256
+h = hashlib.sha256()
+with evidence_zip.open("rb") as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+        h.update(chunk)
+zip_sha = h.hexdigest()
+zip_size = evidence_zip.stat().st_size
+
+print("\n" + "=" * 60)
+print(f"CANONICAL STAGE R1 EVIDENCE ARCHIVE:")
+print(f"Path:    {evidence_zip}")
+print(f"SHA-256: {zip_sha}")
+print(f"Size:    {zip_size} bytes")
+print("=" * 60)
+print("OPERATOR ACTION: Download candidate-pool-reranker-audit-evidence.zip before terminating Kaggle session.")
+print("=== R1-K7: PASS ===")
 ```
