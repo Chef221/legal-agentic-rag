@@ -69,8 +69,15 @@ def test_router_respects_attempt_limit_and_configured_order() -> None:
     assert routes[0].strategy == RetrievalStrategy.GRAPH
 
 
-def test_router_prioritizes_graph_for_relationship_queries() -> None:
-    """An explicit amendment/effect query starts with bounded graph retrieval."""
+def test_router_routes_relationship_queries_graphless_to_hybrid_rerank_and_fallbacks() -> None:
+    """Relationship queries route to hybrid-rerank, hybrid, and bm25 without graph."""
+    config = AgentConfig(
+        strategy_order=[
+            RetrievalStrategy.HYBRID_RERANK,
+            RetrievalStrategy.HYBRID,
+            RetrievalStrategy.BM25,
+        ]
+    )
     query = _query().model_copy(
         update={
             "query_analysis": QueryAnalysis(
@@ -80,8 +87,29 @@ def test_router_prioritizes_graph_for_relationship_queries() -> None:
         }
     )
 
-    routes = DeterministicStrategyRouter().plan(
+    routes = DeterministicStrategyRouter(config).plan(
         query,
+        {
+            ToolName.GRAPH_SEARCH,
+            ToolName.RERANK_SEARCH,
+            ToolName.HYBRID_SEARCH,
+            ToolName.BM25_SEARCH,
+        },
+    )
+
+    assert [route.strategy for route in routes] == [
+        RetrievalStrategy.HYBRID_RERANK,
+        RetrievalStrategy.HYBRID,
+        RetrievalStrategy.BM25,
+    ]
+    # Prove GRAPH_SEARCH is not selected merely because intent is RELATIONSHIP
+    assert all(route.tool_name != ToolName.GRAPH_SEARCH for route in routes)
+
+
+def test_router_honors_explicitly_requested_graph_strategy() -> None:
+    """Explicitly requested graph strategy remains respected when configured."""
+    routes = DeterministicStrategyRouter().plan(
+        _query(RetrievalStrategy.GRAPH),
         {
             ToolName.GRAPH_SEARCH,
             ToolName.RERANK_SEARCH,

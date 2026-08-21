@@ -2370,3 +2370,33 @@ the remaining answer-only-SFT versus evidence-marker runtime mismatch. Because t
 deterministic top-evidence fallback materially contributed to the measured score,
 future work must preserve M49.1 as a control and cannot remove fallback based only
 on warning counts.
+
+---
+
+## D097 — Phase T4-PROD-A: M49.1 Graphless Relationship Routing and Narrow20 Candidate Pool Preservation
+
+**Status:** Accepted (Evidence ZIP SHA-256 1abdea95697ce5273da9c6b7ac8553bccc41589b9149253783131f86f1694731)
+
+**Context & Experimental Evidence:**
+On the frozen Kaggle T4 Dev-200 benchmark (200 questions), 7 queries (3.5%: QIDs 89271, 54485, 91585, 60811, 47573, 98963, 75965) are deterministically classified as QueryIntent.RELATIONSHIP.
+
+A plain graphless candidate using standard candidate_k=40 failed on QID 75965 (ROUGE dropped from 0.6831 to 0.2147, METEOR dropped from 0.4518 to 0.0860). Causal ablation showed that removing graph traversal while preserving a 20-candidate pool for relationship queries (graphless narrow20) restores exact baseline performance on QID 75965 and across all 7 relationship queries:
+- 7 / 7 exact final answers;
+- 7 / 7 exact warning profiles;
+- 0 ROUGE regressions, 0 METEOR regressions;
+- Aggregate ROUGE delta: 0.0, aggregate METEOR delta: 0.0.
+
+**Decision & Production Behavior:**
+1. **Adaptive Serving Route for QueryIntent.RELATIONSHIP:**
+   - The adaptive route begins with HYBRID_RERANK followed by HYBRID (then configured fallbacks such as BM25).
+   - GRAPH traversal is removed from the adaptive serving route for relationship queries.
+2. **Typed Candidate Pool Narrowing:**
+   - Added
+elationship_candidate_k: int | None = Field(default=None, gt=0, le=100) to RerankerConfig.
+   - For QueryIntent.RELATIONSHIP queries, when
+elationship_candidate_k is configured, RerankingRetriever requests min(query.candidate_k, relationship_candidate_k) candidates (20 in M49.1) from the underlying candidate retriever, while preserving final 	op_k (10) and unmutated query.candidate_k (40).
+   - Non-relationship queries and configs with
+elationship_candidate_k = None retain their normal candidate pool (40).
+3. **Graph Infrastructure Retention:**
+   - Graph infrastructure, types, enums, tool definitions, and artifact handling are NOT deleted in this phase; cleanup is deferred to Phase T4-PROD-B.
+   - The conclusion of graph removability is strictly limited to the tested M49.1 frozen Dev-200 adaptive relationship serving population.

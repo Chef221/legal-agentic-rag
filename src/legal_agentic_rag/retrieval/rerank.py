@@ -13,6 +13,7 @@ from legal_agentic_rag.retrieval.rerank_validation import (
     validate_reranked_response,
 )
 from legal_agentic_rag.schemas.retrieval import (
+    QueryIntent,
     RetrievalQuery,
     RetrievalResponse,
     RetrievalStrategy,
@@ -56,9 +57,23 @@ class RerankingRetriever:
         if query.candidate_k > self._config.max_candidates:
             raise RetrievalError("Query candidate-k exceeds the reranker limit")
         started = perf_counter()
+        candidate_top_k = query.candidate_k
+        if (
+            query.query_analysis is not None
+            and query.query_analysis.intent == QueryIntent.RELATIONSHIP
+            and self._config.relationship_candidate_k is not None
+        ):
+            candidate_top_k = min(
+                candidate_top_k,
+                self._config.relationship_candidate_k,
+            )
+        if candidate_top_k < query.top_k:
+            raise RetrievalError(
+                "Effective reranking candidate pool cannot be smaller than top_k"
+            )
         candidate_query = query.model_copy(
             update={
-                "top_k": query.candidate_k,
+                "top_k": candidate_top_k,
                 "requested_strategy": RetrievalStrategy.HYBRID,
             }
         )
@@ -66,7 +81,7 @@ class RerankingRetriever:
         if (
             candidate_response.strategy != RetrievalStrategy.HYBRID
             or candidate_response.query.query_id != query.query_id
-            or len(candidate_response.hits) > query.candidate_k
+            or len(candidate_response.hits) > candidate_top_k
         ):
             raise RetrievalError("Candidate retriever returned an incompatible response")
         rerank_query = query.model_copy(

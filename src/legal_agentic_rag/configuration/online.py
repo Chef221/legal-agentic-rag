@@ -260,6 +260,7 @@ class RerankerConfig(BaseModel):
     batch_size: int = Field(default=8, gt=0, le=128)
     max_length: int = Field(default=512, gt=0, le=8192)
     max_candidates: int = Field(default=100, gt=0, le=100)
+    relationship_candidate_k: int | None = Field(default=None, gt=0, le=100)
     local_files_only: bool = False
     input_mode: Literal["text_only", "legal_context"] = "legal_context"
     prompt_name: str | None = Field(default=None, min_length=1)
@@ -271,6 +272,13 @@ class RerankerConfig(BaseModel):
         if (self.prompt_name is None) != (self.instruction is None):
             raise ValueError(
                 "reranker prompt_name and instruction must be set together"
+            )
+        if (
+            self.relationship_candidate_k is not None
+            and self.relationship_candidate_k > self.max_candidates
+        ):
+            raise ValueError(
+                "relationship_candidate_k cannot exceed max_candidates"
             )
         if (
             self.device.casefold().startswith("cpu")

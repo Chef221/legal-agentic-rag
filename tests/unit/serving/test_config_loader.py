@@ -95,6 +95,10 @@ def test_m491_configuration_aligns_output_and_repetition_controls() -> None:
     assert config.online.generation.prompt_schema_mode == "plain_text_markers"
     assert config.online.generation.repetition_penalty == 1.08
     assert config.online.generation.no_repeat_ngram_size == 8
+    assert config.online.reranker.relationship_candidate_k == 20
+    assert config.online.reranker.max_candidates == 40
+    assert config.online.retrieval.candidate_k == 40
+    assert config.online.retrieval.top_k == 10
 
 
 def test_config_loader_wraps_invalid_json_without_leaking_details(

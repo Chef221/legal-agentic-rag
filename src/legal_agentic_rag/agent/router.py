@@ -84,7 +84,6 @@ class DeterministicStrategyRouter:
             return self._config.strategy_order
         if analysis.intent == QueryIntent.RELATIONSHIP:
             adaptive = [
-                RetrievalStrategy.GRAPH,
                 RetrievalStrategy.HYBRID_RERANK,
                 RetrievalStrategy.HYBRID,
             ]

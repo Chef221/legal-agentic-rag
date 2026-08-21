@@ -68,6 +68,7 @@
       "batch_size": 4,
       "max_length": 2048,
       "max_candidates": 40,
+      "relationship_candidate_k": 20,
       "local_files_only": false,
       "input_mode": "legal_context",
       "prompt_name": "vietnamese_legal_retrieval",

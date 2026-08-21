@@ -320,6 +320,7 @@ def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:
     assert config.batch_size == 8
     assert config.max_length == 512
     assert config.max_candidates == 100
+    assert config.relationship_candidate_k is None
     assert config.input_mode == "legal_context"
     with pytest.raises(ValidationError):
         RerankerConfig(input_mode="unknown")
@@ -336,6 +337,20 @@ def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:
         RerankerConfig(prompt_name="legal")
     with pytest.raises(ValidationError, match="requires float32"):
         RerankerConfig(torch_dtype="float16")
+    assert (
+        RerankerConfig(
+            max_candidates=40, relationship_candidate_k=20
+        ).relationship_candidate_k
+        == 20
+    )
+    with pytest.raises(ValidationError, match="cannot exceed max_candidates"):
+        RerankerConfig(max_candidates=40, relationship_candidate_k=50)
+    with pytest.raises(ValidationError):
+        RerankerConfig(relationship_candidate_k=0)
+    with pytest.raises(ValidationError):
+        RerankerConfig(relationship_candidate_k=-1)
+    with pytest.raises(ValidationError):
+        RerankerConfig(relationship_candidate_k=101)
 
 
 def test_chunking_config_validates_token_relationships() -> None:

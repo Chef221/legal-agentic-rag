@@ -9,6 +9,8 @@ from legal_agentic_rag.configuration import RerankerConfig
 from legal_agentic_rag.exceptions import RetrievalError
 from legal_agentic_rag.retrieval import RerankingRetriever
 from legal_agentic_rag.schemas import (
+    QueryAnalysis,
+    QueryIntent,
     RetrievalHit,
     RetrievalQuery,
     RetrievalResponse,
@@ -214,3 +216,160 @@ def test_reranking_service_rejects_changed_retrieval_provenance() -> None:
         RerankingRetriever(
             _CandidateRetriever(candidates), _BadReranker()
         ).search(_query())
+
+def test_reranking_service_narrows_candidate_pool_for_relationship_query() -> None:
+    """Relationship queries with relationship_candidate_k narrow candidate retrieval to 20."""
+    candidates = [_hit(f"chunk-{i}", i, RetrievalStrategy.HYBRID) for i in range(1, 21)]
+    base = _CandidateRetriever(candidates)
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=20)
+
+    query = RetrievalQuery(
+        query_id="rel-query",
+        original_question="Nghị định này sửa đổi văn bản nào?",
+        normalized_question="nghị định sửa đổi văn bản",
+        top_k=10,
+        candidate_k=40,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.RELATIONSHIP,
+            relationship_cues=["sửa đổi"],
+        ),
+    )
+
+    response = RerankingRetriever(base, reranker, config).search(query)
+
+    assert base.calls[0].requested_strategy == RetrievalStrategy.HYBRID
+    assert base.calls[0].top_k == 20
+    assert base.calls[0].candidate_k == 40
+    assert query.candidate_k == 40
+    assert reranker.calls[0][0].top_k == 10
+    assert response.strategy == RetrievalStrategy.HYBRID_RERANK
+    assert len(response.hits) == 10
+
+
+def test_reranking_service_preserves_candidate_pool_for_non_relationship_query() -> None:
+    """Non-relationship queries retain configured candidate_k (40)."""
+    candidates = [_hit(f"chunk-{i}", i, RetrievalStrategy.HYBRID) for i in range(1, 41)]
+    base = _CandidateRetriever(candidates)
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=20)
+
+    query = RetrievalQuery(
+        query_id="general-query",
+        original_question="Quy định về thuế là gì?",
+        normalized_question="quy định thuế",
+        top_k=10,
+        candidate_k=40,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.GENERAL,
+        ),
+    )
+
+    RerankingRetriever(base, reranker, config).search(query)
+
+    assert base.calls[0].requested_strategy == RetrievalStrategy.HYBRID
+    assert base.calls[0].top_k == 40
+
+
+def test_reranking_service_preserves_candidate_pool_when_relationship_candidate_k_is_none() -> None:
+    """When relationship_candidate_k is None, relationship queries retain candidate_k (40)."""
+    candidates = [_hit(f"chunk-{i}", i, RetrievalStrategy.HYBRID) for i in range(1, 41)]
+    base = _CandidateRetriever(candidates)
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=None)
+
+    query = RetrievalQuery(
+        query_id="rel-query-default",
+        original_question="Nghị định sửa đổi văn bản nào?",
+        normalized_question="nghị định sửa đổi văn bản",
+        top_k=10,
+        candidate_k=40,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.RELATIONSHIP,
+            relationship_cues=["sửa đổi"],
+        ),
+    )
+
+    RerankingRetriever(base, reranker, config).search(query)
+
+    assert base.calls[0].requested_strategy == RetrievalStrategy.HYBRID
+    assert base.calls[0].top_k == 40
+
+
+def test_reranking_service_respects_lower_candidate_k_than_relationship_candidate_k() -> None:
+    """When query.candidate_k is less than relationship_candidate_k, use min (candidate_k)."""
+    candidates = [_hit(f"chunk-{i}", i, RetrievalStrategy.HYBRID) for i in range(1, 16)]
+    base = _CandidateRetriever(candidates)
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=20)
+
+    query = RetrievalQuery(
+        query_id="rel-query-narrow",
+        original_question="Nghị định sửa đổi văn bản nào?",
+        normalized_question="nghị định sửa đổi văn bản",
+        top_k=5,
+        candidate_k=15,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.RELATIONSHIP,
+            relationship_cues=["sửa đổi"],
+        ),
+    )
+
+    RerankingRetriever(base, reranker, config).search(query)
+
+    assert base.calls[0].top_k == 15
+
+
+def test_reranking_service_rejects_candidate_response_exceeding_effective_candidate_top_k() -> None:
+    """Candidate response with more hits than requested candidate_top_k is rejected."""
+    candidates = [_hit(f"chunk-{i}", i, RetrievalStrategy.HYBRID) for i in range(1, 22)]
+    base = _CandidateRetriever(candidates)
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=20)
+
+    query = RetrievalQuery(
+        query_id="rel-query-overflow",
+        original_question="Nghị định sửa đổi văn bản nào?",
+        normalized_question="nghị định sửa đổi văn bản",
+        top_k=10,
+        candidate_k=40,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.RELATIONSHIP,
+            relationship_cues=["sửa đổi"],
+        ),
+    )
+
+    with pytest.raises(RetrievalError, match="incompatible"):
+        RerankingRetriever(base, reranker, config).search(query)
+
+def test_reranking_service_rejects_relationship_candidate_pool_smaller_than_top_k() -> None:
+    """When effective candidate_top_k is smaller than requested top_k, fail fast before candidate retrieval."""
+    base = _CandidateRetriever([])
+    reranker = _FixtureReranker()
+    config = RerankerConfig(max_candidates=40, relationship_candidate_k=5)
+
+    query = RetrievalQuery(
+        query_id="rel-query-insufficient",
+        original_question="Nghị định sửa đổi văn bản nào?",
+        normalized_question="nghị định sửa đổi văn bản",
+        top_k=10,
+        candidate_k=40,
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        query_analysis=QueryAnalysis(
+            intent=QueryIntent.RELATIONSHIP,
+            relationship_cues=["sửa đổi"],
+        ),
+    )
+
+    with pytest.raises(
+        RetrievalError,
+        match="Effective reranking candidate pool cannot be smaller than top_k",
+    ):
+        RerankingRetriever(base, reranker, config).search(query)
+
+    assert base.calls == []
