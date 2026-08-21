@@ -2418,3 +2418,22 @@ Following Phase T4-PROD-A (`D097`), which verified that M49.1 adaptive relations
 4. **Backward Compatibility:**
    - Historical and default configurations (`graph_runtime_enabled = True`) retain full five-tool registration and functional `RetrievalStrategy.GRAPH` routing.
    - Schemas (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `ArtifactType.GRAPH_INDEX`) and offline graph builders remain completely intact.
+
+---
+
+## D099 — Phase T4-PROD-B2: Optional Online Graph Artifact Loading for Graph-Disabled Runtime
+
+**Status:** Accepted
+
+**Context & Rationale:**
+Following Phase T4-PROD-B1 (`D098`), which decoupled online graph execution wiring via `RetrievalConfig.graph_runtime_enabled`, Phase T4-PROD-B2 makes the graph artifact directory (`artifacts/graph`) completely optional during online startup when `graph_runtime_enabled = False`.
+
+**Production Behavior & Boundary:**
+1. **Conditional Manifest and Backend Loading:**
+   - In `OnlineRuntimeFactory`, when `graph_runtime_enabled` is `False`, the runtime skips reading `graph/manifest.json`, skips graph startup report validation, skips graph-to-chunk document lineage checking, skips `AdjacencyGraphBackend` initialization/loading, and excludes `ArtifactType.GRAPH_INDEX` from `OnlineRuntime.manifests`.
+   - When `graph_runtime_enabled` is `True`, all historical startup requirements (manifest validation, lineage verification, report validation, `AdjacencyGraphBackend` loading) remain strictly enforced.
+2. **Artifact Package Compatibility (M45):**
+   - No M45 artifact rebuild is required. Existing M45 packages containing `artifacts/graph` remain 100% compatible and valid for both graph-disabled (where graph is ignored) and graph-enabled runtimes.
+   - Lean deployment packages omitting `artifacts/graph` are now fully supported for M49.1 graph-disabled serving.
+3. **Preservation of Core Contracts and Builders:**
+   - Graph schemas (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `ArtifactType.GRAPH_INDEX`), `startup_validation._REQUIRED_CHECKS`, and offline graph builders (`AdjacencyGraphBackend.build`) remain completely intact.

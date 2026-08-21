@@ -195,6 +195,7 @@ class OnlineRuntimeFactory:
                 )
             },
         )
+        graph_enabled = self._config.online.retrieval.graph_runtime_enabled
         chunk_manifest = load_artifact_manifest(
             self._directory("legal_chunks_directory"),
             expected_type=ArtifactType.LEGAL_CHUNKS,
@@ -208,9 +209,13 @@ class OnlineRuntimeFactory:
             self._directory("vector_directory"),
             expected_type=ArtifactType.VECTOR_INDEX,
         )
-        graph_manifest = load_artifact_manifest(
-            self._directory("graph_directory"),
-            expected_type=ArtifactType.GRAPH_INDEX,
+        graph_manifest = (
+            load_artifact_manifest(
+                self._directory("graph_directory"),
+                expected_type=ArtifactType.GRAPH_INDEX,
+            )
+            if graph_enabled
+            else None
         )
         self._validate_manifests(
             chunk_manifest,
@@ -218,16 +223,16 @@ class OnlineRuntimeFactory:
             vector_manifest,
             graph_manifest,
         )
+        active_manifests = (
+            (chunk_manifest, bm25_manifest, vector_manifest, graph_manifest)
+            if graph_manifest is not None
+            else (chunk_manifest, bm25_manifest, vector_manifest)
+        )
         if not deep_validation:
             validate_startup_report(
                 self._config.artifacts.root_path
                 / self._config.build_validation.report_filename,
-                (
-                    chunk_manifest,
-                    bm25_manifest,
-                    vector_manifest,
-                    graph_manifest,
-                ),
+                active_manifests,
             )
         _LOGGER.info(
             "online_artifact_manifest_validation_completed",
@@ -266,17 +271,20 @@ class OnlineRuntimeFactory:
             "online_vector_load_completed",
             extra={"latency_ms": (perf_counter() - vector_started) * 1000},
         )
-        graph_started = perf_counter()
-        _LOGGER.info("online_graph_load_started")
-        graph = AdjacencyGraphBackend(
-            self._config.offline.graph_index,
-            verify_integrity_on_load=deep_validation,
-        )
-        graph.load(self._directory("graph_directory"), graph_manifest)
-        _LOGGER.info(
-            "online_graph_load_completed",
-            extra={"latency_ms": (perf_counter() - graph_started) * 1000},
-        )
+        graph: AdjacencyGraphBackend | None = None
+        if graph_enabled:
+            assert graph_manifest is not None
+            graph_started = perf_counter()
+            _LOGGER.info("online_graph_load_started")
+            graph = AdjacencyGraphBackend(
+                self._config.offline.graph_index,
+                verify_integrity_on_load=deep_validation,
+            )
+            graph.load(self._directory("graph_directory"), graph_manifest)
+            _LOGGER.info(
+                "online_graph_load_completed",
+                extra={"latency_ms": (perf_counter() - graph_started) * 1000},
+            )
 
         dense = DenseRetriever(self._embedding_provider, vector)
         query_understanding = QueryUnderstandingService(
@@ -331,12 +339,7 @@ class OnlineRuntimeFactory:
         )
         manifests = {
             manifest.artifact_type.value: manifest
-            for manifest in (
-                chunk_manifest,
-                bm25_manifest,
-                vector_manifest,
-                graph_manifest,
-            )
+            for manifest in active_manifests
         }
         _LOGGER.info(
             "online_runtime_initialized",
@@ -382,10 +385,15 @@ class OnlineRuntimeFactory:
         chunks: ArtifactManifest,
         bm25: ArtifactManifest,
         vector: ArtifactManifest,
-        graph: ArtifactManifest,
+        graph: ArtifactManifest | None = None,
     ) -> None:
+        active_manifests = (
+            (chunks, bm25, vector, graph)
+            if graph is not None
+            else (chunks, bm25, vector)
+        )
         validate_competition_artifact_lineage(
-            (chunks, bm25, vector, graph),
+            active_manifests,
             self._config.competition,
         )
         expected_source = (
@@ -403,19 +411,20 @@ class OnlineRuntimeFactory:
                 raise ArtifactCompatibilityError(
                     "Text index does not originate from runtime legal chunks"
                 )
-        normalized_hash = chunks.metadata.get(
-            "runtime_normalized_processing_config_hash"
-        )
-        if (
-            not isinstance(normalized_hash, str)
-            or graph.metadata.get(
-                "source_document_processing_config_hash"
+        if graph is not None:
+            normalized_hash = chunks.metadata.get(
+                "runtime_normalized_processing_config_hash"
             )
-            != normalized_hash
-        ):
-            raise ArtifactCompatibilityError(
-                "Graph and legal chunks do not share normalized-document lineage"
-            )
+            if (
+                not isinstance(normalized_hash, str)
+                or graph.metadata.get(
+                    "source_document_processing_config_hash"
+                )
+                != normalized_hash
+            ):
+                raise ArtifactCompatibilityError(
+                    "Graph and legal chunks do not share normalized-document lineage"
+                )
 
     def _directory(self, field_name: str) -> Path:
         return self._config.artifacts.directory(field_name)
