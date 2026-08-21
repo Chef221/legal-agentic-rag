@@ -446,19 +446,33 @@ The immediate next action is:
      - Forensic failure analysis completed in `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`: classified 5 False Accepts (3x `ACTOR_ROLE_MISMATCH`, 1x `CONDITION_EXCEPTION_OMITTED`, 1x `ACTION_OBJECT_MISMATCH`/`QUANTITY_TEMPORAL_MISMATCH`), 1 False Reject (`SYNTAX_FRAGMENT_STRICTNESS`), and 2 True Negatives.
      - Root-cause ranking: #1 Lack of explicit legal dimension decomposition, #2 Lexical entailment bias, #3 Context-blind fragment evaluation.
      - Recommended V3 architecture: Option C (Structured Dimension Decomposition with 3 boolean predicates and deterministic aggregation).
-     - Strategic ROI recommendation: Shift primary engineering focus to Generation Grounding & Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth tuning.
-   - **Task GENERATION G1 — MATERIAL-FIDELITY GROUNDING (D128, M52.1)**:
-     - Implemented candidate grounding profile `material_fidelity_v1` in `ModelBackedAnswerGenerator` (`src/legal_agentic_rag/generation/model_generator.py`) alongside default `baseline`.
-     - Added Vietnamese prompt instructions enforcing: Actor/Role preservation, Action/Object preservation, Conditions/Exceptions preservation, Legal Scope preservation, Numeric/Temporal verbatim copying, Full Material Coverage, and List/Noun-phrase acceptance.
-     - Preserved strict invariants: `grounding_profile="baseline"` remains production default, `ModelAnswerDraft` schema strictly preserved, call count parity preserved (1 provider call).
-     - Created `scripts/evaluate_generation_grounding_g1.py` executing Baseline vs G1 A/B experiment across the 16 burned diagnostic review packets with content-safe telemetry and blinded pairwise worksheet generation (`results/generation_g1_human_review_worksheet.md`).
-     - Pre-registered development success criteria (Criteria A–F: 0 errors, $\ge 4/5$ known material errors fixed, $\ge 9/10$ valid answers preserved, $\Delta_{\text{abstain}} \le 15\%$, 0 schema regressions, call parity).
-     - Published specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md`.
+     - Strategic ROI recommendation: Shift primary engineering focus to Generation Grounding & Prompt Optimization (Task 2 metric leverage) and     - **Task GENERATION G1 — MATERIAL-FIDELITY GROUNDING (D128, M52.1)**:
+      - Implemented candidate grounding profile `material_fidelity_v1` in `ModelBackedAnswerGenerator` (`src/legal_agentic_rag/generation/model_generator.py`) alongside default `baseline`.
+      - Added Vietnamese prompt instructions enforcing: Actor/Role preservation, Action/Object preservation, Conditions/Exceptions preservation, Legal Scope preservation, Numeric/Temporal verbatim copying, Full Material Coverage, and List/Noun-phrase acceptance.
+      - Preserved strict invariants: `grounding_profile="baseline"` remains production default, `ModelAnswerDraft` schema strictly preserved, call count parity preserved (1 provider call).
+      - Created `scripts/evaluate_generation_grounding_g1.py` executing Baseline vs G1 A/B experiment across the 16 burned diagnostic review packets with content-safe telemetry and blinded pairwise worksheet generation (`results/generation_g1_human_review_worksheet.md`).
+      - Pre-registered development success criteria (Criteria A–F: 0 errors, $\ge 4/5$ known material errors fixed, $\ge 9/10$ valid answers preserved, $\Delta_{\text{abstain}} \le 15\%$, 0 schema regressions, call parity).
+      - Published specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md`.
+
+    - **Task PHASE D0 — DEEP OFFICIAL DATA CENSUS & RETRIEVAL UNIT AUDIT (D129, M52.2)**:
+      - Implemented `scripts/audit_official_data_d0.py` and unit tests `tests/unit/evaluation/test_audit_official_data_d0.py`.
+      - Audited source identities (`train.json`, `public-official.json`, `selected-contexts.zip` with 8,532 context files at `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`).
+      - Completed raw corpus census: 8,512 non-empty docs, 20 empty docs, 7,407 with title, 1,125 without title, 4 exact duplicate clusters (9 records).
+      - Audited legal parser coverage: 86.13% of documents contain explicit `Điều` markers with 100% parser agreement; 1,200 documents have zero structure (20 empty + 1,180 unstructured notices).
+      - Audited 330,768 serving chunks: 39.53% `article`, 32.65% `token_fallback`, 24.53% `clause_group`, 3.29% `standalone_block`.
+      - Audited boundary risks: 2,056 adjacent chunk boundary risks identified (971 cross-reference splits, 649 list splits, 436 condition truncations).
+      - Audited search text headers: all 108,009 `token_fallback` chunks (32.65% of corpus) have empty header context in `search_text`.
+      - Audited metadata coverage: 0% of chunks currently have `document_number`, `document_type`, or `effect_status` extracted from passage text/slugs.
+      - Audited 7,000 train QA records: 91.37% cite explicit legal anchors; discovered 1,333 unambiguous question-to-document links (19.04%) and 639 article links (9.13%) establishing a gold diagnostic retrieval benchmark without violating competition rules.
+      - Evaluated SQLite BM25 retrieval proxy performance on unambiguous links: Recall@1 = 48.0%, Recall@5 = 71.5%, Recall@10 = 79.5%, Recall@20 = 86.0%.
+      - Archived evidence into `data-d0-official-data-audit-evidence.zip` (SHA-256 `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f`, 40,549 bytes).
+      - Published comprehensive audit report in `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md`.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase D0 Official Dataset Census and Retrieval Unit Audit?** Resolved: Built `scripts/audit_official_data_d0.py` and executed full-corpus deep audit across 8,532 raw contexts, 330,768 serving chunks, and 7,000 train QA records. Identified 32.65% token fallback chunking with empty headers, 2,056 boundary risk pairs, 0% extracted metadata coverage, and 1,333 unambiguous gold train QA links achieving 86.0% BM25 Recall@20. Published report in `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md` and packaged evidence into `data-d0-official-data-audit-evidence.zip` (D129, M52.2).
 - **What happened in Generation Grounding G1 Development?** Resolved: Implemented candidate `material_fidelity_v1` in `ModelBackedAnswerGenerator`, added `GenerationConfig.grounding_profile`, created A/B evaluation harness `scripts/evaluate_generation_grounding_g1.py` for burned 16-question diagnostic review set, implemented deterministic pairwise blinding (`results/generation_g1_human_review_worksheet.md`), pre-registered success criteria (Criteria A–F), added 20 unit tests across generator and evaluator, and documented specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md` (D128, M52.1).
 - **What happened in Phase H-EXEC Holdout Evaluation and Closure?** Resolved: Executed canonical one-shot Phase H-EXEC evaluation on Kaggle GPU on commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8` (`verification-v2-d3-holdout-evidence.zip` SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`). Final verdict: `V2_D3_HOLDOUT_EXECUTION_FAILURE`, decision: `REJECT_V2_D3_PROMOTION`. Supported retention passed at 95.65% (22/23), valid answer retention passed at 80.0% (8/10), full answer accuracy passed at 62.5% (10/16), claim binary accuracy passed at 80.0% (24/30). Negative catch rate failed significantly at 28.57% (2/7 vs 50.0% gate). 61/62 provider calls succeeded, with 1 cold-start failure on Call 1 (`103383:PRIMARY:C1`). V2-D3 permanently closed, production verifier remains disabled, NO D3.3, 31 holdout claims burned as diagnostic data. Postmortem failure analysis published in `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`. Recommended next architecture: Option C (Structured Dimension Decomposition). (D127, M51.13).
 - **What happened in Phase H-EXEC Attempt 0 and Harness Correction?** Resolved: Canonical H-EXEC Attempt 0 on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699` encountered a mechanical pre-inference harness defect during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`). Synchronous failure occurred before provider construction, weight loading, or Pass 1 start (0 provider calls, 0 D3 predictions, 0 holdout metrics produced). Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` with zero scientific holdout consumption. Repaired `scripts/evaluate_verification_v2_d3_holdout.py` to construct `TransformersChatProvider` via `SemanticVerificationConfig.as_generation_config()`. Added model-free constructor smoke verification to `--preflight-only` and unit regression tests with runtime loading guards. Candidate V2-D3, prompt, schema, frozen labels, commitment, and rate gates remain 100% immutable. Authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle session (D126, M51.12).
@@ -512,11 +526,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (G1 Material-Fidelity Grounding Implemented; Production Generator Default Remains Baseline; D128 Accepted; M52.1 Completed; Blinded A/B Development Harness Ready)
+    0.50.7 (G1 Grounding Implemented; D0 Official Census & Boundary Audit Completed; D128 & D129 Accepted; M52.1 & M52.2 Completed)
 
 Active development frontier:
-    Generation Grounding G1 Development A/B Evaluation / Diagnostic Verification
+    Phase D1 — Hierarchical Legal Chunking, Parent Context Preservation & Metadata Enrichment / Generation G1 Kaggle A/B Evaluation
 
 Next action:
-    External review of G1 candidate implementation before executing canonical one-run development A/B evaluation on Kaggle GPU.
+    External review of G1 candidate implementation and D0 census findings before executing canonical development runs.
 ```

@@ -3125,3 +3125,35 @@ Following the forensic failure analysis of V2-D3 (D127), the repository shifted 
    - Criterion D: G1 abstention rate does not exceed baseline by $> 15\%$.
    - Criterion E: 0 schema regressions.
    - Criterion F: Provider call parity.
+
+---
+
+## D129 — Phase D0 Official Dataset Census, Chunking Unit Boundary Audit, and Development Governance Contract
+
+**Status:** Accepted (Evidence: `C:\Users\Nguyen\Downloads\data-d0-official-data-audit-evidence.zip` SHA-256 `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f`, Size `40,549` bytes, Report: `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md`)
+
+**Context:**
+Before investing in large-scale offline chunking or dense embedding overhauls, Phase D0 conducted a comprehensive, empirical census of the official dataset (`selected-contexts.zip`, `train.json`, `public-official.json`) and the current serving artifacts (`artifacts/uit-dsc-2026-task2-v0400`).
+
+**Decisions & Invariants:**
+1. **Official Data Census Authority**:
+   - Raw Contexts: 8,532 JSON documents in `selected-contexts.zip` (`sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`). 8,512 non-empty, 20 empty, 7,407 with title, 1,125 without title, 4 exact duplicate clusters (9 records).
+   - Official Train: 7,000 question-answer pairs (`train.json`). Mean question length 88.1 chars / 19.7 words; mean answer length 1,575.7 chars / 347.4 words (median answer-to-question ratio 16.51x).
+   - Official Public: 1,000 questions (`public-official.json`), all answers `null`. 1 exact question overlap with train.
+2. **Serving Chunks & Boundary Risk Census**:
+   - Total Chunks: 330,768 chunks across 8,512 unique documents.
+   - Strategy: `article` (39.53%), `token_fallback` (32.65%), `clause_group` (24.53%), `standalone_block` (3.29%).
+   - Boundary Risk Pairs: 2,056 adjacent chunk boundary risk pairs identified (971 cross-reference splits, 649 list header splits, 436 condition left-boundary truncations).
+   - Critical Deficiency: All 108,009 `token_fallback` chunks (32.65% of corpus) have empty header context in `search_text`.
+   - Metadata Deficiencies: 0% of chunks currently have `document_number`, `document_type`, or `effect_status` extracted from passage headers or document slugs.
+3. **Train Q&A Linkability & Retrieval Benchmark**:
+   - 1,333 train questions (19.04%) possess unambiguous, high-confidence links to canonical context documents based on statutory document number citations in answers.
+   - 639 train questions (9.13%) link unambiguously to specific articles.
+   - 3,453 train citations reference external legal documents not in the 8,532 context corpus.
+   - The 1,333 unambiguous links provide a legitimate, gold diagnostic retrieval evaluation benchmark without violating competition rules (no synthetic QA).
+4. **BM25 Retrieval Proxy Performance**:
+   - Evaluated on SQLite FTS5 index (`bm25_documents`): Document Recall @ 1 = 48.0%, Recall @ 5 = 71.5%, Recall @ 10 = 79.5%, Recall @ 20 = 86.0%.
+5. **Phase D Next Step Directives**:
+   - Implement structured hierarchical clause chunking with mandatory parent headers to eliminate context-less `token_fallback`.
+   - Implement online adjacent chunk window stitching for boundary risk mitigation.
+   - Enrich offline metadata extraction from document slugs and headers.
