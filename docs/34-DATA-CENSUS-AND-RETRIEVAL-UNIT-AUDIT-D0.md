@@ -7,6 +7,7 @@
 Phase D0 conducts an exhaustive, byte-level census and structural audit of the canonical official UIT Data Science Challenge 2026 Task 2 dataset and current serving artifacts (`artifacts/uit-dsc-2026-task2-v0400`).
 
 - **Audit Date**: 2026-08-21
+- **Parent / Starting Authority Commit**: `469dd45834f6ef2406198e3368669459bebeb264`
 - **Audit Tool**: `scripts/audit_official_data_d0.py`
 - **Evidence Archive**: `C:\Users\Nguyen\Downloads\data-d0-official-data-audit-evidence.zip`
 - **Evidence Archive SHA-256**: `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f` (40,549 bytes)
@@ -21,7 +22,8 @@ Phase D0 conducts an exhaustive, byte-level census and structural audit of the c
 | **Official Public** | `C:\Users\Nguyen\Downloads\public-official.json` | 185,622 | `5f68ca901cb20798559538bef60fa7c32bd7d0df59f5bf31a37eb220c9e00df5` | 1,000 | `["question", "answer"]` |
 | **Official Contexts Archive** | `C:\Users\Nguyen\Downloads\selected-contexts.zip` | 97,276,888 | `ebcfc896df06087e7da532b4653f32adfaba2200c8ed92a0069e46dbfa126a97` | 8,532 | `["id", "name", "link", "passage"]` |
 
-- **Context Canonical Revision**: `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e` (verified across all 8,532 JSON members).
+- **Context Canonical Revision (Content-Level)**: `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e` (verified across all 8,532 JSON member contents).
+- **Context Archive SHA-256 (Byte-Level ZIP Identity)**: `ebcfc896df06087e7da532b4653f32adfaba2200c8ed92a0069e46dbfa126a97` (97,276,888 bytes, 8,532 member files).
 - **Public Label Status**: In `public-official.json`, all 1,000 records have `"answer": null`.
 
 ---
@@ -38,7 +40,7 @@ Across the 8,532 raw context documents:
 - **Total Raw Characters**: 353,691,230 characters
 - **Exact Duplicate Document Clusters**: 4 clusters (9 records total)
 - **Top 3 Largest Documents**:
-  1. `context_68843`: 5,983,358 chars (~1.24M words), title: `null`
+  1. `context_68843`: 5,983,358 chars (~1.24M words / 1,236,787 words), title: `null`
   2. `context_4644`: 3,015,870 chars (~571k words), title: `null`
   3. `context_42223`: 1,097,089 chars (~237k words), title: `Thong-tu-200-2014-TT-BTC-huong-dan-Che-do-ke-toan-Doanh-nghiep-263599`
 
@@ -106,7 +108,7 @@ Current production serving chunks in `artifacts/uit-dsc-2026-task2-v0400/legal_c
 - **Cross-Reference Split (`CROSS_REFERENCE_SPLIT`)**: 971 pairs (0.30%)
   - *Manifestation*: A statutory condition references `theo quy định tại` at the end of Chunk A, while the target `khoản 3 Điều này...` is placed at the start of Chunk B.
 - **List Header Split From Items (`LIST_HEADER_SPLIT_FROM_ITEMS`)**: 649 pairs (0.20%)
-  - *Manifestation*: A introductory clause ending with `:` is separated from the indented itemized provisions `a), b), c)`.
+  - *Manifestation*: An introductory clause ending with `:` is separated from the indented itemized provisions `a), b), c)`.
 - **Condition Open at Left Boundary (`CONDITION_OPEN_AT_LEFT_BOUNDARY`)**: 436 pairs (0.14%)
   - *Manifestation*: Chunk starts mid-sentence with `người sử dụng lao động phải...` without the governing conditional premise (`Trường hợp người lao động...`).
 - **Total Boundary Risk Pairs**: 2,056 pairs.
@@ -117,7 +119,7 @@ Current production serving chunks in `artifacts/uit-dsc-2026-task2-v0400/legal_c
 - **Hierarchy Header (`Chương/Mục`)**: Present in 223,994 chunks (67.72%)
 - **Clause Numbers (`Khoản:`)**: Present in 207,391 chunks (62.70%)
 - **Critical Deficiency in `token_fallback`**:
-  - All 108,009 `token_fallback` chunks (32.65% of the entire corpus) have `header: ""` (0 parent metadata context prepended to `search_text`).
+  - All 108,009 `token_fallback` chunks (32.65% of the entire corpus) currently have `header: ""` (0 parent metadata context prepended to `search_text`).
 
 ---
 
@@ -138,7 +140,7 @@ Current production serving chunks in `artifacts/uit-dsc-2026-task2-v0400/legal_c
 | `effect_status` | 0 | **0.0%** | 0 |
 | `legal_field` | 0 | **0.0%** | 0 |
 
-*Root Cause*: Official raw contexts provide only `id`, `name` (slug), `link`, and `passage`. No explicit metadata dictionary was provided by BTC. The current pipeline leaves document numbers and metadata fields completely unextracted from the passage header or document slug.
+*Root Cause*: Official raw contexts provide only `id`, `name` (slug), `link`, and `passage`. No explicit metadata dictionary was provided by BTC. The current pipeline leaves document numbers and metadata fields unextracted from the passage header or document slug.
 
 ---
 
@@ -171,18 +173,19 @@ Across the 7,000 answer-labeled train records:
 
 ### Legal Reference Signals & Linkability
 - **Answers with Explicit Legal Anchors**: 6,396 / 7,000 (91.37%)
-- **Unambiguous Question -> Document Links**: 1,333 questions (19.04%)
-- **Unambiguous Question -> Article Links**: 639 questions (9.13%)
+- **Unambiguous Question -> Document Links Discovered**: 1,333 questions (19.04%)
+- **Unambiguous Question -> Article Links Discovered**: 639 questions (9.13%)
 - **Ambiguous Multi-Document Matches**: 372 questions (5.31%)
-- **Unresolved Anchors (Citations not in corpus)**: 3,453 questions (49.33%)
+- **Unresolved Anchors (Citations not in context corpus)**: 3,453 questions (49.33%)
 - **Exact Overlap Between Train & Public**: 1 identical question (`train.json` has answer, `public-official.json` has `null`).
 
 ---
 
-## 8. BM25 Retrieval Proxy Evaluation
+## 8. High-Confidence Official-Data Retrieval Proxy Evaluation
 
-Evaluated against the serving SQLite FTS5 index (`bm25_documents`, 330,768 rows) across the sample of unambiguous question-to-document links:
-- **Evaluated Link Count**: 200 unambiguous QA pairs
+Evaluated against the serving SQLite FTS5 index (`bm25_documents`, 330,768 rows) across the historical 200-sample of unambiguous question-to-document links:
+- **Evaluation Role**: **HIGH-CONFIDENCE OFFICIAL-DATA RETRIEVAL PROXY** (not official relevance ground truth).
+- **Evaluated Link Count**: 200 unambiguous QA pairs (subset of the 1,333 discovered links; not all 1,333 were evaluated in D0).
 - **Document Recall @ 1**: 48.0%
 - **Document Recall @ 5**: 71.5%
 - **Document Recall @ 10**: 79.5%
@@ -190,23 +193,55 @@ Evaluated against the serving SQLite FTS5 index (`bm25_documents`, 330,768 rows)
 
 ---
 
-## 9. Empirical Answers to Core Architecture Decisions
+## 9. Next Experiment: Selection of Exactly One D1 Candidate
 
-### A. Chunker Architecture Decision
-- **Finding**: 32.65% of chunks (108,009 chunks) are currently forced into `token_fallback` because individual articles/provisions exceed the 448-token ceiling, losing parent metadata context entirely.
-- **Empirical Recommendation**: Re-architect chunking to support structured hierarchical clause/point splitting with mandatory preserved parent headers (Title, Article name, Clause premise) so `token_fallback` with empty headers is eliminated.
+Rather than bundling multiple architectural modifications simultaneously, the project isolates exactly **ONE** causal variable for Phase D1.
 
-### B. Dense Index Feasibility
-- **Finding**: With 330,768 chunks and a 4-billion total parameter budget, building a full dense embedding index across all 330k chunks is feasible and critical for semantic recall.
+### Selected Candidate: D1 — Parent-Context Enriched Token-Fallback Search Representation
 
-### C. Retrieval Boundary Expansion
-- **Finding**: 2,056 adjacent chunk boundary risk pairs exist (splitting conditions and cross-references).
-- **Empirical Recommendation**: Implement an online window expansion / parent-article stitching mechanism for adjacent retrieved chunks from the same document.
+- **Single Causal Variable**:
+  For existing `token_fallback` chunks only, enrich `search_text` with parent/legal context that is **ALREADY deterministically available** in existing chunk/source lineage (e.g. `document_title`, parent `article_title` if fallback sliced a known article, or document scope).
+- **Strict Invariants Preserved**:
+  - Exact total chunk count unchanged (330,768).
+  - Exact chunk IDs unchanged.
+  - Exact chunk boundaries / token offsets unchanged.
+  - Exact raw chunk `text` unchanged.
+  - Retrieval parameters, dense model, reranker, answer generator, and verifier configurations 100% unchanged.
+- **Strictly Prohibited in D1**:
+  - Resegmenting or modifying chunk boundaries.
+  - Extracting new unverified document metadata.
+  - Performing adjacent-window stitching.
+  - Changing BM25 parameters ($k_1$, $b$, tokenizer).
+  - Inferring or fabricating missing parent metadata (if unavailable, leave absent).
 
-### D. Train Q&A Leverage Governance
-- **Finding**: 1,333 train questions (19.04%) have unambiguous gold document links, and 639 have unambiguous article links.
-- **Empirical Recommendation**: These 1,333 unambiguous links provide a gold diagnostic retrieval benchmark without violating competition data rules (since `train.json` is official supervision data). Synthetic QA remains strictly prohibited.
+### Pre-Registered D1 Measurement Protocol
+- **Evaluation Population**:
+  - Primary: High-confidence official-data proxy across all 1,333 unambiguous question-to-document links (if computationally practical).
+  - Baseline continuity: Report the fixed historical 200-query D0 subset separately.
+  - Segmented Breakdown: Report performance over **ALL proxy questions** vs the **AFFECTED subset** (questions whose linked target document/article contains at least one `token_fallback` chunk in the baseline artifact).
+- **Metrics**:
+  - BM25 Document Recall @ 1, @ 5, @ 10, @ 20.
+  - (Optional passive monitoring if normal candidate rebuild affects other branches): Dense, Hybrid/RRF, Reranked Recall without modifying their configs.
 
-### E. Offline Metadata Enrichment
-- **Finding**: 0% of chunks currently have `document_number`, `document_type`, or `effect_status` populated from the passage text or document slug.
-- **Empirical Recommendation**: Implement deterministic, rule-based metadata extraction from official document slugs and passage headers during offline ingestion.
+### Pre-Registered D1 Success Gate
+- **Structural Invariants Gate**:
+  - 100% pass on chunk count (330,768), chunk IDs, chunk boundaries, and raw text invariance.
+  - Zero fabricated metadata.
+  - All `token_fallback` chunks with deterministically available lineage parent context receive that context in candidate `search_text`.
+- **Retrieval Performance Gate**:
+  - **Primary**: BM25 document Recall@5 improves by $\ge 2.0$ absolute percentage points on the same evaluation population.
+  - **Secondary**: BM25 Recall@10 must not regress.
+  - **Tertiary**: BM25 Recall@20 must not regress by $> 0.5$ absolute percentage points.
+
+---
+
+## 10. Architectural Backlog (Future Hypotheses)
+
+The following hypotheses were identified during the D0 census but are deferred to subsequent, isolated milestones:
+
+1. **Backlog Item 1 — Hierarchical Legal Chunking (Clause / Point Resegmentation)**:
+   Re-architect the offline chunker to parse long articles into structured clauses/points instead of token-based sliding windows.
+2. **Backlog Item 2 — Online Adjacent Chunk Window Expansion & Parent Stitching**:
+   Implement dynamic boundary expansion during context building for adjacent chunks possessing high boundary risk tags (list headers, condition truncations).
+3. **Backlog Item 3 — Offline Legal Metadata Extraction from Slugs and Headers**:
+   Extract `document_number`, `document_type`, and `issuing_authority` from document URL slugs and passage headers during offline normalization.

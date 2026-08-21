@@ -2576,18 +2576,20 @@ reports are reviewed.
 
 ## 80. Milestone 52.2 — Phase D0: Deep Official Dataset Census, Chunking Unit Boundary Audit, and Benchmark Linkability
 
-**Status:** Completed (Census Script: `scripts/audit_official_data_d0.py`, Evidence Archive: `C:\Users\Nguyen\Downloads\data-d0-official-data-audit-evidence.zip` SHA-256 `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f`, Size `40,549 bytes`, Report: `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md`, Decision: `D129`, Unit Tests: `tests/unit/evaluation/test_audit_official_data_d0.py`)
+**Status:** Completed (Parent Authority: `469dd45834f6ef2406198e3368669459bebeb264`, Census Script: `scripts/audit_official_data_d0.py`, Evidence Archive: `C:\Users\Nguyen\Downloads\data-d0-official-data-audit-evidence.zip` SHA-256 `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f`, Size `40,549 bytes`, Report: `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md`, Decision: `D129`, Unit Tests: `tests/unit/evaluation/test_audit_official_data_d0.py`)
 
 - implemented and executed full-scale Phase D0 census script `scripts/audit_official_data_d0.py` across the canonical official dataset and current serving artifacts;
-- audited source identities and verified canonical contexts archive (`selected-contexts.zip`, 8,532 context members, canonical revision `sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`);
-- completed raw corpus census: 8,512 non-empty, 20 empty, 7,407 with title, 1,125 without title, 4 exact duplicate clusters (9 records total), mean document length 41,552 characters / 8,556 words;
+- audited source identities: verified raw contexts archive `selected-contexts.zip` byte identity (`ebcfc896df06087e7da532b4653f32adfaba2200c8ed92a0069e46dbfa126a97`, 97,276,888 bytes, 8,532 member files) and context-content canonical revision (`sha256:9a4441b4537ceb646b15359f470a1da0904e6c92a61e8c4c376c19e17dec395e`);
+- completed raw corpus census: 8,512 non-empty, 20 empty, 7,407 with title, 1,125 without title, 4 exact duplicate clusters (9 records total), mean document length 41,552 characters / 8,556 words, max document `context_68843` (5,983,358 characters, ~1.24M words / 1,236,787 words);
 - audited legal structure markers & parser coverage: 86.13% of documents contain explicit `Điều` markers with 100.0% parser marker agreement (7,331/7,331); 1,200 documents have zero recognized structure (20 empty + 1,180 unstructured notices);
 - audited 330,768 serving chunks: 39.53% `article`, 32.65% `token_fallback`, 24.53% `clause_group`, 3.29% `standalone_block`;
 - identified 2,056 adjacent chunk boundary risk pairs (971 cross-reference splits, 649 list header splits, 436 condition truncations);
-- audited search text context: discovered that all 108,009 `token_fallback` chunks (32.65% of corpus) have empty header context in `search_text`;
+- audited search text context: discovered that all 108,009 `token_fallback` chunks (32.65% of corpus) currently have empty header context in `search_text`;
 - audited metadata population: verified that 0% of chunks currently have `document_number`, `document_type`, or `effect_status` extracted;
 - audited 7,000 official train Q&A records: taxonomy breakdown (60.5% temporal, 57.3% rights/obligations, 52.1% conditions), 99.4% multi-paragraph answers;
-- uncovered 1,333 unambiguous question-to-document links (19.04%) and 639 article links (9.13%) based on statutory citations in answers, providing a gold diagnostic retrieval evaluation benchmark;
-- evaluated BM25 retrieval proxy performance on SQLite FTS5 index (`bm25_documents`): Recall@1 = 48.0%, Recall@5 = 71.5%, Recall@10 = 79.5%, Recall@20 = 86.0%;
+- uncovered 1,333 unambiguous question-to-document links (19.04%) and 639 article links (9.13%) defining a high-confidence official-data retrieval proxy without violating competition data rules;
+- evaluated BM25 retrieval proxy performance on SQLite FTS5 index (`bm25_documents`) across historical 200-QA subset: Recall@1 = 48.0%, Recall@5 = 71.5%, Recall@10 = 79.5%, Recall@20 = 86.0%;
 - packaged evidence into `data-d0-official-data-audit-evidence.zip` with complete JSON artifacts;
-- next action: advance to Phase D1 (hierarchical clause-level chunking with preserved parent context and metadata enrichment).
+- selected single Phase D1 candidate: **D1 — Parent-Context Enriched Token-Fallback Search Representation** (enriching `token_fallback` search_text with deterministically available lineage parent context while strictly preserving chunk counts, IDs, boundaries, raw text, and configs);
+- moved hierarchical re-chunking, adjacent window stitching, and metadata extraction to Architectural Backlog;
+- next action: advance to Phase D1 implementation and pre-registered proxy measurement.
