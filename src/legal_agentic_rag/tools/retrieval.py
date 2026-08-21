@@ -117,9 +117,15 @@ def fixed_retrieval_tools(
     retriever: _Retriever,
     *,
     timeout_seconds: float = 30.0,
+    graph_runtime_enabled: bool = True,
 ) -> list[RetrievalTool]:
-    """Create the five approved fixed retrieval tools."""
+    """Create approved fixed retrieval tools."""
+    names = (
+        _STRATEGIES.keys()
+        if graph_runtime_enabled
+        else [name for name in _STRATEGIES if name != ToolName.GRAPH_SEARCH]
+    )
     return [
         RetrievalTool(name, retriever, timeout_seconds=timeout_seconds)
-        for name in _STRATEGIES
+        for name in names
     ]

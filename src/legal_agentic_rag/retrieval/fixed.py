@@ -298,7 +298,8 @@ class FixedRetriever:
                 reranker_config,
             )
             if (
-                graph_backend is not None
+                self._config.graph_runtime_enabled
+                and graph_backend is not None
                 and reranker is not None
                 and chunk_manifest is not None
             )

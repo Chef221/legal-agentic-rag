@@ -99,6 +99,7 @@ def test_m491_configuration_aligns_output_and_repetition_controls() -> None:
     assert config.online.reranker.max_candidates == 40
     assert config.online.retrieval.candidate_k == 40
     assert config.online.retrieval.top_k == 10
+    assert config.online.retrieval.graph_runtime_enabled is False
 
 
 def test_config_loader_wraps_invalid_json_without_leaking_details(

@@ -336,3 +336,25 @@ def test_agent_calls_only_the_retrieval_tool_present_in_closed_registry() -> Non
 
     assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
     assert retriever.calls == [RetrievalStrategy.HYBRID]
+
+def test_build_fixed_tool_registry_omits_graph_when_disabled() -> None:
+    """When graph_runtime_enabled is False, GRAPH_SEARCH is excluded from registry."""
+    retriever = _SequencedRetriever()
+    registry = build_fixed_tool_registry(
+        retriever=retriever,
+        context_grader=RuleBasedContextGrader(),
+        answer_generator=ExtractiveAnswerGenerator(),
+        citation_verifier=RuleBasedCitationVerifier(),
+        graph_runtime_enabled=False,
+    )
+
+    tool_names = [descriptor.name for descriptor in registry.descriptors()]
+    assert len(tool_names) == 7
+    assert ToolName.GRAPH_SEARCH not in tool_names
+    assert ToolName.BM25_SEARCH in tool_names
+    assert ToolName.DENSE_SEARCH in tool_names
+    assert ToolName.HYBRID_SEARCH in tool_names
+    assert ToolName.RERANK_SEARCH in tool_names
+    assert ToolName.CONTEXT_GRADING in tool_names
+    assert ToolName.ANSWER_GENERATION in tool_names
+    assert ToolName.CITATION_VERIFICATION in tool_names

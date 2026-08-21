@@ -83,3 +83,16 @@ def test_retrieval_tool_rejects_strategy_escape_and_bad_response() -> None:
     )
     with pytest.raises(RetrievalError, match="incompatible"):
         bad.invoke(_query())
+
+def test_fixed_retrieval_tools_excludes_graph_when_disabled() -> None:
+    """When graph_runtime_enabled is False, GRAPH_SEARCH is omitted from registered tools."""
+    retriever = _Retriever()
+    tools = fixed_retrieval_tools(retriever, graph_runtime_enabled=False)
+
+    assert [tool.name for tool in tools] == [
+        ToolName.BM25_SEARCH,
+        ToolName.DENSE_SEARCH,
+        ToolName.HYBRID_SEARCH,
+        ToolName.RERANK_SEARCH,
+    ]
+    assert ToolName.GRAPH_SEARCH not in [tool.name for tool in tools]

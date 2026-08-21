@@ -2397,3 +2397,24 @@ A plain graphless candidate using standard `candidate_k=40` failed on QID 75965 
 3. **Graph Infrastructure Retention:**
    - Graph infrastructure, types, enums, tool definitions, and artifact handling are NOT deleted in this phase; cleanup is deferred to Phase T4-PROD-B.
    - The conclusion of graph removability is strictly limited to the tested M49.1 frozen Dev-200 adaptive relationship serving population.
+
+---
+
+## D098 — Phase T4-PROD-B1: Decouple Online Graph Retriever and Tool Wiring
+
+**Status:** Accepted
+
+**Context & Rationale:**
+Following Phase T4-PROD-A (`D097`), which verified that M49.1 adaptive relationship serving does not require graph traversal when candidate narrowing (`relationship_candidate_k = 20`) is preserved, Phase T4-PROD-B1 introduces a typed runtime capability switch (`RetrievalConfig.graph_runtime_enabled: bool = True`) to decouple online graph execution components from the default production serving path.
+
+**Production Behavior & Boundary:**
+1. **Decoupled Execution Wiring:**
+   - In `FixedRetriever`, `GraphExpandedRetriever` is constructed only when `config.graph_runtime_enabled` is `True` alongside other prerequisites (`graph_backend`, `reranker`, `chunk_manifest`). When disabled, `self._graph` is `None` and explicit `RetrievalStrategy.GRAPH` requests fail deterministically with `RetrievalError`.
+   - In `fixed_retrieval_tools` and `build_fixed_tool_registry`, `ToolName.GRAPH_SEARCH` is excluded from the registered tool list when `graph_runtime_enabled` is `False`.
+2. **M49.1 Serving Profile:**
+   - In `configs/uit-dsc-2026-task2-m491-qwen3-dev.example.json`, `online.retrieval.graph_runtime_enabled` is set to `false`.
+3. **Preservation of Startup Artifact Requirements in B1:**
+   - In Phase T4-PROD-B1, `OnlineRuntime` continues to load and validate the graph artifact manifest and `AdjacencyGraphBackend`. Therefore, Phase T4-PROD-B1 does not yet remove graph artifact startup I/O or in-memory backend loading; this dependency relaxation is deferred to Phase T4-PROD-B2.
+4. **Backward Compatibility:**
+   - Historical and default configurations (`graph_runtime_enabled = True`) retain full five-tool registration and functional `RetrievalStrategy.GRAPH` routing.
+   - Schemas (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `ArtifactType.GRAPH_INDEX`) and offline graph builders remain completely intact.

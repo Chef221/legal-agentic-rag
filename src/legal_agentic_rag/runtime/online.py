@@ -302,6 +302,9 @@ class OnlineRuntimeFactory:
             retrieval_timeout_seconds=(
                 self._config.online.retrieval.timeout_seconds
             ),
+            graph_runtime_enabled=(
+                self._config.online.retrieval.graph_runtime_enabled
+            ),
             generation_timeout_seconds=(
                 self._config.online.generation.timeout_seconds
             ),

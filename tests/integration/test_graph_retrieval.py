@@ -4,8 +4,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import numpy as np
+import pytest
 
 from legal_agentic_rag.configuration import RetrievalConfig
+from legal_agentic_rag.exceptions import RetrievalError
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.reranking import CrossEncoderReranker
 from legal_agentic_rag.retrieval import FixedRetriever
@@ -159,3 +161,60 @@ def test_fixed_graph_strategy_reloads_graph_and_reranks_related_chunk(
         "dense_index": "1.0",
         "graph_index": "1.0",
     }
+
+def test_fixed_graph_strategy_fails_when_graph_runtime_disabled(
+    tmp_path: object,
+) -> None:
+    """When graph_runtime_enabled is False, FixedRetriever rejects explicit graph strategy."""
+    documents = [
+        LegalDocument(
+            document_id="doc-seed",
+            has_content=True,
+            source_dataset="fixture-corpus",
+        )
+    ]
+    graph = AdjacencyGraphBackend()
+    graph.build(
+        documents,
+        [],
+        document_manifest=_manifest(
+            ArtifactType.NORMALIZED_DOCUMENTS, 1, "documents-hash"
+        ),
+        relationship_manifest=_manifest(
+            ArtifactType.RELATIONSHIP_MAPPING,
+            0,
+            "relationships-hash",
+            {"source_processing_config_hash": "documents-hash"},
+        ),
+    )
+    destination = tmp_path / "graph"
+    graph_manifest = graph.persist(destination)
+    loaded_graph = AdjacencyGraphBackend()
+    loaded_graph.load(destination, graph_manifest)
+    chunk_manifest = _manifest(ArtifactType.LEGAL_CHUNKS, 1, "chunks-hash")
+
+    retriever = FixedRetriever(
+        _FilteredBranch(RetrievalStrategy.BM25),
+        _FilteredBranch(RetrievalStrategy.DENSE),
+        RetrievalConfig(graph_runtime_enabled=False),
+        reranker=CrossEncoderReranker(
+            model_loader=lambda config: _SemanticModel()
+        ),
+        graph_backend=loaded_graph,
+        chunk_manifest=chunk_manifest,
+    )
+
+    with pytest.raises(
+        RetrievalError,
+        match="Fixed graph strategy requires graph, chunks, and reranker",
+    ):
+        retriever.search(
+            RetrievalQuery(
+                query_id="graph-disabled",
+                original_question="Văn bản nào sửa đổi?",
+                normalized_question="văn bản sửa đổi",
+                top_k=1,
+                candidate_k=2,
+                requested_strategy=RetrievalStrategy.GRAPH,
+            )
+        )

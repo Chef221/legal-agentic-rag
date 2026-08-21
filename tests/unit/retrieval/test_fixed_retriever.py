@@ -204,3 +204,19 @@ def test_fixed_retriever_honors_configured_default_strategy() -> None:
     )
 
     assert retriever.search(_query(None)).strategy == RetrievalStrategy.BM25
+
+def test_fixed_retriever_disables_graph_when_graph_runtime_enabled_is_false() -> None:
+    """When graph_runtime_enabled is False, FixedRetriever does not construct graph and fails deterministically on GRAPH requests."""
+    bm25, dense = _branches()
+    retriever = FixedRetriever(
+        bm25,
+        dense,
+        RetrievalConfig(graph_runtime_enabled=False),
+    )
+
+    assert retriever._graph is None
+    with pytest.raises(
+        RetrievalError,
+        match="Fixed graph strategy requires graph, chunks, and reranker",
+    ):
+        retriever.search(_query(RetrievalStrategy.GRAPH))

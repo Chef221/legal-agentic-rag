@@ -89,6 +89,8 @@ def test_embedding_and_vector_defaults_are_pinned_and_bounded() -> None:
 def test_retrieval_config_validates_candidate_and_graph_limits() -> None:
     """Invalid retrieval bounds fail before any backend is called."""
     assert RetrievalConfig().default_strategy.value == "hybrid"
+    assert RetrievalConfig().graph_runtime_enabled is True
+    assert RetrievalConfig(graph_runtime_enabled=False).graph_runtime_enabled is False
     with pytest.raises(ValidationError):
         RetrievalConfig(top_k=20, candidate_k=10)
     with pytest.raises(ValidationError):

@@ -42,6 +42,7 @@
       "top_k": 10,
       "candidate_k": 40,
       "default_strategy": "hybrid_rerank",
+      "graph_runtime_enabled": false,
       "rrf_constant": 60,
       "timeout_seconds": 240.0
     },
