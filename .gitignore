@@ -33,6 +33,27 @@ logs/
 reports/
 *.log
 
+# UIT DSC official/private inputs and generated competition outputs
+/selected-contexts.zip
+/train.json
+/warmup.json
+/public-official.json
+/Scoring-Program-Task-LegalQA.zip
+/[[]DSC@UIT 2026[]] Danh sách mô hình - Sheet1.csv
+/legal-agentic-rag-m*-source.zip
+/results*.jsonl
+/manifest*.json
+/submission*.zip
+/*.tar.gz
+/*.tar.gz.sha256
+
+# Local experiment staging and pytest spill directories
+/_fixed_rag_e01_stage/
+/.tmp-*/
+/.m*-pytest*/
+/.m*-pycache*/
+/pytest-cache-files-*/
+
 # Editor and operating-system files
 .idea/
 .vscode/

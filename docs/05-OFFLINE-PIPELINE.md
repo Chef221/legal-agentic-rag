@@ -951,6 +951,21 @@ Build state `0.20.0` schema `1.1` được phép nâng một chiều lên `0.20.
 thay đổi recovery này, sau khi canonical application-config hash vẫn khớp.
 Mọi code-version transition khác tiếp tục bị từ chối fail closed.
 
+## 19. M45 Qwen3 Embedding Build
+
+M45 là artifact lineage mới, không resume hoặc ghi đè vector E5 của M43. Corpus
+vẫn là canonical official revision và giữ nguyên cleaning/parser/chunker policy.
+Dense stage dùng
+`Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`,
+dimension 1.024, normalized cosine và fp16 trên CUDA. Passage không nhận prefix;
+query nhận instruction tiếng Anh cố định qua provider adapter. Instruction,
+dtype, revision và dimension đều thuộc application config hash/manifest, nên mọi
+thay đổi bắt buộc rebuild vector.
+
+Build vẫn checkpoint theo batch và chỉ publish vector artifact sau khi đủ record,
+finite/unit-norm validation và checksum hoàn tất. Không có dữ liệu ngoài, synthetic
+record hoặc relation suy diễn được thêm vào corpus.
+
 ## 18. M41 Full-corpus Validation Boundary
 
 Artifact M40 giữ nguyên cấu hình build và lineage đã tạo ra nó. Chính sách

@@ -72,11 +72,16 @@ def test_embedding_and_vector_defaults_are_pinned_and_bounded() -> None:
     assert embedding.model_revision == "614241f622f53c4eeff9890bdc4f31cfecc418b3"
     assert embedding.expected_dimension == 384
     assert embedding.device == "cpu"
+    assert embedding.query_prompt_name is None
     assert vector.backend_name == "numpy_flat"
     assert vector.distance_metric == "cosine"
     assert vector.embedding_batch_size == 16
     with pytest.raises(ValidationError):
         EmbeddingConfig(model_revision="")
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        EmbeddingConfig(query_prompt_name="query", query_instruction="instruction")
+    with pytest.raises(ValidationError, match="requires float32"):
+        EmbeddingConfig(torch_dtype="float16")
     with pytest.raises(ValidationError):
         VectorIndexConfig(embedding_batch_size=0)
 
@@ -154,11 +159,25 @@ def test_generation_and_context_grading_defaults_are_bounded() -> None:
     assert generation.max_evidence == 8
     assert generation.backend == "extractive"
     assert generation.max_structured_output_retries == 1
+    assert generation.model_failure_policy == "abstain"
+    assert generation.grounding_failure_policy == "abstain"
+    assert generation.prompt_schema_mode == "json_schema"
+    assert generation.salvage_rendering == "verbatim"
+    assert generation.repetition_penalty == 1.0
+    assert generation.no_repeat_ngram_size == 0
     assert grading.minimum_evidence_count == 1
     with pytest.raises(ValidationError):
         GenerationConfig(max_evidence=101)
     with pytest.raises(ValidationError):
         GenerationConfig(max_structured_output_retries=2)
+    with pytest.raises(ValidationError):
+        GenerationConfig(repetition_penalty=0.99)
+    with pytest.raises(ValidationError):
+        GenerationConfig(no_repeat_ngram_size=33)
+    with pytest.raises(ValidationError, match="grounding recovery"):
+        GenerationConfig(
+            grounding_failure_policy="supported_claims_or_top_evidence"
+        )
     with pytest.raises(ValidationError):
         GenerationConfig(model_name="model-without-revision")
     with pytest.raises(ValidationError, match="endpoint_url"):
@@ -223,12 +242,16 @@ def test_evidence_selection_defaults_are_bounded_and_optional() -> None:
     assert selection.reference_match_boost == 2.0
     assert selection.lexical_overlap_weight == 1.0
     assert selection.inactive_penalty == 2.0
+    assert selection.max_per_document == 100
+    assert selection.max_per_article == 100
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(reference_match_boost=-1)
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(lexical_overlap_weight=11)
     with pytest.raises(ValidationError):
         EvidenceSelectionConfig(inactive_penalty=float("inf"))
+    with pytest.raises(ValidationError):
+        EvidenceSelectionConfig(max_per_document=0)
 
 
 def test_claim_verification_defaults_are_fail_closed_and_bounded() -> None:
@@ -293,6 +316,7 @@ def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:
     assert config.model_name == "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     assert config.model_revision == "1427fd652930e4ba29e8149678df786c240d8825"
     assert config.device == "cpu"
+    assert config.torch_dtype == "float32"
     assert config.batch_size == 8
     assert config.max_length == 512
     assert config.max_candidates == 100
@@ -305,8 +329,13 @@ def test_reranker_defaults_are_revision_pinned_and_bounded() -> None:
         RerankerConfig(max_candidates=0)
     with pytest.raises(ValidationError):
         RerankerConfig(max_candidates=101)
+    assert RerankerConfig(max_length=2048).max_length == 2048
     with pytest.raises(ValidationError):
-        RerankerConfig(max_length=513)
+        RerankerConfig(max_length=8193)
+    with pytest.raises(ValidationError, match="must be set together"):
+        RerankerConfig(prompt_name="legal")
+    with pytest.raises(ValidationError, match="requires float32"):
+        RerankerConfig(torch_dtype="float16")
 
 
 def test_chunking_config_validates_token_relationships() -> None:

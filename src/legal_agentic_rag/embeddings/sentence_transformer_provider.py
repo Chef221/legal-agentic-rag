@@ -27,7 +27,7 @@ ModelLoader = Callable[[EmbeddingConfig], _EmbeddingModel]
 
 
 class SentenceTransformerEmbeddingProvider:
-    """Encode passages and queries with a revision-pinned multilingual E5 model."""
+    """Encode passages and queries with a revision-pinned local model."""
 
     def __init__(
         self,
@@ -81,16 +81,30 @@ class SentenceTransformerEmbeddingProvider:
         values = self._validate_texts(texts)
         if not values:
             return []
-        prefixed = [f"{self._config.document_prefix} {text}" for text in values]
-        return self._encode(prefixed, batch_size=batch_size)
+        prepared = [
+            self._with_prefix(self._config.document_prefix, text)
+            for text in values
+        ]
+        return self._encode(prepared, batch_size=batch_size)
 
     def embed_query(self, text: str) -> list[float]:
-        """Embed one normalized question using the E5 query prefix."""
+        """Embed one normalized question using the configured query policy."""
         values = self._validate_texts([text])
-        prefixed = [f"{self._config.query_prefix} {values[0]}"]
-        return self._encode(prefixed, batch_size=1)[0]
+        prepared = [self._with_prefix(self._config.query_prefix, values[0])]
+        query_options: dict[str, object] = {}
+        if self._config.query_prompt_name is not None:
+            query_options["prompt_name"] = self._config.query_prompt_name
+        elif self._config.query_instruction is not None:
+            query_options["prompt"] = self._config.query_instruction
+        return self._encode(prepared, batch_size=1, **query_options)[0]
 
-    def _encode(self, texts: list[str], *, batch_size: int) -> list[list[float]]:
+    def _encode(
+        self,
+        texts: list[str],
+        *,
+        batch_size: int,
+        **model_options: object,
+    ) -> list[list[float]]:
         model = self._require_model()
         try:
             encoded = model.encode(
@@ -99,6 +113,7 @@ class SentenceTransformerEmbeddingProvider:
                 normalize_embeddings=self._config.normalize_embeddings,
                 convert_to_numpy=True,
                 show_progress_bar=False,
+                **model_options,
             )
         except Exception as error:
             raise ModelError("Embedding model failed to encode text") from error
@@ -153,6 +168,11 @@ class SentenceTransformerEmbeddingProvider:
         return values
 
     @staticmethod
+    def _with_prefix(prefix: str, text: str) -> str:
+        """Apply an optional legacy prefix without adding leading whitespace."""
+        return f"{prefix} {text}" if prefix else text
+
+    @staticmethod
     def _load_sentence_transformer(config: EmbeddingConfig) -> _EmbeddingModel:
         try:
             from sentence_transformers import SentenceTransformer
@@ -166,4 +186,5 @@ class SentenceTransformerEmbeddingProvider:
             device=config.device,
             local_files_only=config.local_files_only,
             trust_remote_code=False,
+            model_kwargs={"torch_dtype": config.torch_dtype},
         )

@@ -89,6 +89,7 @@ class EvidenceSelectionReason(StrEnum):
     SELECTED = "selected"
     MAX_EVIDENCE = "max_evidence"
     TOKEN_BUDGET = "token_budget"
+    DIVERSITY_LIMIT = "diversity_limit"
 
 
 class EvidenceSelectionTrace(BaseModel):

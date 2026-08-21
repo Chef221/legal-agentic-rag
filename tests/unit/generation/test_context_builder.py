@@ -2,7 +2,7 @@
 
 import pytest
 
-from legal_agentic_rag.configuration import GenerationConfig
+from legal_agentic_rag.configuration import EvidenceSelectionConfig, GenerationConfig
 from legal_agentic_rag.exceptions import DataValidationError
 from legal_agentic_rag.generation import ContextBuilder
 from legal_agentic_rag.schemas import (
@@ -174,3 +174,24 @@ def test_context_builder_records_applicability_and_budget_decisions() -> None:
     ]
     assert result.selection_trace[0].selected is True
     assert result.selection_trace[1].reason == "max_evidence"
+    assert "max_evidence_omissions:1" in result.warnings
+    assert "context_budget_exhausted" not in result.warnings
+
+
+def test_context_builder_enforces_document_and_article_diversity() -> None:
+    """Repeated chunks cannot consume all context slots in the M45 policy."""
+    first = _hit("first", 1, token_count=2)
+    repeated = _hit("repeated", 2, token_count=2).model_copy(
+        update={"document_id": first.document_id, "metadata": first.metadata}
+    )
+    other = _hit("other", 3, token_count=2)
+    builder = ContextBuilder(
+        GenerationConfig(max_context_tokens=10, max_evidence=3),
+        EvidenceSelectionConfig(max_per_document=1, max_per_article=1),
+    )
+
+    result = builder.build(_response([first, repeated, other]))
+
+    assert [item.chunk_id for item in result.evidence] == ["first", "other"]
+    assert result.selection_trace[1].reason == "diversity_limit"
+    assert "diversity_limit_omissions:1" in result.warnings

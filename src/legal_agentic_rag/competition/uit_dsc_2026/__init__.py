@@ -27,6 +27,13 @@ from legal_agentic_rag.competition.uit_dsc_2026.submission import (
 from legal_agentic_rag.competition.uit_dsc_2026.warmup_scoring import (
     CompetitionWarmupScorer,
 )
+from legal_agentic_rag.competition.uit_dsc_2026.generator_training import (
+    GeneratorSupervisionSplit,
+    fixed_dev_sample,
+    normalize_supervision_question,
+    question_id_digest,
+    split_generator_supervision,
+)
 
 __all__ = [
     "ContextSourceIdentity",
@@ -37,6 +44,11 @@ __all__ = [
     "render_competition_answer",
     "load_submission_archive",
     "CompetitionWarmupScorer",
+    "GeneratorSupervisionSplit",
+    "fixed_dev_sample",
+    "normalize_supervision_question",
+    "question_id_digest",
+    "split_generator_supervision",
     "PassageCleaningResult",
     "UitDsc2026DataLoader",
     "UitDsc2026PassageCleaner",

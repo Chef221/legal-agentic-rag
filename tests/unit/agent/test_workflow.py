@@ -113,6 +113,27 @@ class _AbstainingGenerator:
         )
 
 
+class _WarningGenerator:
+    """Attach recovery telemetry to an otherwise grounded response."""
+
+    def generate(
+        self,
+        query: RetrievalQuery,
+        evidence: Sequence[Evidence],
+        retrieval_strategy: RetrievalStrategy,
+        trace_id: str,
+    ) -> AnswerResponse:
+        response = ExtractiveAnswerGenerator().generate(
+            query,
+            evidence,
+            retrieval_strategy,
+            trace_id,
+        )
+        return response.model_copy(
+            update={"warnings": ["grounding_repair_unresolved"]}
+        )
+
+
 def _query() -> RetrievalQuery:
     return RetrievalQuery(
         query_id="agent-workflow",
@@ -260,6 +281,20 @@ def test_agent_fails_closed_when_citation_verification_rejects_answer() -> None:
     assert result.response.insufficient_evidence is True
     assert result.response.citations == []
     assert "forced_invalid_citation" in result.response.warnings
+
+
+def test_agent_preserves_failed_generation_recovery_telemetry() -> None:
+    """Citation fallback reports the generator recovery path that preceded it."""
+    retriever = _SequencedRetriever(hit_calls={1})
+
+    result = _workflow(
+        retriever,
+        verifier=_InvalidCitationVerifier(),
+        generator=_WarningGenerator(),
+    ).run(_query())
+
+    assert result.stop_reason == AgentStopReason.CITATION_VERIFICATION_FAILED
+    assert "grounding_repair_unresolved" in result.response.warnings
 
 
 def test_agent_preserves_generator_abstention_without_marking_it_verified() -> None:

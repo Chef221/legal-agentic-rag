@@ -107,6 +107,8 @@ class EvidenceSelectionConfig(BaseModel):
     reference_match_boost: float = Field(default=2.0, ge=0, le=10)
     lexical_overlap_weight: float = Field(default=1.0, ge=0, le=10)
     inactive_penalty: float = Field(default=2.0, ge=0, le=10)
+    max_per_document: int = Field(default=100, ge=1, le=100)
+    max_per_article: int = Field(default=100, ge=1, le=100)
 
 
 class ClaimVerificationConfig(BaseModel):
@@ -254,11 +256,28 @@ class RerankerConfig(BaseModel):
         min_length=1,
     )
     device: str = Field(default="cpu", min_length=1)
+    torch_dtype: Literal["float16", "bfloat16", "float32"] = "float32"
     batch_size: int = Field(default=8, gt=0, le=128)
-    max_length: int = Field(default=512, gt=0, le=512)
+    max_length: int = Field(default=512, gt=0, le=8192)
     max_candidates: int = Field(default=100, gt=0, le=100)
     local_files_only: bool = False
     input_mode: Literal["text_only", "legal_context"] = "legal_context"
+    prompt_name: str | None = Field(default=None, min_length=1)
+    instruction: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode="after")
+    def validate_prompt_policy(self) -> "RerankerConfig":
+        """Require a stable prompt name whenever a custom instruction is used."""
+        if (self.prompt_name is None) != (self.instruction is None):
+            raise ValueError(
+                "reranker prompt_name and instruction must be set together"
+            )
+        if (
+            self.device.casefold().startswith("cpu")
+            and self.torch_dtype != "float32"
+        ):
+            raise ValueError("CPU reranking requires float32")
+        return self
 
 
 class GenerationConfig(BaseModel):
@@ -281,11 +300,40 @@ class GenerationConfig(BaseModel):
     model_revision: str | None = Field(default=None, min_length=1)
     device: str = Field(default="cpu", min_length=1)
     torch_dtype: Literal["float16", "bfloat16", "float32"] = "float32"
+    model_loader: Literal["causal_lm", "image_text_to_text"] = "causal_lm"
     local_files_only: bool = False
     max_input_tokens: int = Field(default=8192, gt=0, le=131072)
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     max_output_tokens: int = Field(default=1024, gt=0, le=8192)
+    repetition_penalty: float = Field(default=1.0, ge=1.0, le=2.0)
+    no_repeat_ngram_size: int = Field(default=0, ge=0, le=32)
     max_structured_output_retries: int = Field(default=1, ge=0, le=1)
+    max_model_error_retries: int = Field(default=0, ge=0, le=1)
+    model_failure_policy: Literal[
+        "abstain",
+        "top_evidence",
+    ] = "abstain"
+    max_grounding_repair_retries: int = Field(default=0, ge=0, le=1)
+    grounding_failure_policy: Literal[
+        "abstain",
+        "supported_claims",
+        "supported_claims_or_top_evidence",
+    ] = "abstain"
+    extractive_fallback_max_evidence: int = Field(default=1, ge=1, le=3)
+    salvage_rendering: Literal[
+        "verbatim",
+        "standalone",
+    ] = "verbatim"
+    prompt_schema_mode: Literal[
+        "json_schema",
+        "compact_example",
+        "plain_text_markers",
+    ] = "json_schema"
+    answer_style: Literal[
+        "concise_grounded",
+        "reference_complete",
+        "competition_reference",
+    ] = "concise_grounded"
 
     @field_validator("inactive_effect_statuses")
     @classmethod
@@ -361,6 +409,14 @@ class GenerationConfig(BaseModel):
         ):
             raise ValueError(
                 "extractive generator must not contain model backend settings"
+            )
+        if (
+            self.grounding_failure_policy
+            in {"supported_claims", "supported_claims_or_top_evidence"}
+            and self.max_grounding_repair_retries == 0
+        ):
+            raise ValueError(
+                "grounding recovery requires grounding repair"
             )
         return self
 

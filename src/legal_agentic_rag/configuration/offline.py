@@ -118,10 +118,30 @@ class EmbeddingConfig(BaseModel):
     expected_dimension: int = Field(default=384, gt=0)
     max_sequence_length: int = Field(default=512, gt=0)
     device: str = Field(default="cpu", min_length=1)
+    torch_dtype: Literal["float16", "bfloat16", "float32"] = "float32"
     local_files_only: bool = False
-    document_prefix: str = Field(default="passage:", min_length=1)
-    query_prefix: str = Field(default="query:", min_length=1)
+    document_prefix: str = "passage:"
+    query_prefix: str = "query:"
+    query_prompt_name: str | None = Field(default=None, min_length=1)
+    query_instruction: str | None = Field(default=None, min_length=1)
     normalize_embeddings: Literal[True] = True
+
+    @model_validator(mode="after")
+    def validate_query_prompt_policy(self) -> "EmbeddingConfig":
+        """Allow either a model-card prompt or one explicit query instruction."""
+        if (
+            self.query_prompt_name is not None
+            and self.query_instruction is not None
+        ):
+            raise ValueError(
+                "embedding query_prompt_name and query_instruction are mutually exclusive"
+            )
+        if (
+            self.device.casefold().startswith("cpu")
+            and self.torch_dtype != "float32"
+        ):
+            raise ValueError("CPU embedding requires float32")
+        return self
 
 
 class VectorIndexConfig(BaseModel):

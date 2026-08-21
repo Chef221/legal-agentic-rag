@@ -20,7 +20,7 @@ RuntimeLoader = Callable[[], tuple[Any, Any, Any]]
 
 
 class TransformersChatProvider:
-    """Run one pinned causal language model without exposing it to core code."""
+    """Run one pinned local chat model without exposing it to core code."""
 
     provider_name = "transformers"
 
@@ -50,17 +50,21 @@ class TransformersChatProvider:
         self.model_revision = config.model_revision
         self._device = config.device
         self._torch_dtype = config.torch_dtype
+        self._model_loader = config.model_loader
         self._local_files_only = config.local_files_only
         self._runtime_identity = (
             self.model_name,
             self.model_revision,
             self._device,
             self._torch_dtype,
+            self._model_loader,
             self._local_files_only,
         )
         self._max_input_tokens = config.max_input_tokens
         self._max_output_tokens = config.max_output_tokens
         self._temperature = config.temperature
+        self._repetition_penalty = config.repetition_penalty
+        self._no_repeat_ngram_size = config.no_repeat_ngram_size
         self._runtime_loader = runtime_loader or self._load_runtime
         self._runtime_is_shared = runtime_is_shared
         self._runtime: tuple[Any, Any, Any] | None = None
@@ -75,6 +79,7 @@ class TransformersChatProvider:
                 config.model_revision,
                 config.device,
                 config.torch_dtype,
+                config.model_loader,
                 config.local_files_only,
             )
             == self._runtime_identity
@@ -129,6 +134,8 @@ class TransformersChatProvider:
                 generation_options: dict[str, Any] = {
                     "max_new_tokens": self._max_output_tokens,
                     "do_sample": self._temperature > 0,
+                    "repetition_penalty": self._repetition_penalty,
+                    "no_repeat_ngram_size": self._no_repeat_ngram_size,
                 }
                 if self._temperature > 0:
                     generation_options["temperature"] = self._temperature
@@ -190,7 +197,11 @@ class TransformersChatProvider:
     def _load_runtime(self) -> tuple[Any, Any, Any]:
         try:
             import torch
-            from transformers import AutoModelForCausalLM, AutoTokenizer
+            from transformers import (
+                AutoModelForCausalLM,
+                AutoModelForMultimodalLM,
+                AutoTokenizer,
+            )
         except ImportError as error:
             raise BackendInitializationError(
                 "Transformers generation dependencies are unavailable"
@@ -204,7 +215,12 @@ class TransformersChatProvider:
                 local_files_only=self._local_files_only,
                 trust_remote_code=False,
             )
-            model = AutoModelForCausalLM.from_pretrained(
+            model_class = (
+                AutoModelForMultimodalLM
+                if self._model_loader == "image_text_to_text"
+                else AutoModelForCausalLM
+            )
+            model = model_class.from_pretrained(
                 self.model_name,
                 revision=self.model_revision,
                 local_files_only=self._local_files_only,

@@ -2140,7 +2140,233 @@ completion chỉ là structural gate. Official candidate còn phải qua post-ru
 quality gate đếm retrieval/generator errors, abstention, verification failures
 và exact ID coverage trước khi format submission.
 
-Chi tiết bằng chứng và workstream nằm tại:
+Historical evidence is preserved in this decision log. The active result and next
+work are now summarized in `docs/18-M491-PUBLIC-RESULT.md` and `HANDOFF.md`.
 
-- `docs/16-M43-BASELINE-POSTMORTEM.md`;
-- `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
+---
+
+## D090 — M45 Is a Separate Prompt-only Qwen3 Colab Candidate
+
+**Status:** Accepted for implementation; quality promotion pending measurement
+
+Theo yêu cầu người dùng, M45 triển khai một candidate mạnh hơn để rebuild từ
+`selected-contexts.zip` và chạy local trên Colab GPU. M45 không sửa, resume hoặc
+ghi đè artifacts/batch M43.1. Stack active được pin gồm Qwen3-Embedding-0.6B,
+Qwen3-Reranker-0.6B và Qwen3.5-2B; cả ba xuất hiện trong danh sách model BTC do
+người dùng cung cấp, chạy trực tiếp bằng weights local và không gọi API.
+
+Provider được mở rộng theo backend boundary thay vì hard-code model vào core:
+embedding hỗ trợ query prompt/instruction và prefix rỗng; cross-encoder hỗ trợ
+custom prompt cùng context 2.048; Transformers generator hỗ trợ loader
+`image_text_to_text` cho Qwen3.5 nhưng inference M45 chỉ dùng text. T4 dùng fp16.
+Giá trị config này được ánh xạ sang `AutoModelForMultimodalLM` theo model card chính
+thức; Transformers được pin ở `5.15.0`. Loader `AutoModelForImageTextToText` của
+Transformers 5.0.0 không ánh xạ đúng `qwen3_5` và đã gây lỗi khởi tạo generator
+trong smoke test Kaggle, nên không được dùng cho candidate M45.
+
+Official weight metadata tại các revision đã pin có payload khoảng 1,192 GB cho
+mỗi model 0.6B và 4,548 GB cho Qwen3.5-2B (bf16 storage), tương ứng xấp xỉ
+0,596B + 0,596B + 2,274B = 3,466B parameters. Tổng này dưới 4B; quantization
+không được dùng để thay đổi phép đếm. License của ba model là Apache-2.0. Hồ sơ
+đội vẫn phải giữ bằng chứng allowlist/registration gốc trước submission.
+
+M45 đồng thời bật hybrid rerank hữu hạn, diversity theo document/article, context
+6.144 token và output 512 token để xử lý các lỗi quan sát ở M43.1. Đây là một
+integrated candidate theo yêu cầu, không phải bằng chứng từng thành phần đều cải
+thiện. Không được gọi M45 là tốt hơn M43.1 trước ablation/evaluator và public score.
+Không fine-tune, không tạo synthetic supervision và semantic verifier model vẫn tắt.
+
+Smoke/public pilot 38 câu trên Kaggle ghi nhận 10 abstention, trong đó 30 claim
+cùng thất bại bởi `missing_inline_evidence` và `no_linked_evidence`: model đã khai
+báo citation nhưng không lặp marker sau từng câu. M45 vì vậy bỏ yêu cầu marker
+inline ở cấp câu, đồng thời giữ referential citation checks, numeric match và
+negation match. Batch sau thay đổi phải dùng output identity mới, không resume
+trộn với checkpoint trước thay đổi.
+
+---
+
+## D091 — M46 Reuses M45 Artifacts and Tunes Only the Online Answer Path
+
+**Status:** Accepted and measured; retained as the M47 control
+
+Control 200 câu được tạo từ `train.json` bằng split theo nhóm câu hỏi chuẩn hóa,
+được chấm trực tiếp bằng source scorer BTC. M45 đạt ROUGE-L `0.258831461359759`,
+METEOR `0.151953642792214`, có 30/200 abstention và answer trung bình 294 ký tự,
+trong khi gold trung bình 1.548 ký tự. 24 abstention đến từ citation verification;
+failed claims chủ yếu vi phạm numeric/negation hard checks chứ không phải lexical
+threshold thấp.
+
+M46 vì vậy giữ nguyên artifact M45 cùng ba model đã pin; không re-embed hoặc rebuild
+DB. Candidate chỉ thay online configuration và generation policy: tối đa 10 evidence,
+ba chunk mỗi document/hai chunk mỗi article, 1.024 output token và style
+`reference_complete`. Style này yêu cầu kết luận trực tiếp rồi trình bày đủ căn cứ,
+điều kiện, ngoại lệ, thủ tục, thời hạn, số liệu và hệ quả thật sự có trong evidence.
+
+M46 giữ nguyên numeric/negation/identity hard checks. Nếu draft đầu không qua rule
+verifier, cùng generator local được gọi lại đúng một lần với lỗi theo claim; không
+thêm model, API hoặc dữ liệu. Nếu bản sửa vẫn không hợp lệ, workflow tiếp tục
+fail-closed. M46 phải chạy trên đúng dev-200 control và chỉ được promotion nếu tăng
+METEOR, không làm lỗi/fallback xấu đi bất hợp lý và giữ compliance dưới 4B.
+
+Kết quả dev-200 đã đo: ROUGE-L `0.3261581049551429`, METEOR
+`0.23444507806536977`, 29/200 fallback và answer trung bình 569 ký tự. So với M45,
+delta lần lượt là `+0.06732664359538393`, `+0.08249143527315578` và `-1`
+fallback. Trong 29 fallback có 26 `citation_verification_failed`, hai
+`insufficient_context` và một `generator:model_error`. Trường
+`grounding_repair_count=2` của report cũ chỉ đếm repair xuất hiện trong response cuối;
+warning của repair không giải quyết được đã bị Agent bỏ khi tạo abstention nên không
+được diễn giải là M46 chỉ thử repair hai lần.
+
+---
+
+## D092 — M47 Salvages Only Verifier-supported Claims After Repair
+
+**Status:** Accepted for controlled dev evaluation; promotion pending measurement
+
+M47 giải quyết đúng ba nhánh fallback đo được của M46 mà không đổi model hoặc DB/index:
+
+- context thiếu có thêm route BM25 thứ ba, tổng retry vẫn bị chặn ở `max_retry=2`;
+- `ModelError` của provider được retry đúng một lần với cùng request;
+- bản repair được verifier kiểm tra ngay trong generator; nếu vẫn lỗi, hệ thống chỉ
+  giữ các `ClaimVerification.status=supported`, dựng lại marker/citation từ selected
+  evidence và bắt buộc verify lại.
+
+Salvage không được dùng claim unsupported, không sửa nội dung claim bằng suy đoán và
+không được bypass identity/numeric/negation checks. Không có claim supported hoặc bản
+salvage không qua verifier thì workflow vẫn abstain. Các setting này có default tắt để
+không thay đổi baseline/profile cũ. M47 dùng đúng scorer checksum, split manifest và
+dev sample ID của M46; promotion chỉ sau so sánh paired dev-200 và audit lỗi.
+
+---
+
+## D093 — M48 Uses Train-derived Style and Verified Extractive Recovery
+
+**Status:** Accepted, measured on paired dev-200 and promoted for public inference
+
+Official public M47 đạt ROUGE-L `0.36000416186559014` và METEOR
+`0.263395213251676`, so với M45 lần lượt là `0.284373543947699` và
+`0.17795610882031798`. Batch M47 đủ 1.000 ID nhưng còn 57 fallback, gồm 37
+citation-verification failure, 15 generator model error và các nhánh context/model
+insufficient nhỏ hơn. Salvage được áp dụng 76 lần; audit presentation phát hiện các
+fragment dạng orphan enumeration như `1 [E1]`.
+
+M48 không đổi DB/index, embedding, reranker, generator hoặc parameter inventory.
+Candidate thay đúng answer path:
+
+- style `competition_reference` được thiết kế từ aggregate của 7.000 official gold
+  answer và fixed dev-200; không đưa nội dung gold vào prompt/inference;
+- prompt dùng compact example của đúng bốn field thay full JSON Schema, giữ strict
+  parser/allowlist và tăng output bound từ 1.024 lên 1.536 token;
+- câu hỏi liệt kê/thủ tục, câu hỏi trực tiếp và câu hỏi chung nhận presentation plan
+  deterministic chỉ từ chính question text;
+- salvage `standalone` bỏ orphan list counter, bỏ fragment là câu hỏi và chỉ chuẩn
+  hóa chữ cái đầu; không thêm nội dung pháp lý;
+- khi provider vẫn lỗi sau bounded retry hoặc repair/salvage không tạo answer hợp lệ,
+  candidate trả nguyên văn top-1 selected evidence, gắn trusted citation,
+  `semantic_synthesis=false`, rồi bắt buộc đi qua identity verifier;
+- default của các policy mới giữ hành vi cũ: model failure vẫn abstain, grounding
+  failure vẫn abstain và salvage rendering vẫn verbatim.
+
+Extractive recovery được chấp nhận vì generic abstention gần như không có answer
+overlap, trong khi verbatim selected evidence vẫn official-only và grounded. Đây
+không phải semantic answer và warning/metadata phải phân biệt rõ để audit. Không được
+tăng số evidence fallback vượt giới hạn typed hoặc bỏ final verifier.
+
+Evaluation phải chạy M47 và M48 bằng cùng source tree, exact dev-200 IDs, scorer
+checksum và artifact M45. M48 chỉ đủ điều kiện chạy public khi METEOR paired tăng;
+public M47 không được dùng để chỉnh câu trả lời theo từng ID.
+
+Paired dev-200 đã xác nhận exact split/scorer identity. M48 đạt ROUGE-L
+`0.3660979621381608`, METEOR `0.26762720229432313` và 2/200 fallback, so với
+M47 là `0.3304165218171184`, `0.2341513827104324` và 14/200 fallback. Delta
+METEOR `+0.03347581958389073`, delta ROUGE-L `+0.035681440321042424` và
+fallback `-12`; promotion gate đạt. Public M48 phải giữ nguyên candidate này và
+dùng batch identity `m48-public-qwen3-v1`; mọi thay đổi quality tiếp theo thuộc
+M49 và phải quay lại dev evaluation.
+
+---
+
+## D094 — M49 Fine-tunes Only the Existing Generator on Official QA Labels
+
+**Status:** Accepted for implementation; training and dev promotion pending
+
+Public M48 đạt ROUGE-L `0.3631401334440235` và METEOR
+`0.2685876695455311`. Kết quả gần dev-200 M48 nhưng mức tăng so với M47 public
+chỉ nhỏ, trong khi public batch chỉ còn 10/1.000 fallback, không có
+`citation_verification_failed` hoặc `generator:model_error`. Nút thắt M49 vì vậy
+được xác định là supervised answer formulation/coverage thay vì tiếp tục nới
+fail-closed recovery.
+
+M49 giữ nguyên canonical corpus, artifact M45, embedding Qwen3-Embedding-0.6B,
+reranker Qwen3-Reranker-0.6B, retrieval, context selection, prompt M48 và
+deterministic verifier. Candidate chỉ fine-tune Qwen3.5-2B hiện có bằng 5.617
+question-answer record thuộc train partition của split group-safe D091. Dev 678
+và holdout 705 không đi vào optimizer; dev-200 identity tiếp tục là
+`694825b5961a90a284ad0364ac4f31a1a85f446519c92274a784c8e2be9a48ad`.
+
+Training dùng response-only causal-LM loss trên answer thật, QLoRA NF4 một epoch
+và checkpoint hữu hạn. Không tạo evidence/relevance label, không dùng public,
+không tạo synthetic sample và không đưa dữ liệu ngoài vào pipeline. Adapter sau
+training phải được merge vào base fp16 để final inference vẫn là một generator
+Qwen3.5-2B độc lập; quantization chỉ là kỹ thuật training và không được dùng để
+giảm parameter count khai báo. Artifact phải pin train checksum, split, seed,
+base revision, dependency versions, LoRA config và hash của adapter/merged model.
+
+Fine-tuned revision chưa mặc nhiên được coi là đã đăng ký với BTC. Không được chạy
+public/private chính thức trước khi kiểm tra yêu cầu cập nhật model registration.
+M49 chỉ được promotion nếu cùng official scorer/dev-200 cho METEOR cao hơn M48,
+fallback không vượt 5/200 và không có `generator:model_error`; nếu gate fail thì
+M48 vẫn là control.
+
+---
+
+## D095 — M49.1 Aligns Runtime Output with Official Answer-only SFT
+
+**Status:** Accepted and measured on the 1,000-question public batch
+
+Audit `results (5).jsonl` của M49 mới hoàn thành 70/200 câu, vì vậy không được
+dùng như một full-dev score. Audit này phát hiện 13/70 response có
+`generator_model_error_fallback`: M49 được SFT response-only trên answer văn xuôi
+chính thức nhưng runtime M49 vẫn bắt model sinh JSON bốn field. Đây là mismatch
+giữa training objective và inference contract, không phải bằng chứng retrieval
+M45 cần build lại.
+
+M49.1 giữ nguyên corpus, DB/index M45, embedding, reranker, generator weights M49,
+dev split và verifier. Thay đổi chỉ thuộc online generation:
+
+- mode `plain_text_markers` yêu cầu văn xuôi với marker `[E#]`, đúng kiểu answer
+  đã SFT; parser chỉ chấp nhận marker có trong evidence allowlist;
+- output không marker hoặc marker lạ vẫn fail closed và đi qua bounded recovery;
+- decoding deterministic thêm `repetition_penalty=1.08` và
+  `no_repeat_ngram_size=8` để giảm vòng lặp dài;
+- supported-claim salvage bỏ claim trùng exact-normalized;
+- prompt cấm diễn giải số cuối slug/URL/document title thành số hiệu văn bản.
+
+Không có gold answer, public answer hay rule theo question ID nào được đưa vào
+runtime. M49.1 không fine-tune lại, không tạo synthetic data và không thay model
+inventory. Candidate phải chạy exact dev-200 bằng scorer BTC; chỉ được chạy public
+khi METEOR tăng so với control, fallback không vượt 5/200 và không có
+`generator:model_error`.
+
+---
+
+## D096 — Retain M48/M49/M49.1 and Archive M46/M47 Executables
+
+**Status:** Accepted
+
+The repository retains M48 as the non-SFT control, M49 as the official-only SFT
+lineage and M49.1 as the best measured runtime. M45 remains mandatory offline
+infrastructure because all three profiles load its validated DB/index. Runnable
+M46/M47 notebooks, configs, reports and source packages are removed; their scores
+remain historical evidence in this document.
+
+Shared Kaggle dev/public mechanics must use neutral module names rather than
+importing retired milestone scripts. Official data, model weights, indexes,
+checkpoints and submissions are not source artifacts and must not be committed.
+
+M49.1 public-compatible scoring produced METEOR `0.382772249` and ROUGE-L
+`0.473653736`. Audit found 900 `generator_model_error_fallback` records caused by
+the remaining answer-only-SFT versus evidence-marker runtime mismatch. Because the
+deterministic top-evidence fallback materially contributed to the measured score,
+future work must preserve M49.1 as a control and cannot remove fallback based only
+on warning counts.

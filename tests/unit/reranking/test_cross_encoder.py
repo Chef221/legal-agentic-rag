@@ -129,6 +129,37 @@ def test_text_only_reranker_input_mode_preserves_reference_pair() -> None:
     ]
 
 
+def test_qwen_reranker_loader_receives_pinned_custom_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider passes a legal retrieval instruction through its adapter."""
+    captured: dict[str, object] = {}
+
+    def fake_cross_encoder(model_name: str, **options: object) -> _FixtureModel:
+        captured["model_name"] = model_name
+        captured.update(options)
+        return _FixtureModel([0.5])
+
+    monkeypatch.setattr(
+        "sentence_transformers.CrossEncoder",
+        fake_cross_encoder,
+    )
+    config = RerankerConfig(
+        prompt_name="legal_retrieval",
+        instruction="Given a Vietnamese legal question, rank relevant passages.",
+    )
+
+    CrossEncoderReranker._load_cross_encoder(config)
+
+    assert captured["prompts"] == {
+        "legal_retrieval": (
+            "Given a Vietnamese legal question, rank relevant passages."
+        )
+    }
+    assert captured["default_prompt_name"] == "legal_retrieval"
+    assert captured["model_kwargs"] == {"torch_dtype": "float32"}
+
+
 def test_legal_context_builder_uses_only_named_unified_metadata() -> None:
     """Arbitrary metadata and URLs do not enter the cross-encoder text."""
     value = build_legal_rerank_text(_hit("scope", 1))

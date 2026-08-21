@@ -32,20 +32,61 @@ def build_answer_generator(
     config: GenerationConfig,
     *,
     provider: ChatModelProvider | None = None,
+    claim_config: ClaimVerificationConfig | None = None,
 ) -> AnswerGenerator:
     """Build only the explicitly configured grounded generator."""
     if config.backend == "extractive":
         return ExtractiveAnswerGenerator()
     if config.backend == "transformers":
+        grounding_verifier = (
+            RuleBasedCitationVerifier(
+                claim_config or ClaimVerificationConfig()
+            )
+            if config.max_grounding_repair_retries
+            or config.grounding_failure_policy
+            in {"supported_claims", "supported_claims_or_top_evidence"}
+            else None
+        )
         return ModelBackedAnswerGenerator(
             provider or TransformersChatProvider(config),
             max_structured_output_retries=(
                 config.max_structured_output_retries
             ),
+            max_model_error_retries=config.max_model_error_retries,
+            model_failure_policy=config.model_failure_policy,
+            answer_style=config.answer_style,
+            prompt_schema_mode=config.prompt_schema_mode,
+            grounding_verifier=grounding_verifier,
+            max_grounding_repair_retries=(
+                config.max_grounding_repair_retries
+            ),
+            grounding_failure_policy=config.grounding_failure_policy,
+            extractive_fallback_max_evidence=(
+                config.extractive_fallback_max_evidence
+            ),
+            salvage_rendering=config.salvage_rendering,
         )
+    grounding_verifier = (
+        RuleBasedCitationVerifier(claim_config or ClaimVerificationConfig())
+        if config.max_grounding_repair_retries
+        or config.grounding_failure_policy
+        in {"supported_claims", "supported_claims_or_top_evidence"}
+        else None
+    )
     return ModelBackedAnswerGenerator(
         provider or OpenAICompatibleChatProvider(config),
         max_structured_output_retries=config.max_structured_output_retries,
+        max_model_error_retries=config.max_model_error_retries,
+        model_failure_policy=config.model_failure_policy,
+        answer_style=config.answer_style,
+        prompt_schema_mode=config.prompt_schema_mode,
+        grounding_verifier=grounding_verifier,
+        max_grounding_repair_retries=config.max_grounding_repair_retries,
+        grounding_failure_policy=config.grounding_failure_policy,
+        extractive_fallback_max_evidence=(
+            config.extractive_fallback_max_evidence
+        ),
+        salvage_rendering=config.salvage_rendering,
     )
 
 
@@ -98,6 +139,7 @@ def build_generation_components(
         build_answer_generator(
             generation_config,
             provider=answer_provider,
+            claim_config=claim_config,
         ),
         build_citation_verifier(
             claim_config,

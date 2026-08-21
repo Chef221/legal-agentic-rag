@@ -28,6 +28,8 @@ def _config(**updates: object) -> GenerationConfig:
         "torch_dtype": "float32",
         "max_input_tokens": 16,
         "max_output_tokens": 32,
+        "repetition_penalty": 1.08,
+        "no_repeat_ngram_size": 8,
     }
     payload.update(updates)
     return GenerationConfig.model_validate(payload)
@@ -110,6 +112,8 @@ def test_provider_builds_chat_prompt_and_decodes_only_generated_tokens() -> None
     ]
     assert model.options["do_sample"] is False
     assert model.options["max_new_tokens"] == 32
+    assert model.options["repetition_penalty"] == 1.08
+    assert model.options["no_repeat_ngram_size"] == 8
     assert model.options["pad_token_id"] == 0
 
 
@@ -191,3 +195,44 @@ def test_provider_rejects_incompatible_runtime_sharing() -> None:
     assert provider.can_share_runtime_with(incompatible) is False
     with pytest.raises(BackendInitializationError, match="incompatible"):
         provider.with_shared_runtime(incompatible)
+
+
+def test_provider_selects_image_text_loader_for_qwen35_text_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A multimodal model class can be loaded while inference remains text-only."""
+    import transformers
+
+    calls: list[str] = []
+
+    class _Loader:
+        @staticmethod
+        def from_pretrained(model_name: str, **options: object) -> object:
+            calls.append(model_name)
+            if len(calls) == 1:
+                return _Tokenizer()
+
+            class _LoadedModel:
+                def to(self, device: str) -> None:
+                    assert device == "cpu"
+
+                def eval(self) -> None:
+                    return None
+
+            return _LoadedModel()
+
+    monkeypatch.setattr(transformers, "AutoTokenizer", _Loader)
+    monkeypatch.setattr(
+        transformers,
+        "AutoModelForMultimodalLM",
+        _Loader,
+        raising=False,
+    )
+    provider = TransformersChatProvider(
+        _config(model_loader="image_text_to_text")
+    )
+
+    _, tokenizer, _ = provider._load_runtime()
+
+    assert isinstance(tokenizer, _Tokenizer)
+    assert calls == ["fixture-model", "fixture-model"]

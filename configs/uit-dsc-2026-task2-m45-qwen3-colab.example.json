@@ -1,6 +1,6 @@
 {
   "artifacts": {
-    "root_path": "/kaggle/working/uit-dsc-2026-task2-serving-v0430"
+    "root_path": "/content/uit-dsc-2026-task2-m45-artifacts"
   },
   "competition": {
     "competition_id": "uit-dsc-2026-task2",
@@ -13,15 +13,21 @@
   },
   "offline": {
     "embedding": {
-      "model_name": "intfloat/multilingual-e5-small",
-      "model_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
-      "expected_dimension": 384,
-      "max_sequence_length": 512,
+      "model_name": "Qwen/Qwen3-Embedding-0.6B",
+      "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "expected_dimension": 1024,
+      "max_sequence_length": 2048,
       "device": "cuda",
+      "torch_dtype": "float16",
       "local_files_only": false,
-      "document_prefix": "passage:",
-      "query_prefix": "query:",
+      "document_prefix": "",
+      "query_prefix": "",
+      "query_instruction": "Instruct: Given a Vietnamese legal question, retrieve authoritative legal passages that directly answer it, preserving conditions, exceptions, scope, authority, deadlines and amounts.\nQuery:",
       "normalize_embeddings": true
+    },
+    "vector_index": {
+      "embedding_batch_size": 8,
+      "checkpoint_interval_batches": 50
     },
     "chunking": {
       "max_tokens": 448,
@@ -33,17 +39,18 @@
   },
   "online": {
     "retrieval": {
-      "top_k": 8,
-      "candidate_k": 60,
-      "default_strategy": "hybrid",
-      "timeout_seconds": 180.0
+      "top_k": 10,
+      "candidate_k": 40,
+      "default_strategy": "hybrid_rerank",
+      "rrf_constant": 60,
+      "timeout_seconds": 240.0
     },
     "startup_validation": {
       "mode": "validated_report"
     },
     "vector_runtime": {
       "prefer_serving_metadata": true,
-      "require_serving_metadata": true,
+      "require_serving_metadata": false,
       "search_device": "cuda",
       "device_transfer_batch_size": 32768
     },
@@ -53,37 +60,53 @@
       "adaptive_routing_enabled": true,
       "max_variants": 3
     },
+    "reranker": {
+      "model_name": "Qwen/Qwen3-Reranker-0.6B",
+      "model_revision": "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+      "device": "cuda",
+      "torch_dtype": "float16",
+      "batch_size": 4,
+      "max_length": 2048,
+      "max_candidates": 40,
+      "local_files_only": false,
+      "input_mode": "legal_context",
+      "prompt_name": "vietnamese_legal_retrieval",
+      "instruction": "Given a Vietnamese legal question, rank authoritative legal passages by whether they directly answer the requested relation, scope, conditions, exceptions, authority, deadlines and amounts."
+    },
     "evidence_selection": {
       "enabled": true,
-      "reference_match_boost": 2.0,
+      "reference_match_boost": 3.0,
       "lexical_overlap_weight": 1.0,
-      "inactive_penalty": 2.0
+      "inactive_penalty": 2.0,
+      "max_per_document": 2,
+      "max_per_article": 1
     },
     "claim_verification": {
       "enabled": true,
-      "require_inline_citations": true,
-      "minimum_lexical_support": 0.25,
+      "require_inline_citations": false,
+      "minimum_lexical_support": 0.2,
       "minimum_claim_tokens": 2,
       "require_numeric_match": true,
       "require_negation_match": true,
-      "max_claims": 20
+      "max_claims": 30
     },
     "semantic_verification": {
       "backend": "disabled"
     },
     "generation": {
-      "max_context_tokens": 3072,
-      "max_evidence": 5,
-      "timeout_seconds": 180.0,
+      "max_context_tokens": 6144,
+      "max_evidence": 8,
+      "timeout_seconds": 240.0,
       "backend": "transformers",
-      "model_name": "Qwen/Qwen2.5-3B-Instruct",
-      "model_revision": "a1d308dfcc03e09da285d49d912439a655a571e8",
+      "model_name": "Qwen/Qwen3.5-2B",
+      "model_revision": "15852e8c16360a2fea060d615a32b45270f8a8fc",
       "device": "cuda",
       "torch_dtype": "float16",
+      "model_loader": "image_text_to_text",
       "local_files_only": false,
-      "max_input_tokens": 6144,
+      "max_input_tokens": 8192,
       "temperature": 0.0,
-      "max_output_tokens": 256,
+      "max_output_tokens": 512,
       "max_structured_output_retries": 1
     },
     "context_grading": {
@@ -92,9 +115,9 @@
       "require_article_number": false
     },
     "agent": {
-      "max_retry": 2,
-      "strategy_order": ["hybrid"],
-      "rewrite_query_on_retry": false
+      "max_retry": 1,
+      "strategy_order": ["hybrid_rerank", "hybrid"],
+      "rewrite_query_on_retry": true
     }
   },
   "build_validation": {
@@ -116,8 +139,8 @@
   },
   "evaluation": {
     "cutoffs": [1, 5, 10],
-    "strategy": "hybrid",
-    "candidate_k": 60,
+    "strategy": "hybrid_rerank",
+    "candidate_k": 40,
     "run_generation": true
   }
 }

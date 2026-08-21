@@ -1,76 +1,76 @@
-# Vietnamese Legal Agentic RAG
+# Vietnamese Legal RAG — UIT DSC 2026 Task 2
 
-Hệ thống Retrieval-Augmented Generation cho UIT Data Science Challenge 2026,
-Task 2 — Legal Question Answering.
+Hệ thống RAG trả lời câu hỏi pháp luật Việt Nam bằng dữ liệu chính thức của UIT
+Data Science Challenge 2026 Task 2.
 
-## Trạng thái
+## Trạng thái hiện tại
 
-Baseline hiện tại là **M43.1 — Qwen3B public baseline**, code version `0.43.1`.
-Hệ thống đã build official-only BM25/vector artifacts, chạy đủ 1.000 câu public,
-tạo submission hợp lệ và được Codabench chấm:
+- Candidate tốt nhất đã đo: **M49.1**.
+- Public-compatible score: **METEOR `0.382772249`**, **ROUGE-L `0.473653736`**.
+- Control còn giữ: **M48** — METEOR `0.2685876695`, ROUGE-L `0.3631401334`.
+- M49 là generator Qwen3.5-2B được fine-tune bằng official `train.json`; M49.1 dùng
+  chính weights đó với runtime policy mới.
+- M48/M49/M49.1 dùng chung DB/index M45 đã build từ canonical
+  `selected-contexts.zip`.
 
-- METEOR: `0.07862292376534387`;
-- ROUGE-L: `0.16735433212043324`;
-- 1.000/1.000 ID, không answer rỗng;
-- 425 abstention, 384 citation-verification failure và 33 generator model error.
+Thành viên mới bắt đầu tại
+[`docs/00-START-HERE.md`](docs/00-START-HERE.md), sau đó đọc
+[`HANDOFF.md`](HANDOFF.md). Kết quả và audit M49.1 nằm tại
+[`docs/18-M491-PUBLIC-RESULT.md`](docs/18-M491-PUBLIC-RESULT.md).
 
-Đây là baseline vận hành hoàn chỉnh nhưng chất lượng còn yếu. Thành viên mới
-phải bắt đầu tại [`docs/00-START-HERE.md`](docs/00-START-HERE.md), sau đó đọc:
+## Pipeline
 
-- [`docs/16-M43-BASELINE-POSTMORTEM.md`](docs/16-M43-BASELINE-POSTMORTEM.md)
-  để hiểu score, lỗi và root cause;
-- [`docs/17-TEAM-IMPROVEMENT-BACKLOG.md`](docs/17-TEAM-IMPROVEMENT-BACKLOG.md)
-  để nhận workstream;
-- [`docs/12-TEAM-ONBOARDING.md`](docs/12-TEAM-ONBOARDING.md) và
-  [`docs/14-SYSTEM-ARCHITECTURE-REFERENCE.md`](docs/14-SYSTEM-ARCHITECTURE-REFERENCE.md)
-  để hiểu package, I/O và kiến trúc as-built.
+```text
+selected-contexts.zip
+  -> audit + normalize + legal chunking
+  -> BM25 + dense vector + graph artifacts (M45)
 
-Repository giữ lại core độc lập dữ liệu:
+question
+  -> BM25/dense retrieval
+  -> RRF + Qwen3 reranker
+  -> bounded context selection
+  -> Qwen3.5-2B generation
+  -> deterministic grounding/citation checks
+  -> answer-only submission.json
+```
 
-- unified legal schemas;
-- cleaning, legal structure parsing và chunking;
-- BM25, dense retrieval, RRF, reranking và bounded graph retrieval;
-- context selection, grounded answer generation và citation verification;
-- deterministic Agent workflow;
-- FastAPI/UI;
-- evaluation, reproducibility và regression gates.
+M49 adds official-only response SFT. M49.1 aligns online output/repetition policy
+while retaining M45 retrieval, M48 recovery and M49 weights.
 
-Active data policy là `competition_only`. Runtime chỉ chấp nhận artifact có
-lineage `uit-dsc-2026-task2-selected-contexts`. Corpus, index và config cũ từ
-nguồn ngoài BTC không còn được hỗ trợ.
+## Retained Kaggle workflows
 
-## Dữ liệu BTC đã biết
+- M45 artifact build: `notebooks/M45_KAGGLE_01_BUILD_DB.ipynb`.
+- M48 dev/public control: `notebooks/M48_KAGGLE_01_DEV_EVAL.ipynb` and
+  `notebooks/M48_KAGGLE_02_PUBLIC_SUBMISSION.ipynb`.
+- M49 training/dev: `notebooks/M49_KAGGLE_01_TRAIN_GENERATOR.ipynb` and
+  `notebooks/M49_KAGGLE_02_DEV_EVAL.ipynb`.
+- M49.1 dev/public: `notebooks/M491_KAGGLE_01_DEV_EVAL.ipynb` and
+  `notebooks/M491_KAGGLE_02_PUBLIC_SUBMISSION.ipynb`.
 
-Các file thật đã xác nhận:
+Các script dùng chung nằm tại `notebooks/kaggle_candidate_dev_common.py` và
+`notebooks/kaggle_public_submission_common.py`. M46/M47 không còn là executable
+candidate trong repository.
 
-- `warmup.json`, `train.json`, `public-official.json`;
-- `selected-contexts.zip` chứa các file `context_*.json`;
-- mỗi context có raw fields bắt buộc `id`, `link`, `passage`; `name` optional;
-- input là câu hỏi pháp luật tiếng Việt;
-- output là câu trả lời văn xuôi tiếng Việt;
-- METEOR là metric chính và ROUGE-L là metric phụ.
+Sau khi commit source sạch, tạo ZIP riêng để upload Kaggle bằng
+`python scripts/package_kaggle_source.py m491` (hoặc `m48`, `m49`). File sinh ra
+trong `dist/` và không được commit.
 
-Contract dữ liệu và checklist audit trước official build được ghi tại
-[`docs/13-UIT-DSC-2026-DATA-CONTRACT.md`](docs/13-UIT-DSC-2026-DATA-CONTRACT.md).
-Ví dụ BTC dùng numeric context ID và passage có nguyên văn xuống dòng/Unicode;
-adapter phải xử lý kiểu raw, còn core tiếp tục dùng unified string ID.
+## Quy định dữ liệu và model
 
-Contract scorer chính thức, checksum, tokenizer, aggregation và khác biệt với
-local evaluator nằm tại
-[`docs/15-OFFICIAL-SCORING-CONTRACT.md`](docs/15-OFFICIAL-SCORING-CONTRACT.md).
+- Chỉ dùng dữ liệu chính thức BTC: `selected-contexts.zip`, `train.json`,
+  `warmup.json` và test chính thức.
+- Không dùng external corpus, synthetic QA/evidence, model API hoặc chỉnh tay đáp
+  án public.
+- Tổng tham số mọi model trong hệ thống phải dưới 4 tỷ. Inventory hiện tại khoảng
+  3.466B.
+- Fine-tuning chỉ dùng partition train của split chống leakage; dev/holdout không
+  đi vào optimizer.
+- Submission phải là `submission.zip` chứa duy nhất UTF-8 `submission.json` dạng
+  object `question_id -> {"answer": string}`.
 
-Raw field names của BTC chỉ nằm trong
-`legal_agentic_rag.competition.uit_dsc_2026`.
-
-BTC xác nhận chỉ được dùng dữ liệu chính thức, cấm synthetic data kể cả sinh từ
-dữ liệu BTC, cho phép preprocessing/indexing/retrieval/fine-tuning trên dữ liệu
-chính thức, và chỉ cho phép model đã đăng ký/được duyệt. Ba model baseline E5,
-mMARCO MiniLM reranker và Qwen2.5-3B đã được người dùng xác nhận BTC duyệt; bằng
-chứng duyệt gốc phải được giữ trong hồ sơ đội. Private test tối đa 3
-submission/ngày, và Top 7
-phải cung cấp Docker image cùng mã nguồn MIT. Quy trình chi tiết, model approval
-register và các điểm cần BTC làm rõ nằm trong
-`docs/11-COMPETITION-COMPLIANCE.md`.
+Xem `AGENTS.md`, `docs/11-COMPETITION-COMPLIANCE.md`,
+`docs/13-UIT-DSC-2026-DATA-CONTRACT.md` và
+`docs/15-OFFICIAL-SCORING-CONTRACT.md` trước khi thay đổi pipeline.
 
 ## Cài đặt phát triển
 
@@ -79,138 +79,21 @@ python -m pip install -e ".[dev]"
 python -m pytest
 ```
 
-Python tối thiểu: 3.11.
+Python tối thiểu: 3.11. Unit test mặc định không tải model lớn và không gọi mạng.
 
-## Configuration
-
-File mẫu:
-
-```text
-configs/baseline.example.json
-```
-
-File này không chứa đường dẫn dataset hay artifact thật. Để chạy online, cần
-một config local trỏ tới artifact BTC đã build và validated. Không commit
-config chứa secret hoặc đường dẫn nhạy cảm.
-
-## CLI hiện có
+## CLI chính
 
 ```text
 legal-rag-build-competition
+legal-rag-prepare-serving
 legal-rag-batch
 legal-rag-submit
 legal-rag-score-warmup
 legal-rag-validate
-legal-rag-prepare-serving
-legal-rag-serve
-legal-rag-evaluate
-legal-rag-compare
 ```
 
-Build CLI nhận ZIP/thư mục context chính thức, persist theo stage và
-resume khi source/config/code identity khớp. Có thể dừng ngay sau parser/chunker
-mà không khởi tạo embedding model hoặc build index:
+## Không đưa lên Git
 
-```text
-legal-rag-build-competition \
-  --config <config.json> \
-  --source <selected-contexts.zip> \
-  --through document_processing
-```
-
-Lần chạy sau với cùng source, config, code version và không truyền `--through`
-sẽ xác minh blocks/chunks đã persist rồi resume BM25, vector và validation.
-Batch CLI ghi output nội bộ có
-checkpoint và completeness manifest. Tạo file nộp sau khi batch hoàn tất bằng:
-
-```text
-legal-rag-submit --questions <questions.json> --batch <batch-directory> --output <path>/submission.zip
-```
-
-Lệnh này không chạy model. Nó xác minh checksum, số lượng và thứ tự ID rồi tạo
-ZIP tái tạo được, chứa duy nhất UTF-8 `submission.json`. Root là object ánh xạ
-`id` sang `{"answer": string}` theo đúng scorer Codabench thực tế. Các marker
-citation nội bộ đã được xác minh như `[E1]` bị loại khỏi answer nộp, nhưng vẫn
-được giữ trong batch nội bộ.
-
-Khi benchmark có `reference_answer`, evaluator báo local diagnostic `meteor` và
-`rouge_l`. Source BTC xác nhận METEOR dùng whitespace tokens + NLTK defaults,
-ROUGE-L dùng vendored ASCII-only default tokenizer và cả hai được macro mean;
-PyVi không chạy. Local score vẫn chưa tương đương official vì dùng tokenizer và
-METEOR matching khác. Scorer ZIP cũng chưa pin exact NLTK/WordNet versions.
-
-Chấm trực tiếp một bài nộp trên warm-up có đáp án:
-
-```text
-legal-rag-score-warmup \
-  --references <warmup.json> \
-  --submission <submission.zip> \
-  --output <new-report-directory>
-```
-
-Lệnh không cần GPU, model hay index. Report không lưu nội dung câu hỏi, gold
-answer hoặc prediction.
-
-`legal-rag-submit` và `legal-rag-score-warmup` dùng entry point competition nhẹ,
-không import FastAPI/Uvicorn hoặc khởi tạo serving runtime.
-
-## Compliance và Docker
-
-- `LICENSE`: source license MIT theo yêu cầu công khai mã nguồn;
-- `Dockerfile`: CPU reproducibility scaffold chạy non-root và không chứa data,
-  model, artifact hoặc secret;
-- `.dockerignore`: chặn các file competition/local lớn khỏi build context;
-- `constraints/competition-direct.txt`: pin direct Python dependencies cho
-  image M31, chưa phải transitive lock;
-- `docs/templates/`: Data Statement, Model Card, private-submission checklist
-  và submission ledger.
-
-GPU image, model weights và final reproduction command chỉ được chốt sau khi
-BTC xác nhận hạ tầng và model được phép sử dụng.
-
-## Ranh giới competition
-
-```text
-Official BTC JSON
-→ UIT DSC 2026 adapter
-→ typed competition records
-→ unified legal schema
-→ reusable core pipeline
-→ competition answer/output adapter
-```
-
-`UitDsc2026DataLoader` hiện hỗ trợ:
-
-- question mapping có hoặc không có reference answer;
-- `context_*.json` theo fields BTC đã mô tả;
-- duplicate JSON key detection;
-- unknown/missing field rejection;
-- duplicate context ID rejection;
-- đọc trực tiếp ZIP hoặc thư mục đã giải nén;
-- canonical corpus SHA-256 không phụ thuộc ZIP packaging;
-- mapping context sang unified `LegalDocument`;
-- audit cùng normalized/cleaned manifests;
-- canonicalize raw integer/string ID sang string;
-- giữ raw passage ở normalized artifact và làm sạch có kiểm soát bằng policy
-  được pin trong cleaned manifest.
-
-Loader không tự tải dữ liệu, không tạo index và không suy đoán submission
-format.
-
-## Việc còn lại
-
-Baseline không cần được một người tiếp tục “hoàn thiện hết” trước khi cả đội
-tham gia. Các việc ưu tiên hiện tại là:
-
-- chốt leakage-safe train/dev protocol và official-compatible evaluator;
-- phân tích retrieval theo branch và benchmark approved reranker;
-- sửa context selection vì 100% câu chạm budget;
-- tăng answer coverage nhưng vẫn giữ grounding;
-- giảm generic abstention bằng claim-level repair/fallback có kiểm chứng;
-- chỉ sau đó mới fine-tune bằng official train data.
-
-Chi tiết đầu vào, metric, file cần sửa và tiêu chí nghiệm thu của từng nhánh nằm
-trong `docs/17-TEAM-IMPROVEMENT-BACKLOG.md`.
-
-Không commit full dataset, model checkpoint, BM25/vector/graph artifact, log,
-cache hoặc token.
+Không commit full dataset, scorer archive, source ZIP đóng gói, model weights,
+BM25/vector/graph artifacts, Kaggle checkpoint, `submission.zip`, cache, log hoặc
+secret. Repository chỉ giữ code, config, notebook, test, tài liệu và fixture nhỏ.

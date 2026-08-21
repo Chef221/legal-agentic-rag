@@ -1,181 +1,124 @@
-# 11. Competition Compliance and Reproducibility
+# Competition compliance and reproducibility
 
-## 1. Status and source identity
+## 1. Source-of-truth policy
 
-Tài liệu này ghi lại các điều khoản BTC được người dùng cung cấp ngày
-2026-08-01. Bản text được đối chiếu có SHA-256:
+This document summarizes organizer rules already captured by the project. It does
+not replace the organizer's original rules, email, Form or registration evidence.
+Whenever BTC publishes an update, archive the exact source and review this file,
+`AGENTS.md`, the data contract and scoring contract before changing the pipeline.
+
+## 2. Data rules
+
+- Use only official BTC data.
+- Do not manually label or import external legal/QA data.
+- Do not create synthetic QA, answers, evidence, hard negatives or training
+  examples, even from official data.
+- `warmup.json` and `train.json` provide answer-level supervision, not retrieval
+  relevance labels.
+- Public answers cannot be used for training or question-ID-specific rules.
+- Every raw input goes through the UIT DSC adapter.
+- Every persisted artifact records dataset identity, revision, config hash and code
+  version.
+- Official data, artifacts and submissions are not committed to Git.
+
+## 3. Model and API rules
+
+- No model API or intermediate AI product may be used.
+- Models must be downloaded, run and controlled directly by the team.
+- Exact model name, URL, immutable revision, license, role and parameter count must
+  be recorded.
+- Registration/approval evidence must be retained outside Git when it contains
+  private team information.
+- A fine-tuned revision may require a registration update; do not infer approval
+  from approval of its base model.
+- Changing the embedding model/revision requires re-embedding and rebuilding the
+  vector index.
+
+### Current retained inventory
+
+| Role | Exact model/revision | Approx. parameters | Registration evidence |
+|---|---|---:|---|
+| Embedding | `Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | 0.6B | must be verified against team/BTC records |
+| Reranker | `Qwen/Qwen3-Reranker-0.6B@e61197ed45024b0ed8a2d74b80b4d909f1255473` | 0.6B | must be verified against team/BTC records |
+| Generator base | `Qwen/Qwen3.5-2B@15852e8c16360a2fea060d615a32b45270f8a8fc` | 2.266B | must be verified against team/BTC records |
+| M49 merged generator | local fine-tuned revision `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b` | same generator architecture | confirm whether a new registration entry is required |
+
+Approximate active total: 3.466B parameters. BM25, RRF, deterministic parsing and
+rule-based verification have no learned parameters. No model-based semantic
+verifier is enabled in retained competition configs.
+
+### Parameter-budget gate
+
+- Combined original parameters of every active model must be below 4B.
+- Count embedding, reranker, generator, model-based grader/verifier and any helper
+  model.
+- Quantization, pruning storage or LoRA does not reduce the declared original
+  parameter count.
+- Unknown parameter evidence or total `>= 4_000_000_000` blocks an official run.
+
+## 4. Fine-tuning rules
+
+M49 uses only the 5,617-record train partition of the frozen normalized-question
+group split. The 678 dev and 705 holdout records do not enter the optimizer. Public
+questions do not enter training. QLoRA is a training-memory technique; final model
+inventory is still the original Qwen3.5-2B architecture.
+
+Training artifacts must record official train hash, split identity, seed, base
+revision, dependency versions, LoRA config, checkpoint identity and merged-tree
+hash.
+
+## 5. Submission governance
+
+- Use the audited formatter; never submit internal `results.jsonl`.
+- `submission.zip` contains only UTF-8 `submission.json`.
+- Root shape is `question_id -> {"answer": string}`.
+- Validate exact ID set/order, non-empty answers and archive membership.
+- Record source, batch, config, code and final ZIP hashes in the private ledger.
+- Respect the organizer's current daily submission limit.
+- Do not alter predictions to work around scorer infrastructure errors.
+
+Official scorer source SHA-256:
 
 ```text
-c88b2eec6bccf2bc809e0b7982cbe113c56928671f99c7acb5e741fc310091be
+4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891
 ```
 
-Checksum chỉ định danh bản thể lệ đã đọc, không thay thế URL hay văn bản chính
-thức của BTC. Khi BTC cập nhật thể lệ, phải lưu bản mới, checksum mới và rà
-soát lại tài liệu này trước khi thay đổi pipeline.
+The inspected scorer uses whitespace-tokenized NLTK METEOR, vendored
+ASCII-tokenized ROUGE-L and arithmetic macro mean. See
+`docs/15-OFFICIAL-SCORING-CONTRACT.md`.
 
-Email phản hồi chính thức tiếp theo của BTC ngày 2026-08-01 xác nhận model
-registration, official-only data, synthetic-data prohibition, Codabench và phạm
-vi kỹ thuật được phép. Nội dung email phải được lưu cùng hồ sơ đội; tài liệu này
-ghi lại quyết định nhưng không thay thế email gốc.
+## 6. Reproducibility package
 
-Thông báo chung tiếp theo của BTC xác nhận giới hạn tổng tham số dưới 4 tỷ, cấm
-mọi API, cho phép pretrained/distilled model phù hợp, xác định dữ liệu pretraining
-không phải external data trực tiếp, và cho phép nhiều hình thức đóng gói tái lập.
-Thông báo gốc vẫn phải được lưu trong hồ sơ đội.
+A release candidate must include or reference:
 
-## 2. Ràng buộc dữ liệu bắt buộc
+- Git commit and source license;
+- exact config and hash;
+- official input hashes and corpus revision;
+- artifact manifests/checksums;
+- model inventory and registration evidence;
+- environment (`pip freeze`, OS, CUDA, driver, GPU, seeds);
+- exact execution commands;
+- result/submission hashes and quality report;
+- Data Statement, Model Card and submission ledger.
 
-- Chỉ dùng dữ liệu chính thức do BTC phát hành.
-- Không gán nhãn thủ công.
-- Không thu thập corpus hoặc QA data bên ngoài.
-- Không dùng data augmentation từ nguồn bên ngoài.
-- Không tạo synthetic data, kể cả khi sinh hoàn toàn từ dữ liệu BTC. Lệnh cấm
-  bao gồm synthetic QA, answer, evidence, hard negative và training example.
-- Không dùng artifact/index có lineage AIO hoặc corpus ngoài BTC.
-- Warm-up answer chỉ là supervision/evaluation chính thức; không được dùng làm
-  prediction cho chính case đang được đánh giá hoặc giả lập relevance label.
-- Dữ liệu BTC, artifact lớn và submission thật không được commit vào Git.
+Templates:
 
-Mọi input phải qua adapter UIT DSC 2026 và mọi artifact phải ghi dataset name,
-revision/checksum, config hash và code version.
-
-## 3. Model registration gate
-
-BTC yêu cầu mọi model phải đăng ký tên và URL chính thức qua Google Form; chỉ
-model được BTC duyệt mới được dùng. Người dùng đã xác nhận ba model baseline ở
-bảng dưới đã được duyệt. Repository vẫn áp dụng fail-closed:
-
-1. model candidate không đồng nghĩa model được phép thi;
-2. không chạy official competition batch bằng model có trạng thái approval
-   `pending` hoặc `unknown`;
-3. registration record phải ghi model ID, URL, immutable revision, license, mục
-   đích, parameter count có bằng chứng, dữ liệu huấn luyện công bố bởi model
-   author và ngày gửi Form;
-4. chỉ đổi trạng thái thành `registered`/`approved` khi có bằng chứng chính thức
-   phù hợp hướng dẫn Form;
-5. đổi embedding model yêu cầu rebuild toàn bộ vector index.
-
-### Candidate register
-
-| Thành phần | Candidate và revision | License | BTC registration | Trạng thái |
-|---|---|---|---|---|
-| Embedding | `intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3` | MIT theo model card tại revision | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt |
-| Reranker | `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1@1427fd652930e4ba29e8149678df786c240d8825` | Apache-2.0 theo model card tại revision | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt |
-| Generator | `Qwen/Qwen2.5-3B-Instruct@a1d308dfcc03e09da285d49d912439a655a571e8` | `qwen-research` tùy chỉnh | Người dùng xác nhận BTC đã duyệt | Được dùng theo đúng revision/role đã duyệt; vẫn giữ license evidence |
-
-Nguồn model card theo exact revision:
-
-- <https://huggingface.co/intfloat/multilingual-e5-small/tree/614241f622f53c4eeff9890bdc4f31cfecc418b3>;
-- <https://huggingface.co/cross-encoder/mmarco-mMiniLMv2-L12-H384-v1/tree/1427fd652930e4ba29e8149678df786c240d8825>;
-- <https://huggingface.co/Qwen/Qwen2.5-3B-Instruct/tree/a1d308dfcc03e09da285d49d912439a655a571e8>.
-
-Xác nhận trong repository không thay thế email/Form/spreadsheet approval gốc;
-đội phải lưu bằng chứng đó trong hồ sơ competition nhưng không commit dữ liệu
-nhạy cảm. Metadata license là bước kiểm kê đầu tiên, chưa thay thế việc đọc toàn văn
-license và kiểm tra dataset/base-model transitive obligations. Đặc biệt,
-`qwen-research` không được mặc định tương đương OSI open source hoặc tương
-thích yêu cầu BTC.
-
-Không dùng bất kỳ model API hoặc sản phẩm AI trung gian nào trong quá trình xây
-dựng phương pháp hoặc competition run, kể cả API miễn phí hay phi lợi nhuận.
-Mọi model phải được đội tải, chạy và kiểm soát trực tiếp. Mọi model hoặc package
-mới phải được thêm vào register trước khi thử.
-
-BTC đã cho phép fine-tuning, preprocessing, indexing và retrieval nếu chỉ dùng
-dữ liệu chính thức. Synthetic augmentation vẫn bị cấm và mọi model fine-tuned
-vẫn phải đi qua registration/license/reproducibility gate.
-
-## 3.1. Parameter-budget gate
-
-- Tổng tham số của tất cả model active trong Task 2 phải nhỏ hơn
-  `4_000_000_000`.
-- Phải cộng embedding, reranker, generator, semantic grader/verifier và mọi
-  model phụ trợ; BM25, RRF và code rule-based không có learned parameters.
-- Distilled model được phép nếu model cuối thực sự nằm dưới giới hạn.
-- Quantization, LoRA hoặc giảm số bit lưu trữ không làm giảm parameter count để
-  xét điều kiện.
-- Thiếu parameter count/bằng chứng cho bất kỳ model active nào hoặc tổng
-  `>= 4_000_000_000` phải chặn official run.
-- Candidate register hiện tại chưa phải bằng chứng rằng tổng cấu hình đang dùng
-  hợp lệ; cần hoàn tất inventory trước khi chọn final stack.
-
-## 4. Submission governance
-
-- Private test: tối đa 03 submission trong một ngày.
-- Chỉ submit archive đã qua formatter và preflight local.
-- Không upload trực tiếp output nội bộ `results.jsonl`.
-- `submission.json` phải là object keyed by question ID với mỗi value đúng
-  `{"answer": string}`, theo contract thực thi đã xác minh trên Codabench.
-- Ghi SHA-256 của question source, batch manifest, config, code commit,
-  `submission.json` và final `submission.zip`.
-- Mỗi lần upload phải được ghi vào ledger riêng; không suy ra số lượt còn lại
-  từ file local.
-- Local METEOR/ROUGE-L chỉ là diagnostic cho tới khi scorer parity được chứng
-  minh.
-- Source scorer BTC checksum
-  `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
-  xác nhận NLTK METEOR, vendored `rouge_score` và macro mean; PyVi hiện bị
-  comment và không chạy.
-- Scorer tải `wordnet`/`omw-1.4` lúc thực thi nhưng không pin NLTK hoặc resource
-  bytes. BTC đã sửa lỗi WordNet của warm-up image; không thay đổi submission để
-  né lỗi hạ tầng scorer.
-- Phân tích đầy đủ nằm tại `docs/15-OFFICIAL-SCORING-CONTRACT.md`.
-
-Template thực thi nằm tại:
-
+- `docs/templates/DATA-STATEMENT.md`;
+- `docs/templates/MODEL-CARD.md`;
 - `docs/templates/PRIVATE-SUBMISSION-CHECKLIST.md`;
 - `docs/templates/SUBMISSION-LEDGER.csv`.
 
-## 5. Data Statement and Model Card
+The current Dockerfile is a CPU/non-root reproducibility scaffold, not a final GPU
+competition image. Large data/model/artifact state must be mounted or restored by
+an organizer-approved process, never committed or embedded silently.
 
-Mỗi bài nộp phải có Data Statement và Model Card theo thể lệ. Hai tài liệu này
-không nằm trong `submission.zip` trừ khi BTC thay đổi exact output contract.
-Template:
+## 7. Open organizer confirmations
 
-- `docs/templates/DATA-STATEMENT.md`;
-- `docs/templates/MODEL-CARD.md`.
+1. Must the M49 merged fine-tuned revision be registered separately from the base?
+2. What are the exact final GPU, RAM, disk, timeout and Internet constraints?
+3. What exact model-weight mounting/download procedure will reproduction use?
+4. Where and when are Model Card/Data Statement submitted?
+5. Will private scoring retain the inspected scorer/dependency identity?
 
-Không được điền nội dung suy đoán. Mỗi release candidate phải tạo bản snapshot
-riêng, ghi code commit, config hash, dataset checksum, model revision và kết
-quả kiểm thử.
-
-## 6. Reproducibility and Docker
-
-Top 7 phải cung cấp Docker image và source MIT để BTC tái lập Private Test.
-Repository áp dụng:
-
-- source license `LICENSE` là MIT;
-- Docker build context loại data, model, artifact, log, secret và submission;
-- process trong image chạy bằng non-root user;
-- Python base image và direct dependency constraints được pin;
-- model weights và official artifacts phải được mount/copy theo quy trình BTC
-  cho phép, không được commit hoặc silently download khi reproduction yêu cầu
-  offline;
-- trước private release phải lưu image digest, `pip freeze`, OS/CUDA/driver,
-  GPU, seed, config và exact reproduction command;
-- CPU Dockerfile hiện tại là compliance scaffold. GPU base image cuối cùng chỉ
-  được chốt sau khi biết hạ tầng BTC và model được phê duyệt.
-
-## 7. Licensing and disclosure
-
-- Source do đội sở hữu được phát hành theo MIT.
-- License MIT của repository không thay đổi license của dependency hoặc model.
-- Model weights, tokenizer, dataset và package bên thứ ba phải được trích dẫn
-  và tuân thủ license gốc.
-- Không đưa private URL, token, credential hoặc dữ liệu cá nhân vào source,
-  image, log, Model Card hay Data Statement.
-
-## 8. Open organizer clarifications
-
-1. Model fine-tuned hoặc revision khác model đã duyệt có phải đăng ký lại và
-   khai báo parameter count theo nguồn nào?
-2. Môi trường inference/chấm cuối có Internet không và model weights được
-   cung cấp/mount thế nào?
-3. Docker command, CUDA, RAM, disk, timeout và interface chấm cuối cùng là gì?
-4. Data Statement và Model Card được nộp ở đâu, thời điểm nào và theo format
-   nào?
-5. Image public/private có dùng đúng scorer checksum đã phân tích và exact
-   NLTK/WordNet resource versions nào?
-
-Mọi điểm trên giữ trạng thái unresolved; code không được biến chúng thành giả
-định ngầm.
+These remain fail-closed questions. The repository cannot turn missing organizer
+evidence into an implicit approval.

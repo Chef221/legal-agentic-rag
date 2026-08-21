@@ -37,7 +37,7 @@ ModelLoader = Callable[[RerankerConfig], _CrossEncoderModel]
 
 
 class CrossEncoderReranker:
-    """Rerank a bounded candidate set with multilingual MiniLM logits."""
+    """Rerank a bounded candidate set with revision-pinned model logits."""
 
     def __init__(
         self,
@@ -222,6 +222,12 @@ class CrossEncoderReranker:
             raise BackendInitializationError(
                 "sentence-transformers dependency is unavailable"
             ) from error
+        prompt_options: dict[str, object] = {}
+        if config.prompt_name is not None and config.instruction is not None:
+            prompt_options = {
+                "prompts": {config.prompt_name: config.instruction},
+                "default_prompt_name": config.prompt_name,
+            }
         return CrossEncoder(
             config.model_name,
             revision=config.model_revision,
@@ -229,4 +235,6 @@ class CrossEncoderReranker:
             max_length=config.max_length,
             local_files_only=config.local_files_only,
             trust_remote_code=False,
+            model_kwargs={"torch_dtype": config.torch_dtype},
+            **prompt_options,
         )

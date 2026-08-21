@@ -2009,12 +2009,125 @@ có control M43.1 chung:
 6. official-only fine-tuning sau khi evaluator được chốt;
 7. GPU compatibility, recovery và post-run quality gates.
 
-Phạm vi, metric, file bắt đầu và tiêu chí nghiệm thu nằm tại
-`docs/17-TEAM-IMPROVEMENT-BACKLOG.md`. Không merge thay đổi quality nếu thiếu
-đối chứng trên cùng split hoặc vi phạm official-only/no-synthetic/no-API/model
-approval gates.
+The historical workstreams have been superseded by M48/M49/M49.1. Active next
+work is recorded in `HANDOFF.md`. Do not merge a quality change without a paired
+control on the same split or when official-only/no-synthetic/no-API/model gates
+fail.
 
-## 48. Milestone Execution Rules
+## 48. Milestone 45 — Prompt-only Qwen3 Colab Candidate
+
+**Status:** Implemented locally; Colab build and quality validation pending
+
+- giữ M43.1 làm immutable measured control;
+- pin Qwen3-Embedding-0.6B, Qwen3-Reranker-0.6B và Qwen3.5-2B revisions;
+- thêm embedding query instruction, reranker prompt và Qwen3.5 text-only loader;
+- rebuild dense DB/index từ canonical `selected-contexts.zip` vào root M45 mới;
+- bật hybrid rerank với 40 candidates, top 10 và max length 2.048;
+- chọn context diversity-aware, tối đa 8 evidence/6.144 token;
+- tăng generation coverage/output lên 512 token nhưng giữ deterministic decoding,
+  citation verifier và fail-closed behavior;
+- cung cấp runbook Colab build → smoke → batch → `submission.zip`;
+- cung cấp hai notebook Kaggle tách build/submission để persist artifact giữa
+  sessions mà không thay đổi quality config;
+- không fine-tune, không synthetic data, không API, không semantic verifier model.
+
+Completion hiện tại chỉ gồm code/config/docs cùng unit regression tests. Milestone
+chưa quality-complete cho tới khi Colab xác minh model load, full artifact validation,
+smoke không OOM/model error, batch đủ ID, local evaluator/ablation và submission
+audit. Nếu T4 OOM, chỉ được giảm execution batch/context hoặc chạy A100; không đổi
+model/quantization rồi vẫn gọi cùng candidate identity.
+
+## 49. Milestone 46 — Leakage-safe Dev and Online Generation Candidate
+
+**Status:** Measured on fixed Kaggle dev-200; retained as M47 control
+
+- tạo split cố định 5.617 train / 678 dev / 705 holdout theo normalized-question
+  group và control 200 câu;
+- chấm control bằng source scorer BTC: ROUGE-L `0.258831461359759`, METEOR
+  `0.151953642792214`, 30/200 fallback;
+- giữ nguyên DB/index và ba model M45;
+- thêm `reference_complete`, 1.024 output token, tối đa 10 evidence và nới diversity
+  trong cùng context budget;
+- thêm đúng một verifier-guided regeneration bằng cùng generator, không tắt hard
+  checks và vẫn fail-closed;
+- chưa fine-tune; promotion chỉ sau khi chạy đúng dev-200 và so sánh scorer/error.
+
+Kết quả: ROUGE-L `0.3261581049551429`, METEOR `0.23444507806536977`, 29/200
+fallback, answer trung bình 569 ký tự. M46 cải thiện cả hai metric so với M45; 26/29
+fallback còn lại đến từ citation verification.
+
+## 50. Milestone 47 — Bounded Grounding and Runtime Recovery
+
+**Status:** Implemented locally; Kaggle dev-200 measurement pending
+
+- giữ nguyên artifact M45, ba model và toàn bộ identity của split/scorer M46;
+- thêm một retry cùng prompt cho `ModelError`;
+- verify lại bản grounding repair trước khi trả về;
+- nếu repair vẫn fail, chỉ salvage claim đã được deterministic verifier đánh dấu
+  `supported`, dựng lại citation tin cậy và verify lần cuối;
+- giữ warning recovery khi Agent tạo fallback để report không mất telemetry;
+- thêm BM25 làm strategy thứ ba chỉ cho context insufficiency, vẫn giới hạn hai retry;
+- cấu hình mới mặc định tắt để không đổi hành vi M45/M46;
+- cần chạy paired dev-200, audit sample output và chỉ promotion nếu metric/error gates
+  tốt hơn M46.
+
+## 51. Milestone 48 — Train-informed Answer Style and Safe Extractive Recovery
+
+**Status:** Paired dev-200 passed; promoted and packaged for public inference
+
+- giữ nguyên artifact M45 và model inventory 3,466B parameters của M47;
+- audit aggregate official `train.json`, không dùng gold answer ở inference;
+- thêm `competition_reference` prompt plan, compact JSON contract và output bound
+  1.536 token;
+- tăng claim bound lên 60 cho reference answer dài nhưng giữ numeric/negation checks;
+- sửa standalone salvage để không trả orphan enumeration hoặc question fragment;
+- fallback model/grounding failure thành nguyên văn top-1 selected evidence với
+  trusted citation và final identity verification;
+- giữ default policy cũ để M45/M46/M47 không tự đổi behavior;
+- cung cấp notebook paired resumable chạy M47 rồi M48 trên exact dev-200 và xuất
+  report delta METEOR/ROUGE/fallback;
+- chưa fine-tune, không rebuild DB, không synthetic data, không API và không thêm
+  model/dependency.
+
+Promotion gate: METEOR M48 phải cao hơn M47 trên cùng dev-200, exact split/scorer
+identity phải khớp và sample output/fallback phải qua audit. Nếu không đạt, giữ M47.
+
+Measured result: M48 đạt METEOR `0.26762720229432313`, ROUGE-L
+`0.3660979621381608`, 2/200 fallback; delta so với M47 lần lượt là
+`+0.03347581958389073`, `+0.035681440321042424` và `-12`. Public notebook dùng
+nguyên profile đã đo, checkpoint từng câu vào `m48-public-qwen3-v1`, xác thực đủ
+1.000 ID và đóng gói `submission.zip`. Không có quality change giữa dev và public.
+
+## 52. Milestone 49 — Official-only Generator Supervised Fine-tuning
+
+**Status:** Training completed; retained as M49.1 weights lineage
+
+- giữ nguyên artifact M45, embedding/reranker, retrieval và answer safety path M48;
+- dùng đúng split group-safe 5.617 train / 678 dev / 705 holdout;
+- thêm typed split helper và hash exact dev-200 để training/evaluation không leakage;
+- QLoRA một epoch trên question-answer thật, response-only loss, seed/config pin;
+- checkpoint mỗi 50 optimizer step và hỗ trợ restore từ notebook output;
+- merge adapter vào base Qwen3.5-2B fp16, pin adapter/merged tree checksums;
+- không dùng public trong training, không synthetic data, không pseudo evidence label;
+- notebook thứ hai chạy exact dev-200 bằng source scorer BTC và M48 làm control;
+- chưa tạo public runner; chỉ promotion khi METEOR tăng, fallback <= 5 và không có
+  generator model error;
+- fine-tuned revision phải qua organizer registration clarification trước official
+  submission.
+
+## 52.1. Milestone 49.1 — SFT/Runtime Alignment and Repetition Control
+
+**Status:** Public batch completed and measured; retained current candidate
+
+- audit 70-record partial M49 checkpoint, không coi partial score là promotion;
+- giữ nguyên M45 artifacts và merged generator M49;
+- thêm grounded plain-text marker contract để khớp answer-only SFT;
+- thêm deterministic repetition controls và exact claim deduplication;
+- thêm cảnh báo prompt chống suy diễn numeric slug thành số văn bản;
+- cung cấp Kaggle dev/public runner có checkpoint từng câu;
+- public runner chỉ dùng sau khi exact dev-200 promotion gate đạt.
+
+## 53. Milestone Execution Rules
 
 Mỗi milestone phải:
 
@@ -2028,3 +2141,21 @@ Mỗi milestone phải:
 8. cập nhật docs nếu có decision mới;
 9. báo rõ phần chưa làm;
 10. không đánh dấu hoàn thành nếu test thất bại.
+
+## 54. Repository handoff and retained candidate cleanup
+
+**Status:** Completed
+
+- retain M45 offline artifact build, M48 control, M49 training and M49.1 runtime;
+- remove runnable M46/M47 notebooks, configs, source packages and local outputs;
+- replace retired milestone imports with neutral shared Kaggle runners;
+- keep official data, model weights, indexes, checkpoints and submissions outside
+  Git;
+- record M49.1 public-compatible METEOR `0.382772249`, ROUGE-L `0.473653736` and
+  immutable batch/model/submission hashes;
+- make `HANDOFF.md` and `docs/00-START-HERE.md` the entry points for the next
+  developer.
+
+The next quality milestone must start from M49.1 as an immutable control and use
+the frozen dev-200 plus audited scorer. Recommended first experiments are
+question-aware extractive trimming and SFT/runtime output-contract alignment.

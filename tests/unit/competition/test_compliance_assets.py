@@ -42,22 +42,22 @@ def test_required_compliance_templates_are_present_and_actionable() -> None:
         assert marker in content
 
 
-def test_model_inventory_records_approval_without_replacing_primary_evidence() -> None:
-    """Approved identities stay exact and still require organizer evidence."""
+def test_model_inventory_records_current_identities_and_registration_gate() -> None:
+    """Retained model identities stay exact and require organizer evidence."""
     compliance = (_ROOT / "docs" / "11-COMPETITION-COMPLIANCE.md").read_text(
         encoding="utf-8"
     )
 
     for revision in (
-        "614241f622f53c4eeff9890bdc4f31cfecc418b3",
-        "1427fd652930e4ba29e8149678df786c240d8825",
-        "a1d308dfcc03e09da285d49d912439a655a571e8",
+        "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "e61197ed45024b0ed8a2d74b80b4d909f1255473",
+        "15852e8c16360a2fea060d615a32b45270f8a8fc",
+        "e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b",
     ):
         assert revision in compliance
-    assert compliance.count("Người dùng xác nhận BTC đã duyệt") == 3
-    assert "không thay thế email/Form/spreadsheet approval gốc" in compliance
-    assert "trạng thái approval" in compliance
-    assert "`pending` hoặc `unknown`" in compliance
+    assert "must be verified against team/BTC records" in compliance
+    assert "confirm whether a new registration entry is required" in compliance
+    assert "below 4B" in compliance
 
 
 def test_team_onboarding_covers_all_pipeline_boundaries() -> None:
@@ -77,34 +77,22 @@ def test_team_onboarding_covers_all_pipeline_boundaries() -> None:
         assert marker in guide
 
 
-def test_team_handoff_documents_keep_current_baseline_and_workstreams() -> None:
-    """The repository entry point must expose evidence and actionable ownership."""
+def test_team_handoff_documents_keep_current_candidate_and_next_work() -> None:
+    """The repository entry point exposes current evidence and next work."""
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
     start = (_ROOT / "docs" / "00-START-HERE.md").read_text(encoding="utf-8")
-    postmortem = (
-        _ROOT / "docs" / "16-M43-BASELINE-POSTMORTEM.md"
-    ).read_text(encoding="utf-8")
-    backlog = (
-        _ROOT / "docs" / "17-TEAM-IMPROVEMENT-BACKLOG.md"
-    ).read_text(encoding="utf-8")
+    handoff = (_ROOT / "HANDOFF.md").read_text(encoding="utf-8")
+    result = (_ROOT / "docs" / "18-M491-PUBLIC-RESULT.md").read_text(
+        encoding="utf-8"
+    )
 
     for filename in (
         "docs/00-START-HERE.md",
-        "docs/16-M43-BASELINE-POSTMORTEM.md",
-        "docs/17-TEAM-IMPROVEMENT-BACKLOG.md",
+        "HANDOFF.md",
+        "docs/18-M491-PUBLIC-RESULT.md",
     ):
         assert filename in readme
-    assert "0.07862292376534387" in start
-    assert "425" in postmortem
-    assert "384" in postmortem
-    for workstream in (
-        "WS-A",
-        "WS-B",
-        "WS-C",
-        "WS-D",
-        "WS-E",
-        "WS-F",
-        "WS-G",
-        "WS-H",
-    ):
-        assert workstream in backlog
+    assert "M49.1" in start
+    assert "M50" in handoff
+    assert "0.382772249" in result
+    assert "900" in result

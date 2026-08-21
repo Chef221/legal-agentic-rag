@@ -72,6 +72,32 @@ def test_provider_applies_e5_prefixes_and_normalizes_vectors(
     assert provider.model_revision == "fixture-revision"
 
 
+def test_provider_supports_instruction_based_qwen_queries_without_prefixes() -> None:
+    """Qwen retrieval instructions affect queries but never corpus passages."""
+    model = _FixtureModel()
+    config = _config().model_copy(
+        update={
+            "document_prefix": "",
+            "query_prefix": "",
+            "query_instruction": "Instruct: Retrieve Vietnamese law.\nQuery:",
+        }
+    )
+    provider = SentenceTransformerEmbeddingProvider(
+        config,
+        model_loader=lambda value: model,
+    )
+
+    provider.embed_documents(["Điều 1"], batch_size=1)
+    provider.embed_query("Ai có thẩm quyền?")
+
+    assert model.calls[0][0] == ["Điều 1"]
+    assert model.calls[0][1].get("prompt") is None
+    assert model.calls[1][0] == ["Ai có thẩm quyền?"]
+    assert model.calls[1][1]["prompt"] == (
+        "Instruct: Retrieve Vietnamese law.\nQuery:"
+    )
+
+
 def test_provider_rejects_invalid_text_batch_and_model_outputs() -> None:
     """Empty text, wrong shape, zero vectors, and non-finite values fail clearly."""
     provider = SentenceTransformerEmbeddingProvider(

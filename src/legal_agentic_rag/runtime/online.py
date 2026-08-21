@@ -168,7 +168,10 @@ class OnlineRuntimeFactory:
         else:
             self._answer_generator = (
                 answer_generator
-                or build_answer_generator(config.online.generation)
+                or build_answer_generator(
+                    config.online.generation,
+                    claim_config=config.online.claim_verification,
+                )
             )
             self._citation_verifier = (
                 citation_verifier

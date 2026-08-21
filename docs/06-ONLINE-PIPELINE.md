@@ -1006,3 +1006,181 @@ khoảng 0,08 giây, cả BM25/dense/hybrid đều trả đủ 5 hit và extract
 kết thúc `answer_verified` với 5 citation. Cold dense mất khoảng 10,50 giây do
 nạp E5; warm hybrid mất khoảng 0,26 giây. Đây chỉ là kiểm tra vận hành vì public
 data không có retrieval relevance labels.
+
+## M45 Qwen3 Colab Candidate
+
+M45 thêm một profile độc lập với M43.1:
+
+```text
+query analysis (tối đa 3 variants)
+→ BM25 + Qwen3 dense
+→ RRF candidate_k=40
+→ Qwen3-Reranker-0.6B, max_length=2048
+→ top_k=10
+→ evidence applicability + document/article diversity
+→ tối đa 8 evidence / 6.144 context token
+→ Qwen3.5-2B text-only, temperature=0, tối đa 512 output token
+→ rule/claim citation verification
+→ tối đa một retrieval retry bằng hybrid fallback
+```
+
+Reranker chỉ chấm candidate hữu hạn và nhận instruction pháp lý qua adapter.
+Context builder mặc định cũ không đổi; profile M45 giới hạn hai evidence mỗi văn
+bản và một evidence mỗi Điều để các đoạn lặp không chiếm hết budget. Generator
+dùng `AutoModelForMultimodalLM` vì revision Qwen3.5-2B là kiến trúc multimodal,
+nhưng request chỉ chứa text và không dùng image/external input. Semantic verifier
+model vẫn tắt để không tăng tổng tham số và tránh model call không cần thiết.
+M45 không bắt buộc marker citation sau từng câu vì Qwen3.5 có thể khai báo đúng
+`cited_evidence_ids` nhưng đặt marker ở cấp đoạn. Structural citation identity,
+numeric match và negation match vẫn được kiểm tra; thay đổi này tránh biến câu trả
+lời có citation hợp lệ thành abstention chỉ vì vị trí marker.
+
+Candidate này là implementation để chạy Colab, chưa có quality claim. M43.1 vẫn
+là control cho tới khi M45 qua cùng evaluator, error gates và submission audit.
+
+## M46 Controlled Generation Candidate
+
+M46 không thay embedding, reranker, generator identity hoặc artifact M45. Thay đổi
+chỉ nằm sau retrieval:
+
+```text
+M45 hybrid-rerank top 10
+→ evidence diversity 3/document, 2/article
+→ tối đa 10 evidence trong 6.144 context token
+→ Qwen3.5-2B reference-complete, tối đa 1.024 output token
+→ rule citation/claim verification
+→ nếu fail: cùng model sửa đúng một lần theo claim errors
+→ verify lại và vẫn fail-closed nếu chưa hợp lệ
+```
+
+Verifier-guided regeneration không tắt numeric/negation check, không tạo training
+example và không dùng gold answer ở inference. `train.json` chỉ xác định split và
+reference score. M46 phải dùng output directory/config hash riêng, không resume batch
+M45 vì recovery identity khác.
+
+## M47 Fail-closed Recovery Candidate
+
+M47 dùng nguyên artifact, embedding, reranker, generator và dev-200 của M46.
+Thay đổi chỉ nằm trong online recovery:
+
+```text
+hybrid-rerank → hybrid → BM25 (chỉ khi context chưa đủ, tối đa 2 retry)
+→ generation Qwen3.5-2B
+→ verifier-guided repair đúng 1 lần
+→ verify lại bản repair
+→ nếu vẫn fail: chỉ giữ các claim đã có status=supported
+→ dựng lại marker/citation từ evidence identity tin cậy
+→ verify lần cuối; không hợp lệ thì abstain
+```
+
+Provider được retry đúng một lần khi ném `ModelError`, với cùng prompt và không đổi
+decoding. Salvage không sinh claim mới, không dùng gold answer, không giảm numeric hoặc
+negation checks và không dùng claim `unsupported`. Agent giữ warning của generator khi
+phải abstain để báo cáo phân biệt được repair đã thử, repair chưa giải quyết được và
+model retry. Các default mới đều tắt (`0`/`abstain`), nên profile cũ không đổi hành vi.
+
+M47 phải ghi batch/config/report riêng và chạy lại đúng dev-200. Không được promotion
+chỉ vì fallback giảm: METEOR/ROUGE-L, fallback, warning distribution và sample answer
+đều phải được so với M46 measured control.
+
+## M48 Train-informed Answer and Extractive Recovery Candidate
+
+M48 giữ nguyên artifact M45, ba model M47 và toàn bộ retrieval/reranking settings.
+`train.json` chỉ được dùng để đo aggregate style và tạo split/evaluator, không đưa
+gold answer vào inference. Audit 7.000 gold answer ghi nhận trung bình 1.575,7 ký tự,
+median 1.410; đúng dev-200 cố định có trung bình 1.548,5 và median 1.461 ký tự. Prompt
+M48 vì vậy dùng style `competition_reference` theo loại câu hỏi, ưu tiên kết luận
+trực tiếp, danh sách/thủ tục đầy đủ và diễn đạt sát evidence thay vì bắt mọi câu có
+cùng độ dài.
+
+Luồng generation/recovery:
+
+```text
+M47 selected evidence
+→ compact four-field JSON contract
+→ Qwen3.5-2B, tối đa 1.536 output token
+→ verifier-guided repair đúng một lần
+→ standalone rendering của claim supported
+→ nếu model error hoặc không còn claim supported: trích nguyên văn top-1 evidence
+→ identity verifier bắt buộc
+```
+
+Fallback trích nguyên văn đặt `semantic_synthesis=false`, chỉ dùng selected evidence
+và vẫn dựng citation từ identity tin cậy. Nó không bypass verifier, không sinh claim
+mới và không biến gold answer thành retrieval label. Các policy mới mặc định vẫn là
+`abstain`/`verbatim`/full JSON schema; chỉ profile M48 bật chúng nên M47 không đổi
+answer behavior.
+
+M48 phải được chạy paired với M47 trên cùng dev-200. Chỉ chạy public sau khi METEOR
+M48 tăng và audit output không phát hiện regression đáng kể; giảm fallback một mình
+không đủ để promotion.
+
+Paired dev-200 đã hoàn thành với cùng split/scorer identity. M48 đạt METEOR
+`0.26762720229432313`, ROUGE-L `0.3660979621381608` và 2/200 fallback; M47 lần
+lượt đạt `0.2341513827104324`, `0.3304165218171184` và 14/200 fallback. M48 vì
+vậy được promotion để chạy public với nguyên source/config đã đo. Public runner chỉ
+thêm checkpoint, validation đủ 1.000 ID và submission formatting; không thay đổi
+answer pipeline.
+
+## M49 Official-only Generator SFT Candidate
+
+M49 không thay retrieval path của M48 và không rebuild DB/index:
+
+```text
+M48 selected evidence + prompt/verification/recovery
+→ Qwen3.5-2B đã merge adapter M49
+→ cùng structured parser
+→ cùng numeric/negation/identity verifier
+→ cùng bounded repair/salvage/extractive recovery
+```
+
+Adapter được học offline chỉ từ 5.617 question-answer thật trong train partition
+group-safe. Dev, holdout và public không tham gia optimizer. Vì train không có
+evidence label, M49 không fine-tune embedding/reranker và không suy diễn relevance
+label từ gold answer. QLoRA chỉ giảm tài nguyên lúc training; artifact inference
+là merged fp16 model có cùng kiến trúc/parameter identity với Qwen3.5-2B.
+
+Runtime config phải resolve model path và revision từ
+`m49-training-manifest.json`, xác minh lại toàn bộ merged-model tree hash rồi dùng
+một stable symlink trong `/kaggle/working`. Điều này giữ config/batch identity ổn
+định khi resume mà không copy thêm nhiều GiB. M49 chạy exact dev-200 trước; chưa có
+public runner cho tới khi promotion gate D094 đạt và registration được xác nhận.
+
+## M49.1 Plain-text Grounded Runtime Candidate
+
+M49.1 sửa mismatch giữa answer-only SFT và JSON inference mà không đổi retrieval:
+
+```text
+M45 hybrid retrieval + reranker + selected evidence
+→ merged generator M49 (không đổi weights)
+→ văn xuôi có marker [E#]
+→ allowlist/identity validation
+→ numeric + negation + lexical grounding verifier
+→ bounded repair / deduplicated salvage / top-evidence fallback
+→ score-facing renderer bỏ marker đã xác minh
+```
+
+`plain_text_markers` không tự gán citation cho prose thiếu marker. Mọi marker phải
+tồn tại trong evidence đã chọn; marker lạ hoặc prose không marker bị reject. Decode
+vẫn greedy (`temperature=0`) nhưng dùng repetition penalty và no-repeat n-gram để
+giảm lặp vô hạn. Số cuối slug/URL không được dùng như metadata số hiệu văn bản.
+
+M49.1 dùng lại artifact M45 và merged-model checksum M49
+`e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b`;
+không build DB, không training và không thêm model.
+
+## Retained execution profiles after repository cleanup
+
+The active executable profiles are M48, M49 and M49.1. M45 remains the shared
+offline artifact lineage. Historical M46/M47 measurements remain in decision
+records but their runners/configs are not part of the active tree.
+
+Kaggle dev evaluation and public checkpoint/packaging logic live in neutral shared
+modules. Candidate wrappers only bind an explicit config, output directory and
+model identity. This prevents the active M49.1 runner from importing a retired
+milestone by filename while preserving exact split and scoring identities.
+
+The measured M49.1 public batch scored METEOR `0.382772249` and ROUGE-L
+`0.473653736`. It used deterministic top-evidence fallback for 908/1,000 records,
+including 900 marker-contract failures. Any successor must keep this behavior as
+an immutable control and change one hypothesis at a time on the frozen dev split.

@@ -369,13 +369,18 @@ class DeterministicAgentWorkflow:
             abstention = self._abstention(
                 query,
                 strategy,
-                ["citation_verification_failed", *result.errors],
+                [
+                    "citation_verification_failed",
+                    *response.warnings,
+                    *result.errors,
+                ],
             )
             return (
                 abstention.model_copy(
                     update={
                         "metadata": {
                             **abstention.metadata,
+                            "generated_response_metadata": response.metadata,
                             "citation_verification": result.model_dump(
                                 mode="json"
                             ),

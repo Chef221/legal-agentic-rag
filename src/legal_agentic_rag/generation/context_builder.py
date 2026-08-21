@@ -36,7 +36,8 @@ class ContextBuilder:
         selection_config: EvidenceSelectionConfig | None = None,
     ) -> None:
         self._config = config or GenerationConfig()
-        self._selector = EvidenceSelector(selection_config, self._config)
+        self._selection_config = selection_config or EvidenceSelectionConfig()
+        self._selector = EvidenceSelector(self._selection_config, self._config)
 
     def build(self, response: RetrievalResponse) -> ContextBuildResult:
         """Build deterministic evidence within count and context-token limits."""
@@ -46,11 +47,36 @@ class ContextBuilder:
         estimated_tokens = 0
         warnings: list[str] = []
         selection_trace: list[EvidenceSelectionTrace] = []
+        document_counts: dict[str, int] = {}
+        article_counts: dict[tuple[str, str], int] = {}
+        diversity_omitted = 0
+        max_evidence_omitted = 0
+        token_budget_omitted = 0
         for candidate in self._selector.score(response.query, unique_hits):
             hit = candidate.hit
             token_count = self._token_count(hit)
+            article_key = self._article_key(hit)
+            if (
+                document_counts.get(hit.document_id, 0)
+                >= self._selection_config.max_per_document
+                or (
+                    article_key is not None
+                    and article_counts.get(article_key, 0)
+                    >= self._selection_config.max_per_article
+                )
+            ):
+                omitted_count += 1
+                diversity_omitted += 1
+                selection_trace.append(
+                    self._trace(
+                        candidate,
+                        reason=EvidenceSelectionReason.DIVERSITY_LIMIT,
+                    )
+                )
+                continue
             if len(selected) >= self._config.max_evidence:
                 omitted_count += 1
+                max_evidence_omitted += 1
                 selection_trace.append(
                     self._trace(
                         candidate,
@@ -63,6 +89,7 @@ class ContextBuilder:
                 > self._config.max_context_tokens
             ):
                 omitted_count += 1
+                token_budget_omitted += 1
                 selection_trace.append(
                     self._trace(
                         candidate,
@@ -79,6 +106,13 @@ class ContextBuilder:
             selected.append(evidence)
             selection_trace.append(trace)
             estimated_tokens += token_count
+            document_counts[hit.document_id] = (
+                document_counts.get(hit.document_id, 0) + 1
+            )
+            if article_key is not None:
+                article_counts[article_key] = (
+                    article_counts.get(article_key, 0) + 1
+                )
             if evidence.effect_status is None:
                 warnings.append(f"effect_status_unknown:{evidence.evidence_id}")
             elif (
@@ -103,10 +137,16 @@ class ContextBuilder:
             )
         ):
             warnings.append("explicit_reference_not_selected")
-        if omitted_count:
+        if token_budget_omitted:
             warnings.append("context_budget_exhausted")
+        if max_evidence_omitted:
+            warnings.append(
+                f"max_evidence_omissions:{max_evidence_omitted}"
+            )
         if duplicate_count:
             warnings.append(f"duplicate_retrieval_hits_removed:{duplicate_count}")
+        if diversity_omitted:
+            warnings.append(f"diversity_limit_omissions:{diversity_omitted}")
         if not selected:
             warnings.append("no_selected_evidence")
         return ContextBuildResult(
@@ -149,6 +189,17 @@ class ContextBuilder:
         if isinstance(value, int) and not isinstance(value, bool) and value > 0:
             return value
         return max(1, len(_TOKEN_PATTERN.findall(hit.text)))
+
+    @staticmethod
+    def _article_key(hit: RetrievalHit) -> tuple[str, str] | None:
+        """Return a stable document/article identity when metadata provides one."""
+        structure = hit.metadata.get("structure")
+        if not isinstance(structure, dict):
+            return None
+        article_number = structure.get("article_number")
+        if not isinstance(article_number, str) or not article_number.strip():
+            return None
+        return hit.document_id, article_number.strip().casefold()
 
     @staticmethod
     def _evidence(

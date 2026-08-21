@@ -28,3 +28,13 @@ configs/*.local.json
 *.log
 submission.zip
 submission.json
+selected-contexts.zip
+train.json
+warmup.json
+public-official.json
+Scoring-Program-Task-LegalQA.zip
+legal-agentic-rag-m*-source.zip
+results*.jsonl
+manifest*.json
+*.tar.gz
+*.tar.gz.sha256
