@@ -467,14 +467,33 @@ The immediate next action is:
       - Evaluated SQLite BM25 retrieval proxy performance on historical 200-QA subset: Recall@1 = 48.0%, Recall@5 = 71.5%, Recall@10 = 79.5%, Recall@20 = 86.0%.
       - Archived evidence into `data-d0-official-data-audit-evidence.zip` (SHA-256 `eca404a749a45c00b6b7b94c7dee246fea39de385882e51343f6f1a20d93c27f`, 40,549 bytes).
       - Published comprehensive audit report in `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md`.
-      - Selected single Phase D1 candidate: **D1 — Parent-Context Enriched Token-Fallback Search Representation** (enriching `token_fallback` search_text with deterministically available lineage parent context while strictly preserving chunk counts, IDs, boundaries, raw text, and configs).
-      - Moved hierarchical re-chunking, adjacent window stitching, and metadata extraction to Architectural Backlog.
+      - Selected single Phase D1 candidate: **D1 — Deterministic Legal Document Identity Enrichment** (formalized in D130).
+      - Moved hierarchical re-chunking, adjacent window stitching, and secondary metadata extraction to Architectural Backlog.
+
+    - **Task PHASE D1-A — DETERMINISTIC LEGAL DOCUMENT IDENTITY FEASIBILITY (D130, M53)**:
+      - Implemented deterministic legal document identity extractor (`document_type`, `document_number`) in `scripts/evaluate_document_identity_d1.py` with multi-source consensus across context `name`, `link` URL, and early `passage` header.
+      - Verified canonical source identities for `selected-contexts.zip`, `data-d0-official-data-audit-evidence.zip`, and `train.json`.
+      - Executed real feasibility measurement across all 8,532 official contexts:
+        - 8,089 HIGH_CONFIDENCE complete identities (95.03% of non-empty documents, 94.81% of all documents);
+        - 258 AMBIGUOUS (3.02%) and 185 UNRESOLVED (2.17%) records failing closed;
+        - 7,006 records (86.61% of high-confidence) verified with multi-source agreement ($\ge 2$ sources).
+      - Evaluated logical sidecar chunk propagation over 330,768 serving chunks: 304,504 chunks (92.06%) covered with complete identity.
+      - Evaluated coverage over frozen D0 1,333 retrieval-proxy population (`proxy_population_sha256`: `41f13e0bbe8cf91ef12f1cf1bfd325c6bfab6c354c7d874ab12aaf9b2e1f4f9c`):
+        - 1,299 / 1,333 proxy questions covered (97.45%);
+        - 796 / 823 unique proxy target documents covered (96.72%).
+      - Pre-registered feasibility gates: Gate A (95.03% $\ge 50.0\%$) PASSED, Gate B (97.45% $\ge 70.0\%$) PASSED.
+      - Recorded checkpoint decision: `D1A_FEASIBILITY_PASS`.
+      - Packaged diagnostic evidence package `data-d1a-document-identity-feasibility-evidence.zip` (SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`, 6,311 bytes, 9 members).
+      - Documented specification in `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`.
+      - All 17 unit tests passing in `tests/unit/evaluation/test_document_identity_d1.py`.
+      - Explicit invariant: NO BM25 candidate built, NO retrieval A/B run, NO production changes made.
 
 ---
 
 ## 16. Status of Historical Questions
 
-- **What happened in Phase D0 Official Dataset Census and Retrieval Unit Audit?** Resolved: Built `scripts/audit_official_data_d0.py` and executed full-corpus deep audit across 8,532 raw contexts, 330,768 serving chunks, and 7,000 train QA records. Identified 32.65% token fallback chunking with empty headers, 2,056 boundary risk pairs, 0% extracted metadata coverage, and 1,333 unambiguous gold train QA links defining a high-confidence official-data retrieval proxy (86.0% BM25 Recall@20 on historical 200-QA subset). Selected single Phase D1 candidate (Parent-Context Enriched Token-Fallback Search Representation) and moved other hypotheses to backlog. Published report in `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md` and packaged evidence into `data-d0-official-data-audit-evidence.zip` (D129, M52.2).
+- **What happened in Phase D1-A Legal Document Identity Feasibility Evaluation?** Resolved: Built `scripts/evaluate_document_identity_d1.py` and executed full-corpus feasibility measurement across 8,532 official contexts, 330,768 serving chunks, and 1,333 D0 retrieval proxy links. Achieved 95.03% complete identity coverage on non-empty contexts and 97.45% coverage on proxy question target documents, passing pre-registered Feasibility Gates A & B with verdict `D1A_FEASIBILITY_PASS`. Packaged evidence into `data-d1a-document-identity-feasibility-evidence.zip` (SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`). Published report in `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md` (D130, M53).
+- **What happened in Phase D0 Official Dataset Census and Retrieval Unit Audit?** Resolved: Built `scripts/audit_official_data_d0.py` and executed full-corpus deep audit across 8,532 raw contexts, 330,768 serving chunks, and 7,000 train QA records. Identified 32.65% token fallback chunking with empty headers, 2,056 boundary risk pairs, 0% extracted metadata coverage, and 1,333 unambiguous gold train QA links defining a high-confidence official-data retrieval proxy (86.0% BM25 Recall@20 on historical 200-QA subset). Selected single Phase D1 candidate (Deterministic Legal Document Identity Enrichment) and moved other hypotheses to backlog. Published report in `docs/34-DATA-CENSUS-AND-RETRIEVAL-UNIT-AUDIT-D0.md` and packaged evidence into `data-d0-official-data-audit-evidence.zip` (D129, M52.2).
 - **What happened in Generation Grounding G1 Development?** Resolved: Implemented candidate `material_fidelity_v1` in `ModelBackedAnswerGenerator`, added `GenerationConfig.grounding_profile`, created A/B evaluation harness `scripts/evaluate_generation_grounding_g1.py` for burned 16-question diagnostic review set, implemented deterministic pairwise blinding (`results/generation_g1_human_review_worksheet.md`), pre-registered success criteria (Criteria A–F), added 20 unit tests across generator and evaluator, and documented specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md` (D128, M52.1).
 - **What happened in Phase H-EXEC Holdout Evaluation and Closure?** Resolved: Executed canonical one-shot Phase H-EXEC evaluation on Kaggle GPU on commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8` (`verification-v2-d3-holdout-evidence.zip` SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`). Final verdict: `V2_D3_HOLDOUT_EXECUTION_FAILURE`, decision: `REJECT_V2_D3_PROMOTION`. Supported retention passed at 95.65% (22/23), valid answer retention passed at 80.0% (8/10), full answer accuracy passed at 62.5% (10/16), claim binary accuracy passed at 80.0% (24/30). Negative catch rate failed significantly at 28.57% (2/7 vs 50.0% gate). 61/62 provider calls succeeded, with 1 cold-start failure on Call 1 (`103383:PRIMARY:C1`). V2-D3 permanently closed, production verifier remains disabled, NO D3.3, 31 holdout claims burned as diagnostic data. Postmortem failure analysis published in `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`. Recommended next architecture: Option C (Structured Dimension Decomposition). (D127, M51.13).
 - **What happened in Phase H-EXEC Attempt 0 and Harness Correction?** Resolved: Canonical H-EXEC Attempt 0 on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699` encountered a mechanical pre-inference harness defect during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`). Synchronous failure occurred before provider construction, weight loading, or Pass 1 start (0 provider calls, 0 D3 predictions, 0 holdout metrics produced). Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` with zero scientific holdout consumption. Repaired `scripts/evaluate_verification_v2_d3_holdout.py` to construct `TransformersChatProvider` via `SemanticVerificationConfig.as_generation_config()`. Added model-free constructor smoke verification to `--preflight-only` and unit regression tests with runtime loading guards. Candidate V2-D3, prompt, schema, frozen labels, commitment, and rate gates remain 100% immutable. Authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle session (D126, M51.12).
@@ -528,11 +547,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (G1 Grounding Implemented; D0 Official Census & Boundary Audit Completed; D128 & D129 Accepted; M52.1 & M52.2 Completed)
+    0.50.7 (G1 Grounding Implemented; D0 Official Census Completed; D1-A Document Identity Feasibility Passed; D128, D129, D130 Accepted; M52.1, M52.2, M53 Completed)
 
 Active development frontier:
-    Phase D1 — Parent-Context Enriched Token-Fallback Search Representation / Generation G1 Kaggle A/B Evaluation
+    Phase D1-A Feasibility Completed (D1A_FEASIBILITY_PASS); Phase D1-B BM25 Causal A/B Pending External Review / Generation G1 Kaggle A/B Evaluation
 
 Next action:
-    External review of G1 candidate implementation and D0 census findings before executing canonical development runs.
+    External review of Phase D1-A feasibility evidence before executing Phase D1-B BM25 causal A/B evaluation.
 ```

@@ -3165,9 +3165,9 @@ Before investing in large-scale offline chunking or dense embedding overhauls, P
 
 ---
 
-## D130 — Phase D1 Deterministic Legal Document Identity Enrichment Protocol and Evaluation Gates
+## D130 — Phase D1 Deterministic Legal Document Identity Enrichment Protocol and Feasibility Gate (Phase D1-A)
 
-**Status:** Accepted (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`)
+**Status:** D1-A FEASIBILITY COMPLETE — D1-B BM25 A/B NOT YET RUN (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Evidence: `data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`)
 
 **Context:**
 Following the premise falsification and cancellation of the initial token-fallback parent-context proposal, Phase D1 pivots to evaluating deterministic legal document identity extraction (`document_type`, `document_number`) from official context sources (title, source URL, and early passage header) to enrich lexical search representations.
@@ -3185,14 +3185,17 @@ Following the premise falsification and cancellation of the initial token-fallba
    - `AMBIGUOUS`: conflicting candidates across sources (fails closed).
    - `UNRESOLVED`: no safe identity found (fails closed).
    - Own-Document Guard: Restrict passage extraction strictly to early preamble/header lines to prevent extracting body citations to other referenced laws.
-4. **Feasibility Gate**:
-   - Must achieve $\ge 50\%$ high-confidence complete identity (type + number) coverage across 8,512 non-empty documents OR cover $\ge 70\%$ of the 1,333 proxy target documents before building any candidate index.
-5. **Search-Text Token Budget & Structural Invariants**:
+4. **Feasibility Gate (Phase D1-A) — PASSED**:
+   - Pre-registered Gate A ($\ge 50.0\%$ non-empty coverage): **PASSED at 95.03%** (8,089 / 8,512 non-empty documents).
+   - Pre-registered Gate B ($\ge 70.0\%$ proxy target coverage): **PASSED at 97.45%** (1,299 / 1,333 proxy questions, 796 / 823 unique target documents = 96.72%).
+   - Logical sidecar chunk coverage: 304,504 / 330,768 chunks (92.06%).
+   - Checkpoint decision: `D1A_FEASIBILITY_PASS`.
+5. **Search-Text Token Budget & Structural Invariants for Subsequent Phase D1-B**:
    - Token budget ceiling: `max_search_tokens = 512`.
    - Chunk body suffix `chunk.text` is NEVER truncated.
    - 330,768 chunk count, IDs, document IDs, chunk indices, boundaries, and raw text 100% invariant.
    - Experimental index built in scratch; production artifacts and ingestion pipeline remain 100% untouched.
-6. **Pre-Registered Success Gates**:
+6. **Pre-Registered Success Gates for Subsequent Phase D1-B (Not Yet Run)**:
    - Baseline Replay: Historical 200-QA baseline must reproduce exactly (R@1=48.0%, R@5=71.5%, R@10=79.5%, R@20=86.0%).
    - Primary Gate: Full 1,333 BM25 document Recall@5 improves by $\ge +2.0$ absolute percentage points.
    - Secondary Gate: Recall@10 must not regress.

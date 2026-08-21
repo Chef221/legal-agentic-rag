@@ -2590,6 +2590,28 @@ reports are reviewed.
 - uncovered 1,333 unambiguous question-to-document links (19.04%) and 639 article links (9.13%) defining a high-confidence official-data retrieval proxy without violating competition data rules;
 - evaluated BM25 retrieval proxy performance on SQLite FTS5 index (`bm25_documents`) across historical 200-QA subset: Recall@1 = 48.0%, Recall@5 = 71.5%, Recall@10 = 79.5%, Recall@20 = 86.0%;
 - packaged evidence into `data-d0-official-data-audit-evidence.zip` with complete JSON artifacts;
-- selected single Phase D1 candidate: **D1 — Parent-Context Enriched Token-Fallback Search Representation** (enriching `token_fallback` search_text with deterministically available lineage parent context while strictly preserving chunk counts, IDs, boundaries, raw text, and configs);
-- moved hierarchical re-chunking, adjacent window stitching, and metadata extraction to Architectural Backlog;
-- next action: advance to Phase D1 implementation and pre-registered proxy measurement.
+- selected single Phase D1 candidate: **D1 — Deterministic Legal Document Identity Enrichment** (formalized in D130);
+- moved hierarchical re-chunking, adjacent window stitching, and secondary metadata extraction to Architectural Backlog;
+- next action: advance to Phase D1-A document identity feasibility measurement.
+
+## 81. Milestone 53 — Phase D1-A: Deterministic Legal Document Identity Feasibility
+
+**Status:** Completed (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Evidence Archive: `C:\Users\Nguyen\Downloads\data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`, Size `6,311 bytes`, 9 members, Decision: `D130`, Checkpoint Verdict: `D1A_FEASIBILITY_PASS`, Unit Tests: `tests/unit/evaluation/test_document_identity_d1.py`)
+
+- implemented deterministic, official-data-only legal document identity extractor (`document_type`, `document_number`) in `scripts/evaluate_document_identity_d1.py` with multi-source consensus across context `name`, `link` URL, and early `passage` header;
+- enforced strict own-document safety guards in passage header parsing, preventing citations to referenced laws in enacting preambles from corrupting document identity;
+- verified canonical source identities for `selected-contexts.zip`, `data-d0-official-data-audit-evidence.zip`, and `train.json`;
+- executed real feasibility evaluation across all 8,532 official contexts:
+  - 8,089 HIGH_CONFIDENCE complete identities (95.03% of non-empty documents, 94.81% of all documents);
+  - 258 AMBIGUOUS (3.02%) and 185 UNRESOLVED (2.17%) records failing closed;
+  - 7,006 records (86.61% of high-confidence) verified with multi-source agreement ($\ge 2$ sources);
+- evaluated logical sidecar chunk propagation over 330,768 serving chunks: 304,504 chunks (92.06%) covered with complete identity;
+- evaluated coverage over frozen D0 1,333 retrieval-proxy population (`proxy_population_sha256`: `41f13e0bbe8cf91ef12f1cf1bfd325c6bfab6c354c7d874ab12aaf9b2e1f4f9c`):
+  - 1,299 / 1,333 proxy questions covered (97.45%);
+  - 796 / 823 unique proxy target documents covered (96.72%);
+- evaluated pre-registered feasibility gates: Gate A (95.03% $\ge 50.0\%$) PASSED, Gate B (97.45% $\ge 70.0\%$) PASSED;
+- recorded checkpoint decision: `D1A_FEASIBILITY_PASS`;
+- strictly preserved production invariants: zero modification to production adapters, chunkers, chunk artifacts, BM25 indices, vector indices, reranker, generator, G1, or verifiers;
+- packaged diagnostic evidence package `data-d1a-document-identity-feasibility-evidence.zip`;
+- all 17 unit tests passing in `tests/unit/evaluation/test_document_identity_d1.py`;
+- next action: external review of D1-A feasibility evidence, followed by Phase D1-B BM25 causal A/B execution.
