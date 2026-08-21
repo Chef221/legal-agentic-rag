@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 import json
 from pathlib import Path
 import shutil
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -25,7 +24,6 @@ from legal_agentic_rag.contracts.citation_verifier import CitationVerifier
 from legal_agentic_rag.contracts.context_grader import ContextGrader
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError
-from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.runtime import OnlineRuntimeFactory
 from legal_agentic_rag.runtime.competition_offline import (
     CompetitionOfflineBuildRuntime,
@@ -139,7 +137,6 @@ def _build_test_corpus_artifacts(root: Path) -> ApplicationConfig:
             retrieval=RetrievalConfig(
                 top_k=2,
                 candidate_k=5,
-                graph_runtime_enabled=True,
             ),
             startup_validation=StartupValidationConfig(mode="validated_report"),
         ),
@@ -165,127 +162,50 @@ def _factory(config: ApplicationConfig) -> OnlineRuntimeFactory:
     )
 
 
-def test_startup_succeeds_when_graph_disabled_and_graph_directory_physically_absent(
+def test_startup_succeeds_when_graph_directory_physically_absent(
     tmp_path: Path,
 ) -> None:
-    """When graph_runtime_enabled is False, startup succeeds without a graph directory."""
+    """Online runtime startup succeeds with 3 active manifests when graph/ is physically absent."""
     base_config = _build_test_corpus_artifacts(tmp_path)
     graph_dir = base_config.artifacts.root_path / "graph"
     assert graph_dir.is_dir()
     shutil.rmtree(graph_dir)
     assert not graph_dir.exists()
 
-    config = base_config.model_copy(
-        update={
-            "online": base_config.online.model_copy(
-                update={
-                    "retrieval": base_config.online.retrieval.model_copy(
-                        update={"graph_runtime_enabled": False}
-                    )
-                }
-            )
-        }
-    )
-
-    runtime = _factory(config).build()
+    runtime = _factory(base_config).build()
 
     assert ArtifactType.GRAPH_INDEX.value not in runtime.manifests
     assert ArtifactType.LEGAL_CHUNKS.value in runtime.manifests
     assert ArtifactType.BM25_INDEX.value in runtime.manifests
     assert ArtifactType.VECTOR_INDEX.value in runtime.manifests
     assert len(runtime.manifests) == 3
-    assert runtime._retriever._graph is None
 
     tool_names = [d.name for d in runtime.tool_descriptors()]
     assert ToolName.GRAPH_SEARCH not in tool_names
     assert len(tool_names) == 7
 
 
-def test_startup_ignores_existing_graph_directory_when_graph_disabled(
+def test_startup_ignores_existing_graph_directory_in_artifact_root(
     tmp_path: Path,
 ) -> None:
-    """When graph_runtime_enabled is False, existing graph directory is not loaded."""
+    """Existing graph directory in artifact root is ignored by online runtime."""
     base_config = _build_test_corpus_artifacts(tmp_path)
     graph_dir = base_config.artifacts.root_path / "graph"
     assert graph_dir.is_dir()
 
-    config = base_config.model_copy(
-        update={
-            "online": base_config.online.model_copy(
-                update={
-                    "retrieval": base_config.online.retrieval.model_copy(
-                        update={"graph_runtime_enabled": False}
-                    )
-                }
-            )
-        }
-    )
-
-    with patch.object(AdjacencyGraphBackend, "load", wraps=AdjacencyGraphBackend.load) as mock_load:
-        runtime = _factory(config).build()
-        mock_load.assert_not_called()
+    runtime = _factory(base_config).build()
 
     assert ArtifactType.GRAPH_INDEX.value not in runtime.manifests
     assert len(runtime.manifests) == 3
-    assert runtime._retriever._graph is None
-
-
-def test_startup_fails_when_graph_enabled_and_graph_directory_absent(
-    tmp_path: Path,
-) -> None:
-    """When graph_runtime_enabled is True, missing graph directory fails startup."""
-    base_config = _build_test_corpus_artifacts(tmp_path)
-    graph_dir = base_config.artifacts.root_path / "graph"
-    shutil.rmtree(graph_dir)
-
-    config = base_config.model_copy(
-        update={
-            "online": base_config.online.model_copy(
-                update={
-                    "retrieval": base_config.online.retrieval.model_copy(
-                        update={"graph_runtime_enabled": True}
-                    )
-                }
-            )
-        }
-    )
-
-    with pytest.raises(ArtifactCompatibilityError, match="missing or invalid"):
-        _factory(config).build()
-
-
-def test_startup_succeeds_and_includes_graph_when_graph_enabled(
-    tmp_path: Path,
-) -> None:
-    """When graph_runtime_enabled is True and graph exists, runtime loads all 4 manifests."""
-    base_config = _build_test_corpus_artifacts(tmp_path)
-
-    config = base_config.model_copy(
-        update={
-            "online": base_config.online.model_copy(
-                update={
-                    "retrieval": base_config.online.retrieval.model_copy(
-                        update={"graph_runtime_enabled": True}
-                    )
-                }
-            )
-        }
-    )
-
-    runtime = _factory(config).build()
-
-    assert ArtifactType.GRAPH_INDEX.value in runtime.manifests
-    assert len(runtime.manifests) == 4
-    assert runtime._retriever._graph is not None
     tool_names = [d.name for d in runtime.tool_descriptors()]
-    assert ToolName.GRAPH_SEARCH in tool_names
-    assert len(tool_names) == 8
+    assert ToolName.GRAPH_SEARCH not in tool_names
+    assert len(tool_names) == 7
 
 
 def test_startup_in_deep_validation_mode_succeeds_without_graph(
     tmp_path: Path,
 ) -> None:
-    """Deep validation mode (mode='full') succeeds without graph when graph_runtime_enabled is False."""
+    """Deep validation mode (mode='full') succeeds without graph."""
     base_config = _build_test_corpus_artifacts(tmp_path)
     graph_dir = base_config.artifacts.root_path / "graph"
     shutil.rmtree(graph_dir)
@@ -294,9 +214,6 @@ def test_startup_in_deep_validation_mode_succeeds_without_graph(
         update={
             "online": base_config.online.model_copy(
                 update={
-                    "retrieval": base_config.online.retrieval.model_copy(
-                        update={"graph_runtime_enabled": False}
-                    ),
                     "startup_validation": StartupValidationConfig(mode="full"),
                 }
             )
@@ -306,3 +223,4 @@ def test_startup_in_deep_validation_mode_succeeds_without_graph(
     runtime = _factory(config).build()
     assert ArtifactType.GRAPH_INDEX.value not in runtime.manifests
     assert len(runtime.manifests) == 3
+    assert len(runtime.tool_descriptors()) == 7

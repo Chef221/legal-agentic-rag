@@ -12,9 +12,7 @@ from legal_agentic_rag.configuration.online import (
     RetrievalConfig,
 )
 from legal_agentic_rag.contracts.reranker import Reranker
-from legal_agentic_rag.contracts.graph_backend import GraphBackend
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, RetrievalError
-from legal_agentic_rag.retrieval.graph import GraphExpandedRetriever
 from legal_agentic_rag.retrieval.multi_query import (
     QueryBranchResult,
     fuse_query_branches,
@@ -28,7 +26,6 @@ from legal_agentic_rag.schemas.retrieval import (
     RetrievalResponse,
     RetrievalStrategy,
 )
-from legal_agentic_rag.schemas.manifests import ArtifactManifest
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -271,8 +268,6 @@ class FixedRetriever:
         query_understanding_config: QueryUnderstandingConfig | None = None,
         reranker: Reranker | None = None,
         reranker_config: RerankerConfig | None = None,
-        graph_backend: GraphBackend | None = None,
-        chunk_manifest: ArtifactManifest | None = None,
     ) -> None:
         self._bm25 = bm25_retriever
         self._dense = dense_retriever
@@ -286,23 +281,6 @@ class FixedRetriever:
         self._hybrid_rerank = (
             RerankingRetriever(self._hybrid, reranker, reranker_config)
             if reranker is not None
-            else None
-        )
-        self._graph = (
-            GraphExpandedRetriever(
-                self._hybrid,
-                graph_backend,
-                reranker,
-                chunk_manifest,
-                self._config,
-                reranker_config,
-            )
-            if (
-                self._config.graph_runtime_enabled
-                and graph_backend is not None
-                and reranker is not None
-                and chunk_manifest is not None
-            )
             else None
         )
 
@@ -320,10 +298,4 @@ class FixedRetriever:
             if self._hybrid_rerank is None:
                 raise RetrievalError("Fixed hybrid-rerank strategy has no reranker")
             return self._hybrid_rerank.search(routed_query)
-        if strategy == RetrievalStrategy.GRAPH:
-            if self._graph is None:
-                raise RetrievalError(
-                    "Fixed graph strategy requires graph, chunks, and reranker"
-                )
-            return self._graph.search(routed_query)
         raise RetrievalError(f"Fixed retrieval strategy is not implemented: {strategy}")

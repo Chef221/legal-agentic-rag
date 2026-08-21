@@ -159,7 +159,7 @@ def test_registered_tools_run_retrieval_grade_generate_and_verify() -> None:
         verification_result.output
     )
 
-    assert len(registry.descriptors()) == 8
+    assert len(registry.descriptors()) == 7
     assert all(
         result.success
         for result in (

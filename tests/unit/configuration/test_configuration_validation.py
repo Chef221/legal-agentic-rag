@@ -89,8 +89,6 @@ def test_embedding_and_vector_defaults_are_pinned_and_bounded() -> None:
 def test_retrieval_config_validates_candidate_and_graph_limits() -> None:
     """Invalid retrieval bounds fail before any backend is called."""
     assert RetrievalConfig().default_strategy.value == "hybrid"
-    assert RetrievalConfig().graph_runtime_enabled is True
-    assert RetrievalConfig(graph_runtime_enabled=False).graph_runtime_enabled is False
     with pytest.raises(ValidationError):
         RetrievalConfig(top_k=20, candidate_k=10)
     with pytest.raises(ValidationError):
@@ -385,8 +383,8 @@ def test_agent_retry_is_capped_at_two() -> None:
     config = AgentConfig()
     assert config.strategy_order == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
         RetrievalStrategy.HYBRID,
+        RetrievalStrategy.BM25,
     ]
     with pytest.raises(ValidationError):
         AgentConfig(max_retry=3)
@@ -480,3 +478,21 @@ def test_structure_parser_config_bounds_title_lookahead() -> None:
         LegalStructureParserConfig(maximum_title_characters=0)
     with pytest.raises(ValidationError):
         LegalStructureParserConfig(maximum_title_words=101)
+
+def test_historical_graph_retrieval_and_agent_configs_remain_parse_compatible() -> None:
+    """Historical configurations with GRAPH deserialize successfully for compatibility."""
+    retrieval_cfg = RetrievalConfig(default_strategy=RetrievalStrategy.GRAPH)
+    assert retrieval_cfg.default_strategy == RetrievalStrategy.GRAPH
+
+    agent_cfg = AgentConfig(
+        strategy_order=[
+            RetrievalStrategy.HYBRID_RERANK,
+            RetrievalStrategy.GRAPH,
+            RetrievalStrategy.HYBRID,
+        ]
+    )
+    assert agent_cfg.strategy_order == [
+        RetrievalStrategy.HYBRID_RERANK,
+        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.HYBRID,
+    ]

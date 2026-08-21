@@ -56,7 +56,6 @@ _RETRIEVAL_TOOLS = {
     ToolName.DENSE_SEARCH,
     ToolName.HYBRID_SEARCH,
     ToolName.RERANK_SEARCH,
-    ToolName.GRAPH_SEARCH,
 }
 _LOGGER = logging.getLogger(__name__)
 

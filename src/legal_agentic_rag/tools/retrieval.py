@@ -26,7 +26,6 @@ _STRATEGIES: dict[ToolName, RetrievalStrategy] = {
     ToolName.DENSE_SEARCH: RetrievalStrategy.DENSE,
     ToolName.HYBRID_SEARCH: RetrievalStrategy.HYBRID,
     ToolName.RERANK_SEARCH: RetrievalStrategy.HYBRID_RERANK,
-    ToolName.GRAPH_SEARCH: RetrievalStrategy.GRAPH,
 }
 
 _DESCRIPTIONS: dict[ToolName, str] = {
@@ -41,9 +40,6 @@ _DESCRIPTIONS: dict[ToolName, str] = {
     ),
     ToolName.RERANK_SEARCH: (
         "Retrieve hybrid candidates and apply the configured cross-encoder."
-    ),
-    ToolName.GRAPH_SEARCH: (
-        "Expand text-retrieval seeds through bounded legal-document relationships."
     ),
 }
 
@@ -117,15 +113,9 @@ def fixed_retrieval_tools(
     retriever: _Retriever,
     *,
     timeout_seconds: float = 30.0,
-    graph_runtime_enabled: bool = True,
 ) -> list[RetrievalTool]:
     """Create approved fixed retrieval tools."""
-    names = (
-        _STRATEGIES.keys()
-        if graph_runtime_enabled
-        else [name for name in _STRATEGIES if name != ToolName.GRAPH_SEARCH]
-    )
     return [
         RetrievalTool(name, retriever, timeout_seconds=timeout_seconds)
-        for name in names
+        for name in _STRATEGIES
     ]

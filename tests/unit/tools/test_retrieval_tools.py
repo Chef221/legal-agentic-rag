@@ -4,7 +4,11 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from legal_agentic_rag.exceptions import InvalidUserInputError, RetrievalError
+from legal_agentic_rag.exceptions import (
+    ConfigurationError,
+    InvalidUserInputError,
+    RetrievalError,
+)
 from legal_agentic_rag.schemas import (
     RetrievalQuery,
     RetrievalResponse,
@@ -46,7 +50,7 @@ def _query(
     )
 
 
-def test_fixed_retrieval_tools_route_exactly_five_public_strategies() -> None:
+def test_fixed_retrieval_tools_route_exactly_four_public_strategies() -> None:
     """Each wrapper overrides no strategy except its own fixed capability."""
     retriever = _Retriever()
     tools = fixed_retrieval_tools(retriever)
@@ -58,14 +62,12 @@ def test_fixed_retrieval_tools_route_exactly_five_public_strategies() -> None:
         ToolName.DENSE_SEARCH,
         ToolName.HYBRID_SEARCH,
         ToolName.RERANK_SEARCH,
-        ToolName.GRAPH_SEARCH,
     ]
     assert [response.strategy for response in responses] == [
         RetrievalStrategy.BM25,
         RetrievalStrategy.DENSE,
         RetrievalStrategy.HYBRID,
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
     ]
     assert all(isinstance(tool, TypedTool) for tool in tools)
     assert all(tool.description for tool in tools)
@@ -84,15 +86,7 @@ def test_retrieval_tool_rejects_strategy_escape_and_bad_response() -> None:
     with pytest.raises(RetrievalError, match="incompatible"):
         bad.invoke(_query())
 
-def test_fixed_retrieval_tools_excludes_graph_when_disabled() -> None:
-    """When graph_runtime_enabled is False, GRAPH_SEARCH is omitted from registered tools."""
-    retriever = _Retriever()
-    tools = fixed_retrieval_tools(retriever, graph_runtime_enabled=False)
-
-    assert [tool.name for tool in tools] == [
-        ToolName.BM25_SEARCH,
-        ToolName.DENSE_SEARCH,
-        ToolName.HYBRID_SEARCH,
-        ToolName.RERANK_SEARCH,
-    ]
-    assert ToolName.GRAPH_SEARCH not in [tool.name for tool in tools]
+def test_retrieval_tool_rejects_graph_search_name() -> None:
+    """ToolName.GRAPH_SEARCH is not an approved live retrieval tool name."""
+    with pytest.raises(ConfigurationError, match="retrieval tool name"):
+        RetrievalTool(ToolName.GRAPH_SEARCH, _Retriever())

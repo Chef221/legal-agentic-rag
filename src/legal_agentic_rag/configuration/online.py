@@ -22,7 +22,6 @@ class RetrievalConfig(BaseModel):
     graph_seed_document_k: int = Field(default=5, gt=0, le=100)
     graph_related_document_k: int = Field(default=20, gt=0, le=100)
     graph_relationship_types: list[str] = Field(default_factory=list)
-    graph_runtime_enabled: bool = True
     timeout_seconds: float = Field(default=30.0, gt=0)
 
     @model_validator(mode="after")
@@ -449,8 +448,8 @@ class AgentConfig(BaseModel):
     strategy_order: list[RetrievalStrategy] = Field(
         default_factory=lambda: [
             RetrievalStrategy.HYBRID_RERANK,
-            RetrievalStrategy.GRAPH,
             RetrievalStrategy.HYBRID,
+            RetrievalStrategy.BM25,
         ],
         min_length=1,
         max_length=3,

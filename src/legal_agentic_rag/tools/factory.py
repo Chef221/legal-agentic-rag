@@ -30,7 +30,6 @@ def build_fixed_tool_registry(
     retrieval_timeout_seconds: float = 30.0,
     generation_timeout_seconds: float = 30.0,
     verification_timeout_seconds: float | None = None,
-    graph_runtime_enabled: bool = True,
 ) -> ToolRegistry:
     """Build exactly the approved fixed tools from injected fixed services."""
     verification_timeout = (
@@ -41,7 +40,6 @@ def build_fixed_tool_registry(
     tools = fixed_retrieval_tools(
         retriever,
         timeout_seconds=retrieval_timeout_seconds,
-        graph_runtime_enabled=graph_runtime_enabled,
     )
     return ToolRegistry(
         [

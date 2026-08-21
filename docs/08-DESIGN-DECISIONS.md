@@ -2437,3 +2437,34 @@ Following Phase T4-PROD-B1 (`D098`), which decoupled online graph execution wiri
    - Lean deployment packages omitting `artifacts/graph` are now fully supported for M49.1 graph-disabled serving.
 3. **Preservation of Core Contracts and Builders:**
    - Graph schemas (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `ArtifactType.GRAPH_INDEX`), `startup_validation._REQUIRED_CHECKS`, and offline graph builders (`AdjacencyGraphBackend.build`) remain completely intact.
+
+---
+
+## D100 — Phase T4-PROD-B3: Retire Online Graph Execution and Retain Offline/Schema Compatibility
+
+**Status:** Accepted
+
+**Context & Rationale:**
+Following Phase T4-PROD-A (`D097`), which verified that candidate narrowing (`relationship_candidate_k = 20`) without graph traversal produces 100% exact answer reproduction across the complete relationship-routed population in frozen Dev-200 (7/7 relationship-routed questions out of 200 total, resulting in 7/7 exact final answers, 7/7 identical warning profiles, and 0.0 aggregate ROUGE/METEOR delta), Phase T4-PROD-B1 (`D098`) which decoupled online graph tool execution, and Phase T4-PROD-B2 (`D099`) which confirmed exact-M45 Kaggle startup with `graph/` physically absent, Phase T4-PROD-B3 intentionally retires the optional/historical online graph execution subsystem from the production takeover serving architecture.
+
+**Production Architecture & Boundary:**
+1. **Retirement of Online Graph Execution:**
+   - `GraphExpandedRetriever` (`src/legal_agentic_rag/retrieval/graph.py`) is deleted.
+   - `FixedRetriever` implements exactly four live retrieval strategies: `BM25`, `DENSE`, `HYBRID`, and `HYBRID_RERANK`. An explicit request for `RetrievalStrategy.GRAPH` raises `RetrievalError("Fixed retrieval strategy is not implemented: graph")`.
+   - `FixedRetriever` drops constructor dependencies on `graph_backend` and `chunk_manifest`.
+   - `fixed_retrieval_tools()` permanently exposes exactly four fixed retrieval tools (`BM25_SEARCH`, `DENSE_SEARCH`, `HYBRID_SEARCH`, `RERANK_SEARCH`). `build_fixed_tool_registry()` creates exactly 7 total tools (4 retrieval + 3 pipeline tools).
+   - `DeterministicStrategyRouter` removes `RetrievalStrategy.GRAPH` from its internal strategy-to-tool map, rejecting explicit `GRAPH` requests as unavailable (`InvalidUserInputError`).
+   - `OnlineRuntimeFactory` removes all online graph manifest and `AdjacencyGraphBackend` loading branches. Online runtime manifests consist permanently of `legal_chunks`, `bm25_index`, and `vector_index`.
+   - The transitional `RetrievalConfig.graph_runtime_enabled` capability flag is removed.
+2. **Historical Graph Config and Schema Compatibility:**
+   - Schemas (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `ArtifactType.GRAPH_INDEX`) remain schema enums for historical log, trace, report, and config deserialization.
+   - `RetrievalConfig` still accepts historical `default_strategy=RetrievalStrategy.GRAPH` (and `"graph"`), preserving historical configuration deserialization. However, `GRAPH` is no longer executable by the takeover online runtime; executing a search with `default_strategy=GRAPH` or explicit `GRAPH` will raise `RetrievalError("Fixed retrieval strategy is not implemented: graph")`.
+   - The live default `AgentConfig.strategy_order` is updated to `[RetrievalStrategy.HYBRID_RERANK, RetrievalStrategy.HYBRID, RetrievalStrategy.BM25]`. Historical configurations that explicitly specify a `strategy_order` containing `RetrievalStrategy.GRAPH` remain parse-compatible and deserialize successfully; during route planning, `GRAPH` is skipped because no matching live tool is registered, executing only available live strategies.
+   - Explicit user queries requesting `RetrievalStrategy.GRAPH` are rejected as unavailable with `InvalidUserInputError`.
+   - Legacy online graph tuning fields (`graph_hop_limit`, `graph_seed_chunk_k`, `graph_seed_document_k`, `graph_related_document_k`, `graph_relationship_types`) in `RetrievalConfig` remain parse-compatible with no live online consumer.
+   - `ArtifactConfig.graph_directory` and `GraphIndexConfig` remain supported.
+3. **Preservation of Offline Graph Construction & Artifact Compatibility:**
+   - `AdjacencyGraphBackend` (`src/legal_agentic_rag/indexing/graph/adjacency_backend.py`) and `GraphBackend` contract remain 100% functional for offline corpus indexing and M45 artifact generation.
+   - Existing M45 packages containing `artifacts/graph` remain fully compatible without rebuild.
+4. **Scope Limitation:**
+   - This decision reflects the causal experimental findings of the UIT DSC 2026 competition dataset and does not claim graph algorithms are universally inapplicable outside this evaluated architecture.

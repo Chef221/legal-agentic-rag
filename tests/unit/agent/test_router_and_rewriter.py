@@ -1,9 +1,12 @@
+import pytest
+
 """Unit tests for bounded strategy routing and conservative query rewriting."""
 
 from legal_agentic_rag.agent import (
     ConservativeQueryRewriter,
     DeterministicStrategyRouter,
 )
+from legal_agentic_rag.exceptions import InvalidUserInputError
 from legal_agentic_rag.configuration import AgentConfig
 from legal_agentic_rag.schemas import (
     QueryAnalysis,
@@ -58,15 +61,15 @@ def test_router_respects_attempt_limit_and_configured_order() -> None:
     """Zero retries yields exactly one deterministic registered strategy."""
     config = AgentConfig(
         max_retry=0,
-        strategy_order=[RetrievalStrategy.GRAPH, RetrievalStrategy.HYBRID],
+        strategy_order=[RetrievalStrategy.DENSE, RetrievalStrategy.HYBRID],
     )
     routes = DeterministicStrategyRouter(config).plan(
         _query(),
-        {ToolName.GRAPH_SEARCH, ToolName.HYBRID_SEARCH},
+        {ToolName.DENSE_SEARCH, ToolName.HYBRID_SEARCH},
     )
 
     assert len(routes) == 1
-    assert routes[0].strategy == RetrievalStrategy.GRAPH
+    assert routes[0].strategy == RetrievalStrategy.DENSE
 
 
 def test_router_routes_relationship_queries_graphless_to_hybrid_rerank_and_fallbacks() -> None:
@@ -106,22 +109,16 @@ def test_router_routes_relationship_queries_graphless_to_hybrid_rerank_and_fallb
     assert all(route.tool_name != ToolName.GRAPH_SEARCH for route in routes)
 
 
-def test_router_honors_explicitly_requested_graph_strategy() -> None:
-    """Explicitly requested graph strategy remains respected when configured."""
-    routes = DeterministicStrategyRouter().plan(
-        _query(RetrievalStrategy.GRAPH),
-        {
-            ToolName.GRAPH_SEARCH,
-            ToolName.RERANK_SEARCH,
-            ToolName.HYBRID_SEARCH,
-        },
-    )
-
-    assert [route.strategy for route in routes] == [
-        RetrievalStrategy.GRAPH,
-        RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.HYBRID,
-    ]
+def test_router_rejects_explicitly_requested_graph_strategy() -> None:
+    """Explicitly requested graph strategy is rejected as unavailable to the Agent."""
+    with pytest.raises(InvalidUserInputError, match="not available"):
+        DeterministicStrategyRouter().plan(
+            _query(RetrievalStrategy.GRAPH),
+            {
+                ToolName.RERANK_SEARCH,
+                ToolName.HYBRID_SEARCH,
+            },
+        )
 
 
 def test_rewriter_uses_only_an_unused_user_supplied_query_form() -> None:
@@ -173,3 +170,29 @@ def test_rewriter_uses_planned_user_derived_variant_before_original_form() -> No
     )
 
     assert rewritten == "nộp thuế"
+
+def test_router_skips_historical_graph_strategy_when_planning_with_live_tools() -> None:
+    """Historical strategy order containing GRAPH skips GRAPH and uses only live registered tools."""
+    config = AgentConfig(
+        strategy_order=[
+            RetrievalStrategy.HYBRID_RERANK,
+            RetrievalStrategy.GRAPH,
+            RetrievalStrategy.HYBRID,
+        ]
+    )
+    routes = DeterministicStrategyRouter(config).plan(
+        _query(),
+        {
+            ToolName.BM25_SEARCH,
+            ToolName.DENSE_SEARCH,
+            ToolName.HYBRID_SEARCH,
+            ToolName.RERANK_SEARCH,
+        },
+    )
+
+    assert [route.strategy for route in routes] == [
+        RetrievalStrategy.HYBRID_RERANK,
+        RetrievalStrategy.HYBRID,
+    ]
+    assert all(route.strategy != RetrievalStrategy.GRAPH for route in routes)
+    assert all(route.tool_name != ToolName.GRAPH_SEARCH for route in routes)

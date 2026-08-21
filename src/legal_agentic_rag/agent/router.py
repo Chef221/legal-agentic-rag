@@ -21,7 +21,6 @@ _STRATEGY_TO_TOOL: dict[RetrievalStrategy, ToolName] = {
     RetrievalStrategy.DENSE: ToolName.DENSE_SEARCH,
     RetrievalStrategy.HYBRID: ToolName.HYBRID_SEARCH,
     RetrievalStrategy.HYBRID_RERANK: ToolName.RERANK_SEARCH,
-    RetrievalStrategy.GRAPH: ToolName.GRAPH_SEARCH,
 }
 
 
@@ -65,8 +64,8 @@ class DeterministicStrategyRouter:
             if strategy in seen:
                 continue
             seen.add(strategy)
-            tool_name = _STRATEGY_TO_TOOL[strategy]
-            if tool_name in registered_tools:
+            tool_name = _STRATEGY_TO_TOOL.get(strategy)
+            if tool_name is not None and tool_name in registered_tools:
                 routes.append(RetrievalRoute(strategy, tool_name))
             if len(routes) >= self._config.max_retry + 1:
                 break

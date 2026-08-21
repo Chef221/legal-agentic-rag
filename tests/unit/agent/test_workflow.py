@@ -193,7 +193,7 @@ def test_agent_rewrites_changes_strategy_and_stops_on_second_success() -> None:
     assert result.state.current_query == _query().original_question
     assert retriever.calls == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
+        RetrievalStrategy.HYBRID,
     ]
     assert [item.attempt_number for item in result.state.retrieval_history] == [
         1,
@@ -213,8 +213,8 @@ def test_agent_enforces_max_retry_and_returns_abstention() -> None:
     assert len(result.state.retrieval_history) == 3
     assert retriever.calls == [
         RetrievalStrategy.HYBRID_RERANK,
-        RetrievalStrategy.GRAPH,
         RetrievalStrategy.HYBRID,
+        RetrievalStrategy.BM25,
     ]
 
 
@@ -337,15 +337,14 @@ def test_agent_calls_only_the_retrieval_tool_present_in_closed_registry() -> Non
     assert result.stop_reason == AgentStopReason.ANSWER_VERIFIED
     assert retriever.calls == [RetrievalStrategy.HYBRID]
 
-def test_build_fixed_tool_registry_omits_graph_when_disabled() -> None:
-    """When graph_runtime_enabled is False, GRAPH_SEARCH is excluded from registry."""
+def test_build_fixed_tool_registry_registers_seven_tools() -> None:
+    """Fixed tool registry registers exactly seven tools without GRAPH_SEARCH."""
     retriever = _SequencedRetriever()
     registry = build_fixed_tool_registry(
         retriever=retriever,
         context_grader=RuleBasedContextGrader(),
         answer_generator=ExtractiveAnswerGenerator(),
         citation_verifier=RuleBasedCitationVerifier(),
-        graph_runtime_enabled=False,
     )
 
     tool_names = [descriptor.name for descriptor in registry.descriptors()]
