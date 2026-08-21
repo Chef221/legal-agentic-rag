@@ -118,8 +118,15 @@ Current production serving chunks in `artifacts/uit-dsc-2026-task2-v0400/legal_c
 - **Article Header (`Điều X:`)**: Present in 264,770 chunks (80.05%)
 - **Hierarchy Header (`Chương/Mục`)**: Present in 223,994 chunks (67.72%)
 - **Clause Numbers (`Khoản:`)**: Present in 207,391 chunks (62.70%)
-- **Critical Deficiency in `token_fallback`**:
-  - All 108,009 `token_fallback` chunks (32.65% of the entire corpus) currently have `header: ""` (0 parent metadata context prepended to `search_text`).
+- **D0 Search-Header Interpretation Correction (Verified 2026-08-21)**:
+  - An initial D0 sampling artifact in `scripts/audit_official_data_d0.py` inspected only the first 3 `token_fallback` chunks encountered in corpus order (which happened to come from unstructured documents `context_0` and `context_1` lacking titles and structure), leading to an incorrect generalization that all 108,009 fallback chunks lacked headers.
+  - Independent full-corpus verification over all 108,009 `token_fallback` chunks established the exact empirical distribution:
+    * **Total `token_fallback` Chunks**: 108,009 (32.65% of corpus)
+    * **Non-Empty Baseline Headers**: 94,679 (87.66%) — `LegalChunker._search_text()` had already successfully prepended article, clause, point, chapter, or title headers into these chunks.
+    * **Empty Baseline Headers**: 13,330 (12.34%)
+    * **With $\ge 1$ Usable Lineage Parent Field**: 94,790 (87.76%)
+    * **With No Usable Parent Field** (unstructured documents): 13,219 (12.24%)
+    * **Budget-Constrained Chunks** (had usable parent field but text length reached 448 tokens ceiling and header could not fit within 512 tokens): 111 (0.10%)
 
 ---
 
@@ -140,7 +147,7 @@ Current production serving chunks in `artifacts/uit-dsc-2026-task2-v0400/legal_c
 | `effect_status` | 0 | **0.0%** | 0 |
 | `legal_field` | 0 | **0.0%** | 0 |
 
-*Root Cause*: Official raw contexts provide only `id`, `name` (slug), `link`, and `passage`. No explicit metadata dictionary was provided by BTC. The current pipeline leaves document numbers and metadata fields unextracted from the passage header or document slug.
+*Root Cause*: Official raw contexts provide only `id`, `name` (slug), `link`, and `passage`. No explicit metadata dictionary was provided by BTC. The current ingestion pipeline intentionally uses `infer_missing_legal_metadata = False`, leaving document numbers and document types unextracted from the passage header, URL, or document title.
 
 ---
 
@@ -195,53 +202,38 @@ Evaluated against the serving SQLite FTS5 index (`bm25_documents`, 330,768 rows)
 
 ## 9. Next Experiment: Selection of Exactly One D1 Candidate
 
-Rather than bundling multiple architectural modifications simultaneously, the project isolates exactly **ONE** causal variable for Phase D1.
+### Cancelled Candidate: D1 — Parent-Context Enriched Token-Fallback Search Representation
+- **Status**: `CANCELLED_AFTER_PREMISE_FALSIFICATION`
+- **Reason**: The original premise that all 108,009 `token_fallback` chunks lacked parent headers was disproven (94,679 already possessed headers; only 111 were budget-constrained).
 
-### Selected Candidate: D1 — Parent-Context Enriched Token-Fallback Search Representation
+### Selected Candidate: D1 — Deterministic Legal Document Identity Enrichment
 
 - **Single Causal Variable**:
-  For existing `token_fallback` chunks only, enrich `search_text` with parent/legal context that is **ALREADY deterministically available** in existing chunk/source lineage (e.g. `document_title`, parent `article_title` if fallback sliced a known article, or document scope).
+  Deterministically extract `document_type` and `document_number` from official context content (title, source URL, and early passage header) using multi-source agreement, and enrich candidate `search_text` with canonical `Loại văn bản:` and `Số ký hiệu:` lines where high confidence is achieved.
 - **Strict Invariants Preserved**:
   - Exact total chunk count unchanged (330,768).
   - Exact chunk IDs unchanged.
   - Exact chunk boundaries / token offsets unchanged.
   - Exact raw chunk `text` unchanged.
-  - Retrieval parameters, dense model, reranker, answer generator, and verifier configurations 100% unchanged.
-- **Strictly Prohibited in D1**:
-  - Resegmenting or modifying chunk boundaries.
-  - Extracting new unverified document metadata.
-  - Performing adjacent-window stitching.
-  - Changing BM25 parameters ($k_1$, $b$, tokenizer).
-  - Inferring or fabricating missing parent metadata (if unavailable, leave absent).
+  - Max search tokens ceiling ($512$) and complete chunk text suffix strictly preserved.
+  - Zero external data or LLM inference.
+  - Production ingestion and chunker untouched during experiment.
 
-### Pre-Registered D1 Measurement Protocol
-- **Evaluation Population**:
-  - Primary: High-confidence official-data proxy across all 1,333 unambiguous question-to-document links (if computationally practical).
-  - Baseline continuity: Report the fixed historical 200-query D0 subset separately.
-  - Segmented Breakdown: Report performance over **ALL proxy questions** vs the **AFFECTED subset** (questions whose linked target document/article contains at least one `token_fallback` chunk in the baseline artifact).
-- **Metrics**:
-  - BM25 Document Recall @ 1, @ 5, @ 10, @ 20.
-  - (Optional passive monitoring if normal candidate rebuild affects other branches): Dense, Hybrid/RRF, Reranked Recall without modifying their configs.
-
-### Pre-Registered D1 Success Gate
-- **Structural Invariants Gate**:
-  - 100% pass on chunk count (330,768), chunk IDs, chunk boundaries, and raw text invariance.
-  - Zero fabricated metadata.
-  - All `token_fallback` chunks with deterministically available lineage parent context receive that context in candidate `search_text`.
+### Pre-Registered D1 Measurement Protocol & Gates
+- **Feasibility Gate**: High-confidence complete identity (type + number) coverage $\ge 50\%$ of non-empty documents or $\ge 70\%$ of 1,333 proxy target documents.
+- **Structural Invariants Gate**: 100% pass on 330,768 chunk count, IDs, boundaries, raw text invariance, and 512 token ceiling.
 - **Retrieval Performance Gate**:
-  - **Primary**: BM25 document Recall@5 improves by $\ge 2.0$ absolute percentage points on the same evaluation population.
-  - **Secondary**: BM25 Recall@10 must not regress.
-  - **Tertiary**: BM25 Recall@20 must not regress by $> 0.5$ absolute percentage points.
+  - **Primary**: Full 1,333 BM25 document Recall@5 improves by $\ge +2.0$ absolute percentage points over baseline.
+  - **Secondary**: Recall@10 must not regress.
+  - **Tertiary**: Recall@20 must not regress by $> 0.5$ absolute percentage points.
 
 ---
 
 ## 10. Architectural Backlog (Future Hypotheses)
 
-The following hypotheses were identified during the D0 census but are deferred to subsequent, isolated milestones:
-
 1. **Backlog Item 1 — Hierarchical Legal Chunking (Clause / Point Resegmentation)**:
    Re-architect the offline chunker to parse long articles into structured clauses/points instead of token-based sliding windows.
 2. **Backlog Item 2 — Online Adjacent Chunk Window Expansion & Parent Stitching**:
    Implement dynamic boundary expansion during context building for adjacent chunks possessing high boundary risk tags (list headers, condition truncations).
-3. **Backlog Item 3 — Offline Legal Metadata Extraction from Slugs and Headers**:
-   Extract `document_number`, `document_type`, and `issuing_authority` from document URL slugs and passage headers during offline normalization.
+3. **Backlog Item 3 — Secondary Legal Metadata Extraction (Authority, Dates, Effect Status)**:
+   Extract `issuing_authority`, `issuance_date`, `effective_date`, and `effect_status` once basic document identity is proven.

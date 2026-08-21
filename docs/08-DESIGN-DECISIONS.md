@@ -3146,8 +3146,8 @@ Before investing in large-scale offline chunking or dense embedding overhauls, P
    - Total Chunks: 330,768 chunks across 8,512 unique documents.
    - Strategy: `article` (39.53%), `token_fallback` (32.65%), `clause_group` (24.53%), `standalone_block` (3.29%).
    - Boundary Risk Pairs: 2,056 adjacent chunk boundary risk pairs identified (971 cross-reference splits, 649 list header splits, 436 condition left-boundary truncations).
-   - Critical Deficiency: All 108,009 `token_fallback` chunks (32.65% of corpus) currently have empty header context in `search_text`.
-   - Metadata Deficiencies: 0% of chunks currently have `document_number`, `document_type`, or `effect_status` extracted from passage headers or document slugs.
+   - D0 Search-Header Interpretation Correction (Verified 2026-08-21): Independent audit established that `LegalChunker._search_text()` had already prepended headers to 94,679 (87.66%) of the 108,009 `token_fallback` chunks. Empty headers occurred in 13,330 chunks (13,219 unstructured documents with no parent fields; 111 budget-constrained). The original sampling in `audit_official_data_d0.py` only inspected the first 3 chunks and was incorrectly generalized in preliminary notes.
+   - Metadata Deficiencies: Current ingestion pipeline intentionally uses `infer_missing_legal_metadata = False`, so 0% of canonical chunks have `document_number` or `document_type` extracted from passage headers or document slugs.
 3. **Train Q&A Linkability & High-Confidence Retrieval Proxy**:
    - 1,333 train questions (19.04%) possess unambiguous, high-confidence links to canonical context documents based on statutory document number citations in answers.
    - 639 train questions (9.13%) link unambiguously to specific articles.
@@ -3155,14 +3155,45 @@ Before investing in large-scale offline chunking or dense embedding overhauls, P
    - The 1,333 unambiguous links define a **HIGH-CONFIDENCE OFFICIAL-DATA RETRIEVAL PROXY** (not official relevance ground truth) without violating competition data rules (no synthetic QA).
 4. **Historical BM25 Retrieval Proxy Baseline**:
    - Evaluated on SQLite FTS5 index (`bm25_documents`) across the historical 200-QA subset: Document Recall @ 1 = 48.0%, Recall @ 5 = 71.5%, Recall @ 10 = 79.5%, Recall @ 20 = 86.0%.
-5. **Selection of Exactly ONE Phase D1 Candidate**:
-   - Selected: **D1 — Parent-Context Enriched Token-Fallback Search Representation**.
-   - Single Causal Variable: For existing `token_fallback` chunks only, enrich `search_text` with parent/legal context ALREADY deterministically available in existing chunk/source lineage.
-   - Strict Invariants: Exact chunk count (330,768), chunk IDs, chunk boundaries, and raw chunk text strictly unchanged. Retrieval parameters, dense model, reranker, answer generator, and verifier unchanged.
-   - Strict Prohibitions: No resegmenting, no metadata extraction, no adjacent-window stitching, no parameter tuning, no metadata fabrication.
-   - Pre-Registered Measurement: Evaluate on high-confidence official-data proxy (all 1,333 links if practical + 200 historical subset), reporting ALL proxy vs AFFECTED subset (questions whose target has $\ge 1$ `token_fallback` chunk).
-   - Pre-Registered Success Gate: Structural invariants pass; Primary: BM25 Recall@5 improves by $\ge 2.0$ absolute percentage points on same evaluation population; Secondary: BM25 Recall@10 must not regress; Tertiary: BM25 Recall@20 must not regress by $> 0.5$ absolute percentage points.
+5. **Candidate D1 Evolution**:
+   - Original Candidate (Parent-Context Enriched Token-Fallback): **`CANCELLED_AFTER_PREMISE_FALSIFICATION`** because parent context is already populated in 87.66% of fallback chunks.
+   - New Candidate Selected: **D1 — Deterministic Legal Document Identity Enrichment** (formalized in D130).
 6. **Architectural Backlog (Future Hypotheses)**:
    - Backlog 1: Hierarchical Legal Chunking (Clause/Point resegmentation).
    - Backlog 2: Online Adjacent Chunk Window Expansion & Parent Stitching.
-   - Backlog 3: Offline Legal Metadata Extraction from Slugs and Headers.
+   - Backlog 3: Secondary Legal Metadata Extraction (Authority, Dates, Effect Status).
+
+---
+
+## D130 — Phase D1 Deterministic Legal Document Identity Enrichment Protocol and Evaluation Gates
+
+**Status:** Accepted (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`)
+
+**Context:**
+Following the premise falsification and cancellation of the initial token-fallback parent-context proposal, Phase D1 pivots to evaluating deterministic legal document identity extraction (`document_type`, `document_number`) from official context sources (title, source URL, and early passage header) to enrich lexical search representations.
+
+**Decisions & Invariants:**
+1. **Single Causal Variable**:
+   - D1 extracts ONLY `document_type` and `document_number`. No other metadata (dates, issuing authority, legal field, effect status) is extracted.
+   - The causal variable is: baseline chunk `search_text` vs candidate `search_text` prepended with `Loại văn bản: <type>` and `Số ký hiệu: <number>` when resolved with high confidence.
+2. **Official Data Only & Extraction Policy**:
+   - Extraction sources restricted to: official context `name`/title, `link`/URL, and early passage header region.
+   - No external legal databases, no LLMs, no semantic guesses, no web crawls.
+3. **Multi-Source Agreement & Own-Document Guard**:
+   - Candidates are extracted independently from Title, URL, and Early Header.
+   - `HIGH_CONFIDENCE`: $\ge 2$ independent fields agree exactly OR 1 field contains an exceptionally explicit canonical document identity and no conflicting candidate exists.
+   - `AMBIGUOUS`: conflicting candidates across sources (fails closed).
+   - `UNRESOLVED`: no safe identity found (fails closed).
+   - Own-Document Guard: Restrict passage extraction strictly to early preamble/header lines to prevent extracting body citations to other referenced laws.
+4. **Feasibility Gate**:
+   - Must achieve $\ge 50\%$ high-confidence complete identity (type + number) coverage across 8,512 non-empty documents OR cover $\ge 70\%$ of the 1,333 proxy target documents before building any candidate index.
+5. **Search-Text Token Budget & Structural Invariants**:
+   - Token budget ceiling: `max_search_tokens = 512`.
+   - Chunk body suffix `chunk.text` is NEVER truncated.
+   - 330,768 chunk count, IDs, document IDs, chunk indices, boundaries, and raw text 100% invariant.
+   - Experimental index built in scratch; production artifacts and ingestion pipeline remain 100% untouched.
+6. **Pre-Registered Success Gates**:
+   - Baseline Replay: Historical 200-QA baseline must reproduce exactly (R@1=48.0%, R@5=71.5%, R@10=79.5%, R@20=86.0%).
+   - Primary Gate: Full 1,333 BM25 document Recall@5 improves by $\ge +2.0$ absolute percentage points.
+   - Secondary Gate: Recall@10 must not regress.
+   - Tertiary Gate: Recall@20 must not regress by $> 0.5$ absolute percentage points.
