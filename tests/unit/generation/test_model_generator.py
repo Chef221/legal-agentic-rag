@@ -849,3 +849,283 @@ def test_model_generator_rejects_invalid_max_missing_field_corrections() -> None
         ModelBackedAnswerGenerator(provider, max_missing_field_corrections=2)
     with pytest.raises(ValueError, match="max_missing_field_corrections"):
         ModelBackedAnswerGenerator(provider, max_missing_field_corrections=-1)
+
+
+def test_default_grounding_profile_is_baseline() -> None:
+    """Default grounding profile must be baseline."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(provider)
+    assert generator._grounding_profile == "baseline"
+
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    assert response.metadata["grounding_profile"] == "baseline"
+
+
+def test_baseline_grounding_profile_preserves_current_prompt_behavior() -> None:
+    """Baseline system instruction and user prompt must match legacy expectations."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(provider, grounding_profile="baseline")
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, user_prompt = provider.calls[0]
+    assert "Bạn là trợ lý tra cứu pháp luật Việt Nam." in system_instruction
+    assert "QUY TẮC BẢO TOÀN NỘI DUNG PHÁP LÝ TRỌNG YẾU" not in system_instruction
+    assert "Bảo toàn chính xác chủ thể" not in user_prompt
+
+
+def test_material_fidelity_v1_includes_actor_role_preservation_rule() -> None:
+    """G1 must explicitly instruct actor and role preservation."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, user_prompt = provider.calls[0]
+    assert "CHỦ THỂ VÀ TƯ CÁCH PHÁP LÝ (ACTOR/ROLE)" in system_instruction
+    assert "Giữ nguyên chính xác chủ thể và tư cách/vai trò pháp lý" in system_instruction
+    assert "Tuyệt đối không thay thế chủ thể bằng chủ thể khác" in system_instruction
+    assert "Bảo toàn chính xác chủ thể, vai trò pháp lý" in user_prompt
+
+
+def test_material_fidelity_v1_includes_action_object_preservation_rule() -> None:
+    """G1 must explicitly instruct regulated action and object preservation."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, _ = provider.calls[0]
+    assert "HÀNH VI VÀ ĐỐI TƯỢNG ĐIỀU CHỈNH (ACTION/OBJECT)" in system_instruction
+    assert "Giữ nguyên chính xác hoạt động, hành vi, đối tượng pháp lý" in system_instruction
+
+
+def test_material_fidelity_v1_includes_conditions_exceptions_preservation_rule() -> None:
+    """G1 must explicitly prohibit unconditioned generalization."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, _ = provider.calls[0]
+    assert "ĐIỀU KIỆN VÀ NGOẠI LỆ (CONDITIONS/EXCEPTIONS)" in system_instruction
+    assert "claim PHẢI giữ đầy đủ mọi điều kiện trọng yếu đó" in system_instruction
+    assert 'không biến "Nếu A thì B" thành "B"' in system_instruction
+
+
+def test_material_fidelity_v1_includes_legal_scope_preservation_rule() -> None:
+    """G1 must preserve legal scope boundaries without widening."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, _ = provider.calls[0]
+    assert "PHẠM VI ÁP DỤNG (LEGAL SCOPE)" in system_instruction
+    assert "Không khái quát hóa từ phạm vi hẹp sang phạm vi rộng" in system_instruction
+
+
+def test_material_fidelity_v1_retains_numeric_exactness_rule() -> None:
+    """G1 must retain strict verbatim numeric copying rule."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, user_prompt = provider.calls[0]
+    assert "SỐ LIỆU VÀ THỜI HẠN (NUMERIC/TEMPORAL)" in system_instruction
+    assert "Mọi con số, khoảng số, tỷ lệ, phần trăm" in system_instruction
+    assert "phải được chép nguyên văn" in system_instruction
+    assert "Không đổi cách viết chữ/số, suy diễn khoảng" in user_prompt
+
+
+def test_material_fidelity_v1_includes_full_material_coverage_rule() -> None:
+    """G1 must require all material components to be fully supported."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, user_prompt = provider.calls[0]
+    assert "BAO QUÁT ĐẦY ĐỦ CĂN CỨ (FULL MATERIAL COVERAGE)" in system_instruction
+    assert "Mọi thành phần trọng yếu trong claims[].text phải được chứng minh đầy đủ" in system_instruction
+    assert "Trùng khớp từ ngữ là chưa đủ" in system_instruction
+    assert "Mọi thành phần trọng yếu trong claim phải được chứng minh đầy đủ" in user_prompt
+
+
+def test_material_fidelity_v1_permits_noun_phrase_list_answers() -> None:
+    """G1 explicitly validates faithful noun phrases for list/category questions."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    system_instruction, user_prompt = provider.calls[0]
+    assert "CÂU HỎI LIỆT KÊ/DANH MỤC (LIST/NOUN-PHRASE ANSWERS)" in system_instruction
+    assert "cụm danh từ trung thực được chép/diễn đạt trực tiếp từ evidence là một claim hợp lệ" in system_instruction
+    assert "nếu câu hỏi là dạng liệt kê/danh mục, cụm danh từ trung thực từ evidence là claim hợp lệ" in user_prompt
+
+
+def test_material_fidelity_v1_preserves_output_schema_contract() -> None:
+    """Output draft schema remains strictly ModelAnswerDraft with no extra fields."""
+    provider = _FixtureProvider(_completion())
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID_RERANK,
+        "test-trace-schema",
+    )
+    assert response.answer.endswith("[E1].")
+    assert len(response.citations) == 1
+    assert response.insufficient_evidence is False
+    assert response.metadata["grounding_profile"] == "material_fidelity_v1"
+
+
+def test_material_fidelity_v1_preserves_evidence_allowlist_validation() -> None:
+    """Allowlist violations must fail closed identically in G1."""
+    provider = _FixtureProvider(_completion(cited_evidence_ids=["E99"]))
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    with pytest.raises(StructuredGenerationError) as exc_info:
+        generator.generate(
+            _query(),
+            [_evidence()],
+            RetrievalStrategy.HYBRID,
+            "test-trace",
+        )
+    assert exc_info.value.failure_code == StructuredGenerationFailureCode.UNKNOWN_EVIDENCE_ID.value
+
+
+def test_material_fidelity_v1_preserves_citation_rendering() -> None:
+    """Inline citation rendering remains identical between baseline and G1."""
+    provider = _FixtureProvider(
+        _completion(
+            claims=[
+                {"text": "Nhận định thứ nhất.", "evidence_ids": ["E1"]},
+                {"text": "Nhận định thứ hai.", "evidence_ids": ["E2"]},
+            ]
+        )
+    )
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+    )
+
+    ev1 = _evidence("E1", "chunk-1")
+    ev2 = _evidence("E2", "chunk-2")
+    response = generator.generate(
+        _query(),
+        [ev1, ev2],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    assert response.answer == "Nhận định thứ nhất [E1]. Nhận định thứ hai [E2]."
+    assert [c.evidence_id for c in response.citations] == ["E1", "E2"]
+
+
+def test_material_fidelity_v1_preserves_structured_retry_behavior() -> None:
+    """Structured output retry mechanics remain functional in G1."""
+    invalid_json = "not json at all"
+    valid_json = _completion()
+    provider = _SequenceProvider([invalid_json, valid_json])
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        grounding_profile="material_fidelity_v1",
+        max_structured_output_retries=1,
+    )
+
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "test-trace",
+    )
+    assert len(provider.calls) == 2
+    assert "LÝ DO CẦN SỬA: json_decode_error" in provider.calls[1][1]
+    assert response.answer.endswith("[E1].")
+
+
+def test_material_fidelity_v1_uses_same_single_provider_call_count_as_baseline() -> None:
+    """Normal successful generation uses exactly one provider call in both baseline and G1."""
+    provider_base = _FixtureProvider(_completion())
+    gen_base = ModelBackedAnswerGenerator(provider_base, grounding_profile="baseline")
+    gen_base.generate(_query(), [_evidence()], RetrievalStrategy.HYBRID, "trace-1")
+    assert len(provider_base.calls) == 1
+
+    provider_g1 = _FixtureProvider(_completion())
+    gen_g1 = ModelBackedAnswerGenerator(provider_g1, grounding_profile="material_fidelity_v1")
+    gen_g1.generate(_query(), [_evidence()], RetrievalStrategy.HYBRID, "trace-2")
+    assert len(provider_g1.calls) == 1
+
+
+def test_unknown_grounding_profile_fails_closed() -> None:
+    """Unknown grounding profile must raise ValueError immediately."""
+    provider = _FixtureProvider(_completion())
+    with pytest.raises(ValueError, match="unknown grounding_profile 'invalid_profile'"):
+        ModelBackedAnswerGenerator(provider, grounding_profile="invalid_profile")

@@ -39,6 +39,7 @@ def build_answer_generator(
     if config.backend == "transformers":
         return ModelBackedAnswerGenerator(
             provider or TransformersChatProvider(config),
+            grounding_profile=config.grounding_profile,
             max_structured_output_retries=(
                 config.max_structured_output_retries
             ),
@@ -47,6 +48,7 @@ def build_answer_generator(
         )
     return ModelBackedAnswerGenerator(
         provider or OpenAICompatibleChatProvider(config),
+        grounding_profile=config.grounding_profile,
         max_structured_output_retries=config.max_structured_output_retries,
         max_schema_recovery_attempts=config.max_schema_recovery_attempts,
         max_missing_field_corrections=config.max_missing_field_corrections,

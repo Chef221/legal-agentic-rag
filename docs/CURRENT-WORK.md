@@ -447,12 +447,19 @@ The immediate next action is:
      - Root-cause ranking: #1 Lack of explicit legal dimension decomposition, #2 Lexical entailment bias, #3 Context-blind fragment evaluation.
      - Recommended V3 architecture: Option C (Structured Dimension Decomposition with 3 boolean predicates and deterministic aggregation).
      - Strategic ROI recommendation: Shift primary engineering focus to Generation Grounding & Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth tuning.
-   - **Next Action in Priority B**: Shift engineering focus to Generation Grounding & Prompt Optimization (Task 2 leverage) and Retrieval/Reranker depth tuning, with V3 verifier designed modularly.
+   - **Task GENERATION G1 — MATERIAL-FIDELITY GROUNDING (D128, M52.1)**:
+     - Implemented candidate grounding profile `material_fidelity_v1` in `ModelBackedAnswerGenerator` (`src/legal_agentic_rag/generation/model_generator.py`) alongside default `baseline`.
+     - Added Vietnamese prompt instructions enforcing: Actor/Role preservation, Action/Object preservation, Conditions/Exceptions preservation, Legal Scope preservation, Numeric/Temporal verbatim copying, Full Material Coverage, and List/Noun-phrase acceptance.
+     - Preserved strict invariants: `grounding_profile="baseline"` remains production default, `ModelAnswerDraft` schema strictly preserved, call count parity preserved (1 provider call).
+     - Created `scripts/evaluate_generation_grounding_g1.py` executing Baseline vs G1 A/B experiment across the 16 burned diagnostic review packets with content-safe telemetry and blinded pairwise worksheet generation (`results/generation_g1_human_review_worksheet.md`).
+     - Pre-registered development success criteria (Criteria A–F: 0 errors, $\ge 4/5$ known material errors fixed, $\ge 9/10$ valid answers preserved, $\Delta_{\text{abstain}} \le 15\%$, 0 schema regressions, call parity).
+     - Published specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md`.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Generation Grounding G1 Development?** Resolved: Implemented candidate `material_fidelity_v1` in `ModelBackedAnswerGenerator`, added `GenerationConfig.grounding_profile`, created A/B evaluation harness `scripts/evaluate_generation_grounding_g1.py` for burned 16-question diagnostic review set, implemented deterministic pairwise blinding (`results/generation_g1_human_review_worksheet.md`), pre-registered success criteria (Criteria A–F), added 20 unit tests across generator and evaluator, and documented specification in `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md` (D128, M52.1).
 - **What happened in Phase H-EXEC Holdout Evaluation and Closure?** Resolved: Executed canonical one-shot Phase H-EXEC evaluation on Kaggle GPU on commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8` (`verification-v2-d3-holdout-evidence.zip` SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`). Final verdict: `V2_D3_HOLDOUT_EXECUTION_FAILURE`, decision: `REJECT_V2_D3_PROMOTION`. Supported retention passed at 95.65% (22/23), valid answer retention passed at 80.0% (8/10), full answer accuracy passed at 62.5% (10/16), claim binary accuracy passed at 80.0% (24/30). Negative catch rate failed significantly at 28.57% (2/7 vs 50.0% gate). 61/62 provider calls succeeded, with 1 cold-start failure on Call 1 (`103383:PRIMARY:C1`). V2-D3 permanently closed, production verifier remains disabled, NO D3.3, 31 holdout claims burned as diagnostic data. Postmortem failure analysis published in `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`. Recommended next architecture: Option C (Structured Dimension Decomposition). (D127, M51.13).
 - **What happened in Phase H-EXEC Attempt 0 and Harness Correction?** Resolved: Canonical H-EXEC Attempt 0 on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699` encountered a mechanical pre-inference harness defect during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`). Synchronous failure occurred before provider construction, weight loading, or Pass 1 start (0 provider calls, 0 D3 predictions, 0 holdout metrics produced). Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` with zero scientific holdout consumption. Repaired `scripts/evaluate_verification_v2_d3_holdout.py` to construct `TransformersChatProvider` via `SemanticVerificationConfig.as_generation_config()`. Added model-free constructor smoke verification to `--preflight-only` and unit regression tests with runtime loading guards. Candidate V2-D3, prompt, schema, frozen labels, commitment, and rate gates remain 100% immutable. Authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle session (D126, M51.12).
 - **What happened in Phase H-LABEL and H-EXEC Authorization?** Resolved: Phase H-LABEL human review completed across all 16 primary review packets (31 claims: 24 SUPPORTED, 1 CONTRADICTED, 6 INSUFFICIENT) with zero model predictions. Labels frozen into immutable artifact `verification-v2-holdout-reviewed-labels-v1.json` (SHA-256 `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215`). Pending commitment `c7755e37...` externally reviewed and approved. Approved commitment tracked in repository at `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`). Goverance status set to `EXTERNALLY_REVIEWED_FOR_H_EXEC`. Candidate V2-D3 and rate gates remain frozen.
@@ -505,11 +512,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (V2-D3 Holdout Closed; Promotion Rejected; Holdout Burned; D127 Accepted; Postmortem Completed; Production Semantic Verifier Remains Disabled)
+    0.50.7 (G1 Material-Fidelity Grounding Implemented; Production Generator Default Remains Baseline; D128 Accepted; M52.1 Completed; Blinded A/B Development Harness Ready)
 
 Active development frontier:
-    Post-Holdout Engineering Allocation / Generation Grounding & Prompt Optimization / Modular V3 Architecture Design
+    Generation Grounding G1 Development A/B Evaluation / Diagnostic Verification
 
 Next action:
-    Shift engineering allocation to Generation Grounding / Prompt Optimization (Task 2 metric leverage) and Retrieval/Reranker depth tuning, with V3 verifier designed modularly.
+    External review of G1 candidate implementation before executing canonical one-run development A/B evaluation on Kaggle GPU.
 ```

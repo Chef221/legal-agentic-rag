@@ -2559,3 +2559,17 @@ reports are reviewed.
 - assessed system-level engineering ROI: recommended shifting primary focus to Generation Grounding / Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth tuning;
 - no production code or V3 implementation added in this diagnostic task;
 - next action: shift engineering focus to Generation Grounding & Prompt Optimization, with V3 verifier design planned modularly.
+
+## 79. Milestone 52.1 — Generation Grounding G1: Material-Fidelity Prompt Candidate & Blinded Pairwise Development A/B Harness
+
+**Status:** Completed (Implementation: `src/legal_agentic_rag/generation/model_generator.py`, Harness: `scripts/evaluate_generation_grounding_g1.py`, Unit Tests: `tests/unit/generation/test_model_generator.py`, `tests/unit/evaluation/test_generation_grounding_g1.py`, Specification: `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md`, Decision: `D128`)
+
+- implemented candidate grounding profile `material_fidelity_v1` in `ModelBackedAnswerGenerator` alongside default `baseline`;
+- added concise Vietnamese natural-language prompt instructions preserving legal actor/role, regulated action/object, conditions/exceptions, legal scope boundaries, verbatim numeric/temporal exactness, full material coverage, and faithful noun phrases for list questions;
+- preserved strict invariants: `grounding_profile="baseline"` remains production default, output contract strictly remains `ModelAnswerDraft`, single-call generation count (1 call) strictly preserved;
+- created `scripts/evaluate_generation_grounding_g1.py` executing Baseline vs G1 over the burned 16-question diagnostic review packet set;
+- implemented deterministic pairwise blinding (`results/generation_g1_human_review_worksheet.md`) with separate secret blinding key (`results/generation_g1_blinding_key.json`);
+- pre-registered development success criteria (Criteria A–F: 0 execution errors, $\ge 4/5$ known material errors eliminated, $\ge 9/10$ valid answers preserved, abstention delta $\le 15\%$, 0 schema regressions, call count parity);
+- added comprehensive unit tests in `tests/unit/generation/test_model_generator.py` (15 new tests) and `tests/unit/evaluation/test_generation_grounding_g1.py` (5 tests);
+- no real model inference executed in this task;
+- next action: team review of G1 candidate implementation before authorizing one Kaggle GPU A/B development run.

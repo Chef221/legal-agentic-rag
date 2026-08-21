@@ -3086,3 +3086,42 @@ The canonical one-shot Phase H-EXEC evaluation of candidate V2-D3 (`StructuredSe
    - Root cause: Single-call holistic entailment is dominated by lexical similarity, masking legal actor and scope boundaries.
    - Recommended next architecture: Option C (Structured Dimension Decomposition with 3 focused boolean checks: `legal_actor_aligned`, `activity_and_scope_aligned`, `conditions_and_numbers_accurate` with deterministic aggregation).
    - Strategic Priority: Shift primary engineering focus to Generation Grounding / Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth.
+
+---
+
+## D128 — Generation Grounding G1 Material-Fidelity Candidate, Prompt Identity, and A/B Evaluation Protocol
+
+**Status:** Accepted (Implementation: `src/legal_agentic_rag/generation/model_generator.py`, Harness: `scripts/evaluate_generation_grounding_g1.py`, Specification: `docs/33-GENERATION-GROUNDING-G1-DEVELOPMENT.md`)
+
+**Context:**
+Following the forensic failure analysis of V2-D3 (D127), the repository shifted primary engineering resources to generation-stage grounding to prevent material proposition errors (actor substitutions, dropped conditions, object conflations) before claims are emitted.
+
+**Decisions & Invariants:**
+1. **G1 Material-Fidelity Grounding Candidate**:
+   - Implements candidate profile `material_fidelity_v1` alongside `baseline`.
+   - Added Vietnamese natural-language prompt instructions preserving:
+     - Actor / Role: Exact legal subject without substitution.
+     - Action / Object: Exact regulated activity without alteration.
+     - Conditions / Exceptions: Preservation of all statutory prerequisites (no unconditioned broadening).
+     - Legal Scope: Preservation of public/private entity and jurisdiction limits.
+     - Numeric / Temporal: Retains strict verbatim numeric copying.
+     - Full Coverage: Every material component must be supported by cited evidence.
+     - List Noun Phrases: Direct faithful noun phrases from evidence are validated for list questions (mitigating `61523:C1` syntax strictness).
+2. **Strict Invariants Preserved**:
+   - Production default remains `grounding_profile="baseline"`. G1 is NOT promoted in this task.
+   - Output contract is strictly unchanged: `ModelAnswerDraft` (`claims`, `insufficient_evidence`, `warnings`). No extra model-emitted fields.
+   - Call count contract is unchanged: exactly 1 normal provider call per generation.
+   - No second-pass reflection, critic, or verifier calls.
+3. **Diagnostic Dataset Status**:
+   - The 16 review packets from `verification-v2-holdout-review-packets-v1.zip` are burned diagnostic development data only.
+   - Model sees only question and retrieved evidence; no labels or error tags.
+4. **A/B Development Evaluation Harness**:
+   - Created `scripts/evaluate_generation_grounding_g1.py` executing Baseline vs G1 on the 16 diagnostic cases.
+   - Implemented deterministic pairwise blinding for `results/generation_g1_human_review_worksheet.md` with separate `generation_g1_blinding_key.json`.
+5. **Pre-Registered Development Success Criteria**:
+   - Criterion A: 0 execution errors for G1.
+   - Criterion B: Eliminates material error on $\ge 4 / 5$ historical error mechanisms without new errors.
+   - Criterion C: Preserves valid answer on $\ge 9 / 10$ gold valid cases.
+   - Criterion D: G1 abstention rate does not exceed baseline by $> 15\%$.
+   - Criterion E: 0 schema regressions.
+   - Criterion F: Provider call parity.

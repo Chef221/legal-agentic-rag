@@ -290,6 +290,10 @@ class GenerationConfig(BaseModel):
     max_structured_output_retries: int = Field(default=1, ge=0, le=1)
     max_schema_recovery_attempts: int = Field(default=0, ge=0, le=1)
     max_missing_field_corrections: int = Field(default=0, ge=0, le=1)
+    grounding_profile: Literal[
+        "baseline",
+        "material_fidelity_v1",
+    ] = "baseline"
 
     @field_validator("inactive_effect_statuses")
     @classmethod

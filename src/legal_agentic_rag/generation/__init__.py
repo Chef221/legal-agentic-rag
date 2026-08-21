@@ -22,6 +22,9 @@ from legal_agentic_rag.generation.factory import (
     build_generation_components,
 )
 from legal_agentic_rag.generation.model_generator import (
+    ALLOWED_GROUNDING_PROFILES,
+    GROUNDING_PROFILE_BASELINE,
+    GROUNDING_PROFILE_MATERIAL_FIDELITY_V1,
     ModelBackedAnswerGenerator,
 )
 from legal_agentic_rag.generation.openai_compatible import (
@@ -36,10 +39,13 @@ from legal_agentic_rag.generation.transformers_provider import (
 )
 
 __all__ = [
+    "ALLOWED_GROUNDING_PROFILES",
     "ContextBuilder",
     "EvidenceSelector",
     "ExtractiveAnswerGenerator",
     "FixedRAGService",
+    "GROUNDING_PROFILE_BASELINE",
+    "GROUNDING_PROFILE_MATERIAL_FIDELITY_V1",
     "ModelBackedAnswerGenerator",
     "ModelBackedCitationVerifier",
     "SupportedClaimSalvageResult",
