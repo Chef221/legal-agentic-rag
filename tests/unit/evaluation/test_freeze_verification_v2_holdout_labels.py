@@ -156,7 +156,119 @@ def test_freeze_holdout_labels_success(mock_holdout_packets_and_selection, tmp_p
     assert "synthetic claim text" not in commitment_str
     assert commitment_data["labels_sha256"] == sha256(out_labels.read_bytes()).hexdigest()
     assert commitment_data["labels_size_bytes"] == out_labels.stat().st_size
-    assert commitment_data["reviewer_governance_status"] == "GOVERNANCE_REVIEWED_AND_COMMITTED"
+    assert commitment_data["reviewer_governance_status"] == "FROZEN_PENDING_EXTERNAL_REVIEW"
+
+
+def test_freeze_holdout_labels_duplicate_claim_in_list_fails(mock_holdout_packets_and_selection, tmp_path):
+    """Test that duplicate claims in list-format review fail closed."""
+    packets_path = mock_holdout_packets_and_selection["packets"]
+    selection_path = mock_holdout_packets_and_selection["selection"]
+    out_labels = tmp_path / "out_labels.json"
+
+    reviewed_input = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "entailment_label": "SUPPORTED"},
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C2", "entailment_label": "INSUFFICIENT"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "entailment_label": "CONTRADICTED"},
+        # Duplicate review item
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "entailment_label": "CONTRADICTED"},
+    ]
+    input_file = tmp_path / "duplicate_list_input.json"
+    input_file.write_text(json.dumps(reviewed_input), encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="HOLD_OUT_LABEL_DUPLICATE"):
+        freeze_holdout_labels(
+            holdout_packets_path=packets_path,
+            holdout_selection_path=selection_path,
+            reviewed_input_path=input_file,
+            output_labels_path=out_labels,
+            bypass_source_checksums=True,
+        )
+
+
+def test_freeze_holdout_labels_duplicate_claim_in_dict_list_fails(mock_holdout_packets_and_selection, tmp_path):
+    """Test that duplicate claims in arm-level claims list fail closed."""
+    packets_path = mock_holdout_packets_and_selection["packets"]
+    selection_path = mock_holdout_packets_and_selection["selection"]
+    out_labels = tmp_path / "out_labels.json"
+
+    reviewed_input = {
+        "questions": {
+            "SYNTH_Q1": {
+                "arms": {
+                    "BASE": {
+                        "claims": [
+                            {"claim_id": "C1", "entailment_label": "SUPPORTED"},
+                            {"claim_id": "C1", "entailment_label": "CONTRADICTED"},  # Duplicate
+                            {"claim_id": "C2", "entailment_label": "INSUFFICIENT"},
+                        ]
+                    }
+                }
+            },
+            "SYNTH_Q2": {
+                "arms": {
+                    "PRIMARY": {
+                        "claims": [
+                            {"claim_id": "C1", "entailment_label": "CONTRADICTED"}
+                        ]
+                    }
+                }
+            },
+        }
+    }
+    input_file = tmp_path / "duplicate_dict_list_input.json"
+    input_file.write_text(json.dumps(reviewed_input), encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="HOLD_OUT_LABEL_DUPLICATE"):
+        freeze_holdout_labels(
+            holdout_packets_path=packets_path,
+            holdout_selection_path=selection_path,
+            reviewed_input_path=input_file,
+            output_labels_path=out_labels,
+            bypass_source_checksums=True,
+        )
+
+
+def test_freeze_holdout_labels_duplicate_json_key_fails(mock_holdout_packets_and_selection, tmp_path):
+    """Test that duplicate JSON keys fail closed."""
+    packets_path = mock_holdout_packets_and_selection["packets"]
+    selection_path = mock_holdout_packets_and_selection["selection"]
+    out_labels = tmp_path / "out_labels.json"
+
+    raw_json_with_duplicate = """{
+        "questions": {
+            "SYNTH_Q1": {
+                "arms": {
+                    "BASE": {
+                        "claims": {
+                            "C1": {"entailment_label": "SUPPORTED"},
+                            "C1": {"entailment_label": "CONTRADICTED"},
+                            "C2": {"entailment_label": "INSUFFICIENT"}
+                        }
+                    }
+                }
+            },
+            "SYNTH_Q2": {
+                "arms": {
+                    "PRIMARY": {
+                        "claims": {
+                            "C1": {"entailment_label": "CONTRADICTED"}
+                        }
+                    }
+                }
+            }
+        }
+    }"""
+    input_file = tmp_path / "dup_key_input.json"
+    input_file.write_text(raw_json_with_duplicate, encoding="utf-8")
+
+    with pytest.raises(DataValidationError, match="Duplicate JSON key detected"):
+        freeze_holdout_labels(
+            holdout_packets_path=packets_path,
+            holdout_selection_path=selection_path,
+            reviewed_input_path=input_file,
+            output_labels_path=out_labels,
+            bypass_source_checksums=True,
+        )
 
 
 def test_freeze_holdout_labels_missing_claim_fails(mock_holdout_packets_and_selection, tmp_path):

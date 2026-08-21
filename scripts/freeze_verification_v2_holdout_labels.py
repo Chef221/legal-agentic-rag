@@ -40,6 +40,8 @@ CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256 = (
     "a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4"
 )
 CANONICAL_REVIEW_PROTOCOL_VERSION = "1.0"
+GOVERNANCE_STATUS_FROZEN_PENDING_REVIEW = "FROZEN_PENDING_EXTERNAL_REVIEW"
+GOVERNANCE_STATUS_EXTERNALLY_REVIEWED = "EXTERNALLY_REVIEWED_FOR_H_EXEC"
 
 
 def sha256_file(path: Path) -> str:
@@ -54,6 +56,18 @@ def sha256_file(path: Path) -> str:
 def sha256_text(text: str) -> str:
     """Compute deterministic SHA-256 hex digest for UTF-8 text."""
     return sha256(text.encode("utf-8")).hexdigest()
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """JSON object pairs hook that raises DataValidationError on duplicate object keys."""
+    seen: set[str] = set()
+    result: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in seen:
+            raise DataValidationError(f"Duplicate JSON key detected in review input: '{k}'")
+        seen.add(k)
+        result[k] = v
+    return result
 
 
 class HoldoutEntailmentLabel(StrEnum):
@@ -96,7 +110,7 @@ def extract_packet_claims(packets_path: Path) -> tuple[dict[tuple[str, str, str]
         ]
         for member in sorted(json_members):
             question_count += 1
-            pkt = json.loads(zf.read(member).decode("utf-8"))
+            pkt = json.loads(zf.read(member).decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
             qid = str(pkt.get("question_id") or Path(member).stem)
             stratum = pkt.get("stratum", "UNKNOWN")
 
@@ -127,19 +141,28 @@ def extract_packet_claims(packets_path: Path) -> tuple[dict[tuple[str, str, str]
 
 
 def parse_human_reviewed_input(input_path: Path) -> dict[tuple[str, str, str], ReviewedClaimSpec]:
-    """Parse raw human review input file into a validated mapping."""
-    raw_data = json.loads(input_path.read_text(encoding="utf-8"))
+    """Parse raw human review input file into a validated mapping with strict duplicate rejection."""
+    raw_text = input_path.read_text(encoding="utf-8")
+    raw_data = json.loads(raw_text, object_pairs_hook=_reject_duplicate_json_keys)
     reviewed_claims: dict[tuple[str, str, str], ReviewedClaimSpec] = {}
 
     if "questions" in raw_data:
         questions_dict = raw_data["questions"]
+        if not isinstance(questions_dict, dict):
+            raise DataValidationError("Review input 'questions' field must be a JSON object")
         for qid, q_data in questions_dict.items():
             arms_dict = q_data.get("arms", {})
+            if not isinstance(arms_dict, dict):
+                raise DataValidationError(f"Arms for question {qid} must be a JSON object")
             for arm_id, arm_data in arms_dict.items():
                 claims_dict = arm_data.get("claims", {})
                 if isinstance(claims_dict, dict):
                     for cid, c_data in claims_dict.items():
                         key = (str(qid), str(arm_id), str(cid))
+                        if key in reviewed_claims:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_DUPLICATE: Duplicate review item for claim key ({qid}, {arm_id}, {cid})"
+                            )
                         reviewed_claims[key] = _parse_single_claim_review(qid, arm_id, cid, c_data)
                 elif isinstance(claims_dict, list):
                     for c_data in claims_dict:
@@ -147,7 +170,13 @@ def parse_human_reviewed_input(input_path: Path) -> dict[tuple[str, str, str], R
                         if not cid:
                             raise DataValidationError(f"Missing claim_id in review item for question {qid}")
                         key = (str(qid), str(arm_id), str(cid))
+                        if key in reviewed_claims:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_DUPLICATE: Duplicate review item for claim key ({qid}, {arm_id}, {cid})"
+                            )
                         reviewed_claims[key] = _parse_single_claim_review(qid, arm_id, cid, c_data)
+                else:
+                    raise DataValidationError(f"Claims for question {qid} arm {arm_id} must be object or list")
     elif isinstance(raw_data, list):
         for item in raw_data:
             qid = str(item.get("question_id", ""))
@@ -156,6 +185,10 @@ def parse_human_reviewed_input(input_path: Path) -> dict[tuple[str, str, str], R
             if not qid or not arm_id or not cid:
                 raise DataValidationError(f"Invalid review list item: missing question_id, arm_id, or claim_id: {item}")
             key = (qid, arm_id, cid)
+            if key in reviewed_claims:
+                raise DataValidationError(
+                    f"HOLD_OUT_LABEL_DUPLICATE: Duplicate review item for claim key ({qid}, {arm_id}, {cid})"
+                )
             reviewed_claims[key] = _parse_single_claim_review(qid, arm_id, cid, item)
     else:
         raise DataValidationError(f"Unrecognized review input format in {input_path}")
@@ -306,6 +339,8 @@ def freeze_holdout_labels(
     labels_size = output_labels_path.stat().st_size
 
     # 6. Build content-free commitment payload
+    # Note: Initial governance status is strictly FROZEN_PENDING_EXTERNAL_REVIEW.
+    # The label freeze script MUST NOT self-authorize Phase H-EXEC.
     commitment_payload: dict[str, Any] = {
         "schema_version": "1.0",
         "artifact_type": "verification_v2_holdout_label_commitment",
@@ -324,7 +359,7 @@ def freeze_holdout_labels(
         "holdout_packets_sha256": packets_sha,
         "holdout_selection_sha256": selection_sha,
         "review_timestamp": now_iso,
-        "reviewer_governance_status": "GOVERNANCE_REVIEWED_AND_COMMITTED",
+        "reviewer_governance_status": GOVERNANCE_STATUS_FROZEN_PENDING_REVIEW,
     }
 
     if commitment_output_path:

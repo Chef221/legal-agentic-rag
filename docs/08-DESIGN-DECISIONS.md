@@ -2948,3 +2948,39 @@ Following the formal freeze of candidate V2-D3 and closure of the 38-claim devel
 5. **Single Model Loading & Pinned Kaggle Environment**:
    - Kaggle environment uses pinned `transformers==4.47.1 tokenizers==0.21.4 huggingface-hub==0.27.1 accelerate==1.2.1` and `python -m pip install -q -e . --no-deps`.
    - Cell H4 verifies tokenizer/access only without retaining a Qwen model object in notebook memory. The model is loaded exclusively by the H5 evaluation subprocess.
+
+---
+
+## D124 — Pre-H-LABEL Integrity Hardening, Governance Status Lifecycle, Content-Safe Telemetry, and Fail-Closed Verification Gates
+
+**Status:** Accepted (Harness: `scripts/freeze_verification_v2_holdout_labels.py`, `scripts/evaluate_verification_v2_d3_holdout.py`, Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+**Context:**
+Prior to initiating Phase H-LABEL human review, a final pre-holdout integrity hardening pass was conducted across the holdout freezing harness, evaluation harness, and runbook protocol to eliminate all subtle fail-open edge cases, enforce strict governance state transitions, prevent secret leakage in telemetry, and harden verification assertions.
+
+**Decisions & Invariants:**
+1. **Frozen V2-D3 Candidate Byte-Identity Preserved**:
+   - Implementation SHA-256: `a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826`
+   - System Instruction SHA-256: `546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b`
+   - Schema SHA-256: `3591144a40b0519d5da9dd262e8edf8814531d798b69deea94fd81fae39f5f61` (sorted `D3StructuredClaimAssessmentDraft.model_json_schema()`)
+   - Pre-registered rate thresholds and quality gates remain completely unchanged.
+2. **Fail-Closed Duplicate Human Review Detection**:
+   - `scripts/freeze_verification_v2_holdout_labels.py` uses a custom JSON object pairs hook (`_reject_duplicate_json_keys`) to detect and reject duplicate keys at parse time.
+   - The label freezer enforces unique `(question_id, arm_id, claim_id)` tuples across all input structures, rejecting duplicate review entries fail-closed (`HOLD_OUT_LABEL_DUPLICATE`). Never silently overwrite.
+3. **Two-Stage Governance Status Lifecycle**:
+   - Label freezing initializes commitment status to `FROZEN_PENDING_EXTERNAL_REVIEW`. The script does not self-authorize execution.
+   - Canonical H-EXEC strictly requires `--label-commitment` with `reviewer_governance_status: "EXTERNALLY_REVIEWED_FOR_H_EXEC"`. Direct bypass via raw `--holdout-labels-sha256` without an approved commitment is blocked in canonical execution.
+4. **Label Artifact Metadata & Claim SHA Enforcement**:
+   - Label loading validates `artifact_type == "verification_v2_holdout_reviewed_labels"`, `review_status == "frozen_human_reviewed"`, total claim counts, and class count sums.
+   - Every claim in the label artifact must contain `claim_text_sha256` matching the exact SHA-256 of the packet claim text.
+5. **Exact Prediction-Set Equality & Fail-Closed Stability**:
+   - Stability evaluation requires exact set equality: $\text{ExpectedClaimKeys} \equiv \text{Pass1Keys} \equiv \text{Pass2Keys}$. Exactly one prediction per claim per pass.
+   - Both passes must produce valid 3-way semantic predictions (`SUPPORTED`, `CONTRADICTED`, `INSUFFICIENT`). Any missing, duplicate, extra, or invalid prediction is marked as an execution failure, eliminating the `None == None -> stable` fail-open vulnerability.
+6. **Content-Safe Error Telemetry**:
+   - Raw exception strings (`str(exc)`) and unmasked stack traces are removed from call history and telemetry. Replaced by `error_type`, `error_sha256`, and `error_message_length` to prevent accidental secret or prompt leakage in logs.
+7. **Provider Call Reconciliation Gate**:
+   - Provider call row count in `telemetry/provider_calls.jsonl` must reconcile with decision report: $\text{total\_provider\_calls} == 2 \times N_{\text{claims}} + \text{total\_structured\_retries}$. Every call must match the frozen system instruction SHA.
+8. **Hardened Canonical Provenance Validation**:
+   - `_validate_canonical_provenance()` enforces fail-closed checks on candidate ID (`V2-D3`), source package version (`0.50.7`), installed package version (`0.50.7`), clean git worktree, `repeat_count == 2`, `device == "cuda"`, `torch_dtype == "float16"`, `temperature == 0.0`, token bounds (`8192/512`), `max_retries == 1`, `timeout == 180.0`, backend (`transformers`), provider version (`4.47.1`), model name, immutable revision, and exact D3 implementation, system instruction, and schema SHA-256 digests.
+9. **Independent Recomputation in Cell H6**:
+   - Runbook Cell H6 recomputes all coverage booleans, mechanical pass criteria, provider call reconciliation, and quality rate gates directly from evidence metrics, asserting exact match against decision reports and verifying `promotion_authorized == False`.

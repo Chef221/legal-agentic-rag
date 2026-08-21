@@ -227,17 +227,28 @@ subprocess.run([
 # Install project in editable mode without dependencies
 subprocess.run(["python", "-m", "pip", "install", "-q", "-e", ".", "--no-deps"], cwd=str(REPO_DIR), check=True)
 
-# Run subprocess import smoke test
+# Run subprocess import smoke test and version assertions
 smoke_cmd = """\
-import torch, transformers, pydantic, legal_agentic_rag
+import importlib.metadata
+import torch, transformers, tokenizers, huggingface_hub, accelerate, pydantic, legal_agentic_rag
+
 print(f"Torch Version:        {torch.__version__}")
 print(f"CUDA Available:       {torch.cuda.is_available()}")
 if torch.cuda.is_available():
     print(f"GPU Device:           {torch.cuda.get_device_name(0)}")
 print(f"Transformers Version: {transformers.__version__}")
+print(f"Tokenizers Version:   {tokenizers.__version__}")
+print(f"HF Hub Version:       {huggingface_hub.__version__}")
+print(f"Accelerate Version:   {accelerate.__version__}")
 print(f"Pydantic Version:     {pydantic.__version__}")
 print(f"Package Version:      {legal_agentic_rag.__version__}")
+
 assert torch.cuda.is_available(), "CUDA device required!"
+assert importlib.metadata.version("transformers") == "4.47.1", f"Transformers mismatch: {importlib.metadata.version('transformers')}"
+assert importlib.metadata.version("tokenizers") == "0.21.4", f"Tokenizers mismatch: {importlib.metadata.version('tokenizers')}"
+assert importlib.metadata.version("huggingface_hub") == "0.27.1", f"HF Hub mismatch: {importlib.metadata.version('huggingface_hub')}"
+assert importlib.metadata.version("accelerate") == "1.2.1", f"Accelerate mismatch: {importlib.metadata.version('accelerate')}"
+assert importlib.metadata.version("legal_agentic_rag") == "0.50.7", f"Package version mismatch: {importlib.metadata.version('legal_agentic_rag')}"
 """
 subprocess.run([sys.executable, "-c", smoke_cmd], cwd=str(REPO_DIR), check=True)
 print("Environment setup and runtime verification complete.")
@@ -373,10 +384,10 @@ subprocess.run(cmd_eval, cwd=str(REPO_DIR), check=True)
 print(f"Holdout evaluation finished. Evidence package generated at {PACKAGE_ZIP}")
 ```
 
-### Cell H6: Evidence Archive Integrity & Forensic Reconciliation
+### Cell H6: Independent Evidence Verification & Forensic Reconciliation
 ```python
 # ==============================================================================
-# CELL H6: EVIDENCE ARCHIVE INTEGRITY & FORENSIC RECONCILIATION
+# CELL H6: INDEPENDENT EVIDENCE VERIFICATION & RECOMPUTATION
 # ==============================================================================
 from hashlib import sha256
 import json
@@ -389,13 +400,6 @@ assert PACKAGE_ZIP.is_file(), f"Evidence ZIP missing: {PACKAGE_ZIP}"
 zip_bytes = PACKAGE_ZIP.read_bytes()
 zip_sha = sha256(zip_bytes).hexdigest()
 zip_size = len(zip_bytes)
-
-print("="*75)
-print("             V2-D3 FRESH HOLDOUT CANONICAL EVIDENCE SUMMARY")
-print("="*75)
-print(f"Archive Path:      {PACKAGE_ZIP}")
-print(f"Archive SHA-256:   {zip_sha}")
-print(f"Archive Size:      {zip_size:,} bytes")
 
 REQUIRED_MEMBERS = {
     "execution/v2_d3_holdout_source_identity.json",
@@ -413,7 +417,7 @@ with zipfile.ZipFile(PACKAGE_ZIP, "r") as zf:
     members = set(zf.namelist())
     for req in REQUIRED_MEMBERS:
         assert req in members, f"Required member '{req}' missing from evidence ZIP"
-    
+
     report = json.loads(zf.read("results/v2_d3_holdout_report.json").decode("utf-8"))
     decision = json.loads(zf.read("results/v2_d3_holdout_decision_report.json").decode("utf-8"))
     stability = json.loads(zf.read("results/v2_d3_holdout_stability_report.json").decode("utf-8"))
@@ -421,18 +425,117 @@ with zipfile.ZipFile(PACKAGE_ZIP, "r") as zf:
     calls_raw = zf.read("telemetry/provider_calls.jsonl").decode("utf-8").strip().splitlines()
     provider_calls = [json.loads(line) for line in calls_raw]
 
-print(f"Member Count:      {len(members)} (All required members verified)")
-print(f"Provider Calls:    {len(provider_calls)} reconciled across 2 passes")
-print(f"Stability:         {stability['stability']['stable_semantic_claim_count']}/{stability['stability']['total_claims']} stable claims")
-print(f"Verdict:           {report['verdict']}")
-print(f"Decision:          {decision['holdout_evaluation_decision']}")
-print(f"Promotion Recom:   {decision['promotion_recommended']}")
-print(f"Promotion Auth:    {decision['promotion_authorized']} (Fail-Closed Invariant)")
+# 1. Independent Recomputations from Evidence Metrics
+d3_binary = report["metrics"]["v2_d3_claim_binary"]
+d3_answer = report["metrics"]["v2_d3_answer_metrics"]
+telemetry = report["telemetry"]
+stability_data = stability["stability"]
+
+# Coverage Denominators
+supp_denom_valid = d3_binary["gold_supported_claims"] > 0
+neg_denom_valid = d3_binary["gold_negative_claims"] > 0
+val_ans_denom_valid = d3_answer["gold_valid_answers_count"] > 0
+inv_ans_denom_valid = d3_answer["gold_invalid_answers_count"] > 0
+recomputed_coverage_sufficient = (
+    supp_denom_valid and neg_denom_valid and val_ans_denom_valid and inv_ans_denom_valid
+)
+
+# Mechanical Gates & Provider Call Reconciliation
+total_claims = report["total_claims"]
+total_retries = telemetry["total_structured_retries"]
+expected_calls = 2 * total_claims + total_retries
+recomputed_calls_reconciled = (
+    len(provider_calls) == telemetry["total_provider_calls"] == expected_calls
+)
+
+recomputed_mechanical_pass = (
+    telemetry["model_errors"] == 0
+    and stability_data["execution_error_in_any_pass_count"] == 0
+    and stability_data["unstable_semantic_claim_count"] == 0
+    and stability_data["claims_with_two_valid_semantic_labels"] == total_claims
+    and recomputed_calls_reconciled
+    and exec_id.get("frozen_d3_source_identity_verified", False) is True
+)
+
+# Quality Gates (Pass 1 Authoritative)
+GATE_MIN_SUPPORTED_RETENTION = 0.88
+GATE_MIN_NEGATIVE_CATCH = 0.50
+GATE_MIN_VALID_ANSWER_RETENTION = 0.80
+GATE_MIN_FULL_ANSWER_ACCURACY = 0.60
+GATE_MIN_CLAIM_BINARY_ACCURACY = 0.70
+
+supp_ret = d3_binary["supported_retention"]
+neg_catch = d3_binary["negative_catch"]
+val_ans_ret = d3_answer["valid_answer_retention_rate"]
+full_ans_acc = d3_answer["full_denominator_answer_accuracy"]
+claim_bin_acc = d3_binary["accuracy"]
+
+recomputed_quality_gates_pass = (
+    recomputed_coverage_sufficient
+    and (supp_ret is not None and supp_ret >= GATE_MIN_SUPPORTED_RETENTION)
+    and (neg_catch is not None and neg_catch >= GATE_MIN_NEGATIVE_CATCH)
+    and (val_ans_ret is not None and val_ans_ret >= GATE_MIN_VALID_ANSWER_RETENTION)
+    and (full_ans_acc is not None and full_ans_acc >= GATE_MIN_FULL_ANSWER_ACCURACY)
+    and (claim_bin_acc is not None and claim_bin_acc >= GATE_MIN_CLAIM_BINARY_ACCURACY)
+)
+
+if not recomputed_coverage_sufficient:
+    recomputed_verdict = "V2_D3_HOLDOUT_COVERAGE_INSUFFICIENT"
+    recomputed_decision = "REJECT_V2_D3_PROMOTION"
+    recomputed_promotion_recommended = False
+elif not recomputed_mechanical_pass:
+    recomputed_verdict = "V2_D3_HOLDOUT_EXECUTION_FAILURE"
+    recomputed_decision = "REJECT_V2_D3_PROMOTION"
+    recomputed_promotion_recommended = False
+elif recomputed_quality_gates_pass:
+    recomputed_verdict = "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED"
+    recomputed_decision = "PROMOTE_V2_D3_TO_PRODUCTION"
+    recomputed_promotion_recommended = True
+else:
+    recomputed_verdict = "V2_D3_HOLDOUT_PROMOTION_REJECTED"
+    recomputed_decision = "REJECT_V2_D3_PROMOTION"
+    recomputed_promotion_recommended = False
+
+# 2. Strict Invariant Assertions
+assert decision["coverage_sufficient"] == recomputed_coverage_sufficient, "Coverage boolean mismatch!"
+assert decision["mechanical_pass"] == recomputed_mechanical_pass, "Mechanical pass boolean mismatch!"
+assert decision["quality_gates_pass"] == recomputed_quality_gates_pass, "Quality gates pass boolean mismatch!"
+assert decision["promotion_recommended"] == recomputed_promotion_recommended, "Promotion recommendation mismatch!"
+assert decision["verdict"] == recomputed_verdict == report["verdict"], "Verdict mismatch!"
+assert decision["holdout_evaluation_decision"] == recomputed_decision, "Holdout decision mismatch!"
+assert decision["promotion_authorized"] is False, "CRITICAL: promotion_authorized MUST BE False (Fail-Closed Invariant)!"
+
+# 3. Canonical Hashes & Provenance Assertions
+CANONICAL_D3_IMPL_SHA = "a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826"
+CANONICAL_D3_SYS_SHA = "546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b"
+CANONICAL_D3_SCHEMA_SHA = "3591144a40b0519d5da9dd262e8edf8814531d798b69deea94fd81fae39f5f61"
+
+assert exec_id["candidate_id"] == "V2-D3"
+assert exec_id["package_version"] == "0.50.7"
+assert exec_id["repeat_count"] == 2
+assert exec_id["prompt_identities"]["d3_base_system_instruction_sha256"] == CANONICAL_D3_SYS_SHA
+assert exec_id["prompt_identities"]["d3_schema_sha256"] == CANONICAL_D3_SCHEMA_SHA
+assert exec_id["implementation_identities"]["structured_semantic_verifier_d3_sha256"] == CANONICAL_D3_IMPL_SHA
+
+for call in provider_calls:
+    assert call["system_instruction_sha256"] == CANONICAL_D3_SYS_SHA
+    assert "error_message_summary" not in call, "Raw error message must not be in call telemetry!"
+
 print("="*75)
-print("Pass 1 Actual Rates:")
-for k, v in decision.get("pass1_actual_rates", {}).items():
-    print(f"  - {k}: {v}")
+print("             V2-D3 FRESH HOLDOUT INDEPENDENT VERIFICATION")
 print("="*75)
+print(f"Archive SHA-256:         {zip_sha}")
+print(f"Archive Size:            {zip_size:,} bytes")
+print(f"Total Claims:            {total_claims}")
+print(f"Total Provider Calls:    {len(provider_calls)} (Reconciled: {recomputed_calls_reconciled})")
+print(f"Coverage Sufficient:     {recomputed_coverage_sufficient}")
+print(f"Mechanical Pass:         {recomputed_mechanical_pass}")
+print(f"Quality Gates Pass:      {recomputed_quality_gates_pass}")
+print(f"Verdict:                 {recomputed_verdict}")
+print(f"Promotion Recommended:   {recomputed_promotion_recommended}")
+print(f"Promotion Authorized:    {decision['promotion_authorized']} (Strict Invariant)")
+print("="*75)
+print("ALL INDEPENDENT EVIDENCE VERIFICATION ASSERTIONS PASSED.")
 print("\n*** DOWNLOAD EVIDENCE ARCHIVE BEFORE TERMINATING KAGGLE SESSION ***\n")
 ```
 

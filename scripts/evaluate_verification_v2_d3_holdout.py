@@ -85,6 +85,9 @@ CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256 = (
 CANONICAL_D3_IMPLEMENTATION_SHA256 = (
     "a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826"
 )
+CANONICAL_D3_SCHEMA_SHA256 = (
+    "3591144a40b0519d5da9dd262e8edf8814531d798b69deea94fd81fae39f5f61"
+)
 
 # Canonical Pre-Registered Holdout Outer Signatures
 CANONICAL_HOLDOUT_SELECTION_SHA256 = (
@@ -93,6 +96,7 @@ CANONICAL_HOLDOUT_SELECTION_SHA256 = (
 CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256 = (
     "a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4"
 )
+GOVERNANCE_STATUS_EXTERNALLY_REVIEWED = "EXTERNALLY_REVIEWED_FOR_H_EXEC"
 
 # Canonical Pinned V2-D3 Model & Execution Parameters
 CANONICAL_PACKAGE_VERSION = "0.50.7"
@@ -116,6 +120,18 @@ GATE_MIN_NEGATIVE_CATCH_RATE = 0.50       # Dev: 11/20 = 55.00%
 GATE_MIN_VALID_ANSWER_RETENTION_RATE = 0.80  # Dev: 6/7 = 85.71%
 GATE_MIN_FULL_ANSWER_ACCURACY_RATE = 0.60   # Dev: 14/22 = 63.64%
 GATE_MIN_CLAIM_BINARY_ACCURACY_RATE = 0.70  # Dev: 28/38 = 73.68%
+
+
+def _reject_duplicate_json_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """JSON object pairs hook that raises DataValidationError on duplicate object keys."""
+    seen: set[str] = set()
+    result: dict[str, Any] = {}
+    for k, v in pairs:
+        if k in seen:
+            raise DataValidationError(f"Duplicate JSON key detected: '{k}'")
+        seen.add(k)
+        result[k] = v
+    return result
 
 
 class HumanEntailment(StrEnum):
@@ -230,13 +246,15 @@ class ObservationalChatModelProviderWrapper(ChatModelProvider):
         except Exception as exc:
             dur = perf_counter() - start_time
             self._total_errors += 1
+            err_msg = str(exc)
             call_record.update({
                 "duration_seconds": dur,
                 "completion_sha256": None,
                 "completion_length_chars": 0,
                 "success": False,
                 "error_type": type(exc).__name__,
-                "error_message_summary": str(exc)[:200],
+                "error_sha256": sha256(err_msg.encode("utf-8")).hexdigest(),
+                "error_message_length": len(err_msg),
             })
             self._call_history.append(call_record)
             raise
@@ -445,36 +463,37 @@ class V2D3HoldoutBenchmarkEvaluator:
                     f"Expected: {CANONICAL_HOLDOUT_SELECTION_SHA256}, Got: {actual_selection_sha}"
                 )
 
-            # 3. Verify Label Commitment or Explicit Label SHA
-            expected_labels_sha: str | None = None
-            if self._label_commitment_path:
-                if not self._label_commitment_path.is_file():
-                    raise FileNotFoundError(f"Label commitment file missing at: {self._label_commitment_path}")
-                commitment = json.loads(self._label_commitment_path.read_text(encoding="utf-8"))
-
-                if commitment.get("artifact_type") != "verification_v2_holdout_label_commitment":
-                    raise DataValidationError("Invalid label commitment artifact_type")
-                if commitment.get("review_status") != "frozen_human_reviewed":
-                    raise DataValidationError("Commitment review_status must be 'frozen_human_reviewed'")
-
-                # Check cross-bindings
-                if commitment.get("holdout_packets_sha256") != actual_packets_sha:
-                    raise DataValidationError("Commitment holdout_packets_sha256 does not match actual packets archive")
-                if commitment.get("holdout_selection_sha256") != actual_selection_sha:
-                    raise DataValidationError("Commitment holdout_selection_sha256 does not match actual selection file")
-
-                expected_labels_sha = commitment.get("labels_sha256")
-                expected_labels_size = commitment.get("labels_size_bytes")
-                if expected_labels_size and actual_labels_size != expected_labels_size:
-                    raise DataValidationError(
-                        f"Holdout labels size mismatch: expected {expected_labels_size} bytes, got {actual_labels_size}"
-                    )
-            elif self._holdout_labels_sha256:
-                expected_labels_sha = self._holdout_labels_sha256
-            else:
+            # 3. Verify Label Commitment (Mandatory for canonical execution)
+            if not self._label_commitment_path or not self._label_commitment_path.is_file():
                 raise DataValidationError(
-                    "CANONICAL_HOLDOUT_EXECUTION_BLOCKED: Canonical holdout execution requires either "
-                    "--label-commitment or --holdout-labels-sha256."
+                    "CANONICAL_HOLDOUT_EXECUTION_BLOCKED: Canonical holdout execution strictly requires --label-commitment."
+                )
+            commitment = json.loads(
+                self._label_commitment_path.read_text(encoding="utf-8"),
+                object_pairs_hook=_reject_duplicate_json_keys,
+            )
+
+            if commitment.get("artifact_type") != "verification_v2_holdout_label_commitment":
+                raise DataValidationError("Invalid label commitment artifact_type")
+            if commitment.get("review_status") != "frozen_human_reviewed":
+                raise DataValidationError("Commitment review_status must be 'frozen_human_reviewed'")
+            if commitment.get("reviewer_governance_status") != GOVERNANCE_STATUS_EXTERNALLY_REVIEWED:
+                raise DataValidationError(
+                    f"Commitment governance status mismatch: expected '{GOVERNANCE_STATUS_EXTERNALLY_REVIEWED}', "
+                    f"got '{commitment.get('reviewer_governance_status')}'"
+                )
+
+            # Check cross-bindings
+            if commitment.get("holdout_packets_sha256") != actual_packets_sha:
+                raise DataValidationError("Commitment holdout_packets_sha256 does not match actual packets archive")
+            if commitment.get("holdout_selection_sha256") != actual_selection_sha:
+                raise DataValidationError("Commitment holdout_selection_sha256 does not match actual selection file")
+
+            expected_labels_sha = commitment.get("labels_sha256")
+            expected_labels_size = commitment.get("labels_size_bytes")
+            if expected_labels_size and actual_labels_size != expected_labels_size:
+                raise DataValidationError(
+                    f"Holdout labels size mismatch: expected {expected_labels_size} bytes, got {actual_labels_size}"
                 )
 
             if expected_labels_sha and actual_labels_sha != expected_labels_sha:
@@ -542,7 +561,6 @@ class V2D3HoldoutBenchmarkEvaluator:
             json.dumps(
                 D3StructuredClaimAssessmentDraft.model_json_schema(),
                 sort_keys=True,
-                ensure_ascii=True,
             ).encode("utf-8")
         ).hexdigest()
 
@@ -558,6 +576,10 @@ class V2D3HoldoutBenchmarkEvaluator:
             if d3_impl_sha != CANONICAL_D3_IMPLEMENTATION_SHA256:
                 raise DataValidationError(
                     f"Frozen D3 implementation file SHA mismatch. Expected: {CANONICAL_D3_IMPLEMENTATION_SHA256}, Got: {d3_impl_sha}"
+                )
+            if schema_sha != CANONICAL_D3_SCHEMA_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 schema SHA mismatch. Expected: {CANONICAL_D3_SCHEMA_SHA256}, Got: {schema_sha}"
                 )
 
         provider_name = (
@@ -584,6 +606,7 @@ class V2D3HoldoutBenchmarkEvaluator:
             "installed_distribution_version": installed_ver,
             "git_commit": git_commit,
             "git_worktree_clean": git_clean,
+            "repeat_count": self._repeat_count,
             "timestamp": datetime.now(UTC).isoformat(),
             "frozen_d3_source_identity_verified": True,
             "frozen_d3_canonical_evidence_sha256": CANONICAL_D3_EVIDENCE_ZIP_SHA256,
@@ -598,7 +621,7 @@ class V2D3HoldoutBenchmarkEvaluator:
                 "temperature": self._temperature,
                 "max_input_tokens": self._max_input_tokens,
                 "max_output_tokens": self._max_output_tokens,
-                "max_structured_retries": self._max_structured_output_retries,
+                "max_structured_output_retries": self._max_structured_output_retries,
                 "timeout_seconds": self._timeout_seconds,
             },
             "prompt_identities": {
@@ -613,11 +636,36 @@ class V2D3HoldoutBenchmarkEvaluator:
     def _load_holdout_targets(
         self,
     ) -> tuple[list[BenchmarkArmTarget], list[BenchmarkClaimTarget]]:
-        """Load holdout review packets and bind to reviewed human labels with strict set equality."""
-        raw_labels = json.loads(self._holdout_labels_path.read_text(encoding="utf-8"))
+        """Load holdout review packets and bind to reviewed human labels with strict set equality and metadata validation."""
+        raw_text = self._holdout_labels_path.read_text(encoding="utf-8")
+        raw_labels = json.loads(raw_text, object_pairs_hook=_reject_duplicate_json_keys)
         labels_by_q_arm_claim: dict[tuple[str, str, str], dict[str, Any]] = {}
 
-        if "questions" in raw_labels:
+        # Validate label artifact top-level metadata
+        if isinstance(raw_labels, dict):
+            art_type = raw_labels.get("artifact_type")
+            if art_type != "verification_v2_holdout_reviewed_labels":
+                raise DataValidationError(
+                    f"Invalid holdout labels artifact_type: expected 'verification_v2_holdout_reviewed_labels', got '{art_type}'"
+                )
+            rev_status = raw_labels.get("review_status")
+            if rev_status != "frozen_human_reviewed":
+                raise DataValidationError(
+                    f"Invalid holdout labels review_status: expected 'frozen_human_reviewed', got '{rev_status}'"
+                )
+            if not self._bypass_source_checksums:
+                lbl_pkts_sha = raw_labels.get("holdout_packets_sha256")
+                if lbl_pkts_sha != CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256:
+                    raise DataValidationError(
+                        f"Holdout labels holdout_packets_sha256 mismatch: expected {CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256}, got {lbl_pkts_sha}"
+                    )
+                lbl_sel_sha = raw_labels.get("holdout_selection_sha256")
+                if lbl_sel_sha != CANONICAL_HOLDOUT_SELECTION_SHA256:
+                    raise DataValidationError(
+                        f"Holdout labels holdout_selection_sha256 mismatch: expected {CANONICAL_HOLDOUT_SELECTION_SHA256}, got {lbl_sel_sha}"
+                    )
+
+        if isinstance(raw_labels, dict) and "questions" in raw_labels:
             for qid, q_data in raw_labels["questions"].items():
                 for arm_id, arm_data in q_data.get("arms", {}).items():
                     claims_dict = arm_data.get("claims", {})
@@ -650,6 +698,26 @@ class V2D3HoldoutBenchmarkEvaluator:
         else:
             raise DataValidationError("Unrecognized labels artifact structure")
 
+        # Validate total claims and class counts if present in metadata
+        if isinstance(raw_labels, dict):
+            expected_total = raw_labels.get("total_claims")
+            if expected_total is not None and expected_total != len(labels_by_q_arm_claim):
+                raise DataValidationError(
+                    f"Label metadata total_claims mismatch: expected {expected_total}, got {len(labels_by_q_arm_claim)}"
+                )
+            class_counts_meta = raw_labels.get("class_counts")
+            if isinstance(class_counts_meta, dict):
+                actual_class_counts: Counter[str] = Counter()
+                for c_data in labels_by_q_arm_claim.values():
+                    raw_lbl = str(c_data.get("entailment_label", "")).strip().upper()
+                    if raw_lbl in HumanEntailment.__members__:
+                        actual_class_counts[raw_lbl] += 1
+                for cls_name, exp_count in class_counts_meta.items():
+                    if actual_class_counts[cls_name] != exp_count:
+                        raise DataValidationError(
+                            f"Label metadata class_counts mismatch for '{cls_name}': expected {exp_count}, got {actual_class_counts[cls_name]}"
+                        )
+
         arm_targets: list[BenchmarkArmTarget] = []
         claim_targets: list[BenchmarkClaimTarget] = []
         packet_claims_found: set[tuple[str, str, str]] = set()
@@ -657,7 +725,7 @@ class V2D3HoldoutBenchmarkEvaluator:
         with zipfile.ZipFile(self._holdout_packets_path, "r") as zf:
             json_members = [m for m in zf.namelist() if m.endswith(".json") and not m.startswith("__MACOSX")]
             for member in sorted(json_members):
-                pkt = json.loads(zf.read(member).decode("utf-8"))
+                pkt = json.loads(zf.read(member).decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
                 qid = str(pkt.get("question_id") or Path(member).stem)
                 stratum = pkt.get("stratum", "UNKNOWN")
                 q_text = pkt.get("question_text", "")
@@ -742,9 +810,14 @@ class V2D3HoldoutBenchmarkEvaluator:
 
                         ctext_sha = sha256(ctext.encode("utf-8")).hexdigest()
                         lbl_claim_sha = lbl_data.get("claim_text_sha256")
-                        if lbl_claim_sha and lbl_claim_sha != ctext_sha:
+                        if not lbl_claim_sha:
                             raise DataValidationError(
-                                f"HOLD_OUT_LABEL_MISMATCH: Claim text SHA mismatch for claim ({qid}, {arm_id}, {cid})."
+                                f"HOLD_OUT_LABEL_MISSING_SHA: Missing claim_text_sha256 in label entry for claim ({qid}, {arm_id}, {cid})."
+                            )
+                        if lbl_claim_sha != ctext_sha:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_MISMATCH: Claim text SHA mismatch for claim ({qid}, {arm_id}, {cid}). "
+                                f"Expected packet SHA: {ctext_sha}, Got label SHA: {lbl_claim_sha}"
                             )
 
                         ctarget = BenchmarkClaimTarget(
@@ -777,12 +850,12 @@ class V2D3HoldoutBenchmarkEvaluator:
                         )
                     )
 
-        # Assert exact set equality (no extra labels)
+        # Exact Set Equality Check
         label_keys = set(labels_by_q_arm_claim.keys())
-        extra_keys = label_keys - packet_claims_found
-        if extra_keys:
+        extra_in_labels = label_keys - packet_claims_found
+        if extra_in_labels:
             raise DataValidationError(
-                f"HOLD_OUT_LABEL_EXTRA: Found {len(extra_keys)} extra claim labels in labels file not present in review packets."
+                f"HOLD_OUT_EXTRA_LABELS: Found {len(extra_in_labels)} labels not present in packets archive: {extra_in_labels}"
             )
 
         if not claim_targets:
@@ -792,16 +865,16 @@ class V2D3HoldoutBenchmarkEvaluator:
 
     def _replay_v0_verifier(
         self, arm_targets: list[BenchmarkArmTarget]
-    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-        """Replay deterministic rule-based citation verifier across all arms."""
-        v0_verifier = RuleBasedCitationVerifier()
-        arm_results: dict[str, Any] = {}
+    ) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        """Run pure rule-based V0 verifier baseline across holdout arms deterministically."""
+        verifier = RuleBasedCitationVerifier()
+        arm_results: dict[str, dict[str, Any]] = {}
         claim_preds: list[dict[str, Any]] = []
-        match_count = 0
         total_arms = len(arm_targets)
+        match_count = 0
 
         for arm in arm_targets:
-            res = v0_verifier.verify(
+            res = verifier.verify(
                 response=arm.answer_response,
                 evidence=arm.evidence_list,
             )
@@ -841,11 +914,89 @@ class V2D3HoldoutBenchmarkEvaluator:
         return arm_results, claim_preds, replay_stats
 
     def _validate_canonical_provenance(self) -> None:
-        """Validate exact candidate ID and execution preconditions."""
+        """Validate exact candidate ID, runtime versions, parameter settings, and code signatures."""
         if self._candidate_id != CANONICAL_CANDIDATE_ID:
             raise DataValidationError(
                 f"Candidate mismatch: expected '{CANONICAL_CANDIDATE_ID}', got '{self._candidate_id}'"
             )
+        if self._repeat_count != CANONICAL_REPEAT_COUNT:
+            raise DataValidationError(
+                f"Repeat count mismatch: canonical execution requires repeat_count={CANONICAL_REPEAT_COUNT}, got {self._repeat_count}"
+            )
+        if self._max_input_tokens != CANONICAL_V3_MAX_INPUT_TOKENS:
+            raise DataValidationError(
+                f"Max input tokens mismatch: expected {CANONICAL_V3_MAX_INPUT_TOKENS}, got {self._max_input_tokens}"
+            )
+        if self._max_output_tokens != CANONICAL_V3_MAX_OUTPUT_TOKENS:
+            raise DataValidationError(
+                f"Max output tokens mismatch: expected {CANONICAL_V3_MAX_OUTPUT_TOKENS}, got {self._max_output_tokens}"
+            )
+        if self._max_structured_output_retries != CANONICAL_V3_MAX_STRUCTURED_RETRIES:
+            raise DataValidationError(
+                f"Max structured retries mismatch: expected {CANONICAL_V3_MAX_STRUCTURED_RETRIES}, got {self._max_structured_output_retries}"
+            )
+        if self._timeout_seconds != CANONICAL_V3_TIMEOUT_SECONDS:
+            raise DataValidationError(
+                f"Timeout seconds mismatch: expected {CANONICAL_V3_TIMEOUT_SECONDS}, got {self._timeout_seconds}"
+            )
+
+        if not self._bypass_source_checksums:
+            if self._device != CANONICAL_V3_DEVICE:
+                raise DataValidationError(
+                    f"Device mismatch: canonical execution requires device='{CANONICAL_V3_DEVICE}', got '{self._device}'"
+                )
+            if self._torch_dtype != CANONICAL_V3_TORCH_DTYPE:
+                raise DataValidationError(
+                    f"Torch dtype mismatch: canonical execution requires torch_dtype='{CANONICAL_V3_TORCH_DTYPE}', got '{self._torch_dtype}'"
+                )
+            if self._temperature != CANONICAL_V3_TEMPERATURE:
+                raise DataValidationError(
+                    f"Temperature mismatch: canonical execution requires temperature={CANONICAL_V3_TEMPERATURE}, got {self._temperature}"
+                )
+
+            source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+            if source_ver != CANONICAL_PACKAGE_VERSION:
+                raise DataValidationError(
+                    f"Package version mismatch: expected '{CANONICAL_PACKAGE_VERSION}', got '{source_ver}'"
+                )
+
+            try:
+                installed_ver = importlib.metadata.version("legal-agentic-rag")
+                if installed_ver != CANONICAL_PACKAGE_VERSION:
+                    raise DataValidationError(
+                        f"Installed distribution version mismatch: expected '{CANONICAL_PACKAGE_VERSION}', got '{installed_ver}'"
+                    )
+            except Exception as exc:
+                raise DataValidationError(f"Could not verify installed distribution version: {exc}")
+
+            if not self._is_git_worktree_clean():
+                raise DataValidationError("Git worktree is dirty. Canonical execution requires a clean git worktree.")
+
+            d3_impl_path = Path(legal_agentic_rag.generation.structured_semantic_verifier_d3.__file__)
+            d3_impl_sha = self._sha256_file(d3_impl_path) if d3_impl_path.is_file() else "unknown"
+            if d3_impl_sha != CANONICAL_D3_IMPLEMENTATION_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 implementation file SHA mismatch. Expected: {CANONICAL_D3_IMPLEMENTATION_SHA256}, Got: {d3_impl_sha}"
+                )
+
+            system_instruction_sha = sha256(
+                STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION.encode("utf-8")
+            ).hexdigest()
+            if system_instruction_sha != CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 system instruction SHA mismatch. Expected: {CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256}, Got: {system_instruction_sha}"
+                )
+
+            schema_sha = sha256(
+                json.dumps(
+                    D3StructuredClaimAssessmentDraft.model_json_schema(),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+            if schema_sha != CANONICAL_D3_SCHEMA_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 schema SHA mismatch. Expected: {CANONICAL_D3_SCHEMA_SHA256}, Got: {schema_sha}"
+                )
 
     def _init_v3_provider(self) -> ChatModelProvider:
         """Instantiate canonical or custom ChatModelProvider."""
@@ -970,14 +1121,25 @@ class V2D3HoldoutBenchmarkEvaluator:
                             "execution_error": False,
                         })
             except Exception as exc:
-                _LOGGER.error("Execution error on arm %s in pass %d: %s", key, pass_index, exc)
+                err_type = type(exc).__name__
+                err_sha = sha256(str(exc).encode("utf-8")).hexdigest()
+                err_len = len(str(exc))
+                _LOGGER.error(
+                    "Execution error during inference pass %d on arm: %s (type=%s, sha=%s)",
+                    pass_index,
+                    key,
+                    err_type,
+                    err_sha[:16],
+                )
                 semantic_exec_errors_total += len(arm.claims)
                 arm_results[key] = {
                     "all_citations_supported": False,
                     "verified_citations_count": 0,
                     "unsupported_citations_count": len(arm.claims),
                     "execution_error": True,
-                    "error_message": str(exc),
+                    "error_type": err_type,
+                    "error_sha256": err_sha,
+                    "error_message_length": err_len,
                 }
                 for c in arm.claims:
                     claim_preds.append({
@@ -992,7 +1154,9 @@ class V2D3HoldoutBenchmarkEvaluator:
                         "rejection_category": "EXECUTION_ERROR",
                         "retries_used": 0,
                         "execution_error": True,
-                        "error_message": str(exc),
+                        "error_type": err_type,
+                        "error_sha256": err_sha,
+                        "error_message_length": err_len,
                     })
 
         pass_telemetry = {
@@ -1010,7 +1174,27 @@ class V2D3HoldoutBenchmarkEvaluator:
         pass1_preds: list[dict[str, Any]],
         pass2_preds: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Compute two-pass stability across semantic claim predictions."""
+        """Compute two-pass stability across semantic claim predictions with exact prediction-set equality."""
+        expected_keys = {f"{t.question_id}:{t.arm_id}:{t.claim_id}" for t in claim_targets}
+
+        # 1. Exact prediction-set equality for Pass 1
+        p1_keys: list[str] = [f"{r.get('question_id')}:{r.get('arm_id')}:{r.get('claim_id')}" for r in pass1_preds]
+        if len(p1_keys) != len(set(p1_keys)):
+            raise DataValidationError("Duplicate prediction detected in Pass 1 prediction records")
+        if set(p1_keys) != expected_keys:
+            raise DataValidationError(
+                f"Pass 1 prediction set mismatch: expected {len(expected_keys)} claims, got {len(p1_keys)}"
+            )
+
+        # 2. Exact prediction-set equality for Pass 2
+        p2_keys: list[str] = [f"{r.get('question_id')}:{r.get('arm_id')}:{r.get('claim_id')}" for r in pass2_preds]
+        if len(p2_keys) != len(set(p2_keys)):
+            raise DataValidationError("Duplicate prediction detected in Pass 2 prediction records")
+        if set(p2_keys) != expected_keys:
+            raise DataValidationError(
+                f"Pass 2 prediction set mismatch: expected {len(expected_keys)} claims, got {len(p2_keys)}"
+            )
+
         p1_by_key = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in pass1_preds}
         p2_by_key = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in pass2_preds}
 
@@ -1023,13 +1207,28 @@ class V2D3HoldoutBenchmarkEvaluator:
         error_any_pass_count = 0
         unstable_details: list[dict[str, Any]] = []
 
+        valid_label_set = {
+            HumanEntailment.SUPPORTED.value,
+            HumanEntailment.CONTRADICTED.value,
+            HumanEntailment.INSUFFICIENT.value,
+        }
+
         for target in claim_targets:
             key = f"{target.question_id}:{target.arm_id}:{target.claim_id}"
-            r1 = p1_by_key.get(key, {})
-            r2 = p2_by_key.get(key, {})
+            r1 = p1_by_key[key]
+            r2 = p2_by_key[key]
 
-            e1 = r1.get("execution_error", False)
-            e2 = r2.get("execution_error", False)
+            e1 = bool(r1.get("execution_error", False))
+            e2 = bool(r2.get("execution_error", False))
+
+            label1 = str(r1.get("v2_d3_three_way_prediction", "")).strip().upper()
+            label2 = str(r2.get("v2_d3_three_way_prediction", "")).strip().upper()
+
+            # Enforce valid semantic label for non-error predictions
+            if not e1 and label1 not in valid_label_set:
+                e1 = True
+            if not e2 and label2 not in valid_label_set:
+                e2 = True
 
             if e1:
                 p1_error_count += 1
@@ -1040,8 +1239,6 @@ class V2D3HoldoutBenchmarkEvaluator:
                 continue
 
             claims_with_two_valid += 1
-            label1 = r1.get("v2_d3_three_way_prediction")
-            label2 = r2.get("v2_d3_three_way_prediction")
 
             if label1 == label2:
                 stable_count += 1
@@ -1102,38 +1299,44 @@ class V2D3HoldoutBenchmarkEvaluator:
 
     def _compute_claim_binary_metrics(
         self,
-        targets: list[BenchmarkClaimTarget],
-        preds: list[dict[str, Any]],
+        claim_targets: list[BenchmarkClaimTarget],
+        claim_preds: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Compute standard binary metrics with explicit non-vacuous zero-denominator handling."""
-        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in preds}
-        tp = fp = tn = fn = errors = 0
+        """Compute claim binary acceptance/rejection metrics with zero-denominator handling."""
+        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in claim_preds}
+        tp = 0
+        fp = 0
+        tn = 0
+        fn = 0
+        exec_errors = 0
 
-        for t in targets:
-            key = f"{t.question_id}:{t.arm_id}:{t.claim_id}"
-            p = pred_map.get(key, {})
-            if p.get("execution_error", False) or p.get("v2_d3_binary_prediction") == BinaryPrediction.EXECUTION_ERROR:
-                errors += 1
+        for target in claim_targets:
+            key = f"{target.question_id}:{target.arm_id}:{target.claim_id}"
+            pred = pred_map.get(key, {})
+            if pred.get("execution_error", False):
+                exec_errors += 1
                 continue
 
-            pred_bin = p.get("v2_d3_binary_prediction")
-            if t.human_label == HumanEntailment.SUPPORTED:
-                if pred_bin == BinaryPrediction.ACCEPT:
+            bin_pred = pred.get("v2_d3_binary_prediction")
+            gold_supp = target.human_label == HumanEntailment.SUPPORTED
+
+            if gold_supp:
+                if bin_pred == BinaryPrediction.ACCEPT:
                     tp += 1
                 else:
                     fn += 1
             else:
-                if pred_bin == BinaryPrediction.REJECT:
+                if bin_pred == BinaryPrediction.REJECT:
                     tn += 1
                 else:
                     fp += 1
 
-        total = tp + fp + tn + fn + errors
+        total = len(claim_targets)
         eval_total = tp + fp + tn + fn
-        gold_supported = sum(1 for t in targets if t.human_label == HumanEntailment.SUPPORTED)
-        gold_negative = sum(1 for t in targets if t.human_label in (HumanEntailment.CONTRADICTED, HumanEntailment.INSUFFICIENT))
         eval_supported = tp + fn
         eval_negative = tn + fp
+        gold_supported = sum(1 for t in claim_targets if t.human_label == HumanEntailment.SUPPORTED)
+        gold_negative = sum(1 for t in claim_targets if t.human_label in (HumanEntailment.CONTRADICTED, HumanEntailment.INSUFFICIENT))
 
         acc = (tp + tn) / eval_total if eval_total > 0 else 0.0
         prec = tp / (tp + fp) if (tp + fp) > 0 else (None if eval_total == 0 else 0.0)
@@ -1152,13 +1355,13 @@ class V2D3HoldoutBenchmarkEvaluator:
         )
 
         return {
+            "total_claims": total,
+            "evaluated_claims": eval_total,
+            "execution_error_claims": exec_errors,
             "tp": tp,
             "fp": fp,
             "tn": tn,
             "fn": fn,
-            "execution_errors": errors,
-            "total_claims": total,
-            "evaluated_claims": eval_total,
             "gold_supported_claims": gold_supported,
             "gold_negative_claims": gold_negative,
             "evaluated_supported_claims": eval_supported,
@@ -1173,65 +1376,40 @@ class V2D3HoldoutBenchmarkEvaluator:
 
     def _compute_three_way_metrics(
         self,
-        targets: list[BenchmarkClaimTarget],
-        preds: list[dict[str, Any]],
+        claim_targets: list[BenchmarkClaimTarget],
+        claim_preds: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Compute exact 3-way semantic confusion matrix and multi-class metrics."""
-        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in preds}
-        labels = ["SUPPORTED", "CONTRADICTED", "INSUFFICIENT"]
-        cm: dict[str, dict[str, int]] = {
-            gold: {pred: 0 for pred in labels} for gold in labels
+        """Compute 3x3 multi-class confusion matrix and macro metrics."""
+        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in claim_preds}
+        matrix: dict[str, dict[str, int]] = {
+            gold: {pred: 0 for pred in ("SUPPORTED", "CONTRADICTED", "INSUFFICIENT")}
+            for gold in ("SUPPORTED", "CONTRADICTED", "INSUFFICIENT")
         }
-        errors = 0
+        exec_errors = 0
 
-        for t in targets:
-            key = f"{t.question_id}:{t.arm_id}:{t.claim_id}"
-            p = pred_map.get(key, {})
-            if p.get("execution_error", False):
-                errors += 1
+        for target in claim_targets:
+            key = f"{target.question_id}:{target.arm_id}:{target.claim_id}"
+            pred = pred_map.get(key, {})
+            if pred.get("execution_error", False):
+                exec_errors += 1
                 continue
 
-            gold = t.human_label.value
-            pred = p.get("v2_d3_three_way_prediction", "INSUFFICIENT")
-            if gold in cm and pred in cm[gold]:
-                cm[gold][pred] += 1
-            else:
-                errors += 1
+            gold_lbl = target.human_label.value.upper()
+            pred_lbl = str(pred.get("v2_d3_three_way_prediction", "")).strip().upper()
+            if gold_lbl in matrix and pred_lbl in matrix[gold_lbl]:
+                matrix[gold_lbl][pred_lbl] += 1
 
-        correct = sum(cm[lbl][lbl] for lbl in labels)
-        total_eval = sum(sum(cm[lbl].values()) for lbl in labels)
-        acc = correct / total_eval if total_eval > 0 else 0.0
-
-        per_class: dict[str, dict[str, float | None]] = {}
-        for lbl in labels:
-            tp_c = cm[lbl][lbl]
-            fp_c = sum(cm[other][lbl] for other in labels if other != lbl)
-            fn_c = sum(cm[lbl][other] for other in labels if other != lbl)
-            prec_c = tp_c / (tp_c + fp_c) if (tp_c + fp_c) > 0 else None
-            rec_c = tp_c / (tp_c + fn_c) if (tp_c + fn_c) > 0 else None
-            f1_c = (
-                (2 * prec_c * rec_c) / (prec_c + rec_c)
-                if (prec_c is not None and rec_c is not None and (prec_c + rec_c) > 0)
-                else None
-            )
-            per_class[lbl] = {"precision": prec_c, "recall": rec_c, "f1": f1_c}
-
-        valid_precs = [v["precision"] for v in per_class.values() if v["precision"] is not None]
-        valid_recs = [v["recall"] for v in per_class.values() if v["recall"] is not None]
-        valid_f1s = [v["f1"] for v in per_class.values() if v["f1"] is not None]
-
-        macro_prec = sum(valid_precs) / len(valid_precs) if valid_precs else None
-        macro_rec = sum(valid_recs) / len(valid_recs) if valid_recs else None
-        macro_f1 = sum(valid_f1s) / len(valid_f1s) if valid_f1s else None
+        total = len(claim_targets)
+        eval_total = total - exec_errors
+        correct = sum(matrix[lbl][lbl] for lbl in ("SUPPORTED", "CONTRADICTED", "INSUFFICIENT"))
+        acc = correct / eval_total if eval_total > 0 else 0.0
 
         return {
-            "confusion_matrix": cm,
+            "total_claims": total,
+            "evaluated_claims": eval_total,
+            "execution_error_claims": exec_errors,
+            "confusion_matrix": matrix,
             "accuracy": acc,
-            "per_class": per_class,
-            "macro_precision": macro_prec,
-            "macro_recall": macro_rec,
-            "macro_f1": macro_f1,
-            "execution_errors": errors,
         }
 
     def _compute_answer_level_metrics(
@@ -1333,11 +1511,19 @@ class V2D3HoldoutBenchmarkEvaluator:
         unstable_claims = stability_info["unstable_semantic_claim_count"]
         two_valid_labels = stability_info["claims_with_two_valid_semantic_labels"] == len(claim_targets)
 
+        # Provider call reconciliation (2 calls per claim + retries across 2 passes)
+        total_claims = len(claim_targets)
+        total_retries = pass1_telemetry["total_structured_retries"] + pass2_telemetry["total_structured_retries"]
+        expected_provider_calls = 2 * total_claims + total_retries
+        actual_provider_calls = pass1_telemetry["provider_calls"] + pass2_telemetry["provider_calls"]
+        provider_calls_reconciled = (actual_provider_calls == expected_provider_calls)
+
         mechanical_pass = (
             model_errors == 0
             and exec_errors == 0
             and unstable_claims == 0
             and two_valid_labels
+            and provider_calls_reconciled
             and exec_identity.get("frozen_d3_source_identity_verified", False)
         )
 
@@ -1404,7 +1590,10 @@ class V2D3HoldoutBenchmarkEvaluator:
             "total_answers": len(arm_targets),
             "coverage": coverage_info,
             "telemetry": {
-                "total_provider_calls": pass1_telemetry["provider_calls"] + pass2_telemetry["provider_calls"],
+                "total_provider_calls": actual_provider_calls,
+                "expected_provider_calls": expected_provider_calls,
+                "provider_calls_reconciled": provider_calls_reconciled,
+                "total_structured_retries": total_retries,
                 "model_errors": model_errors,
                 "provider_invocation_errors": model_errors,
                 "pass1": pass1_telemetry,
@@ -1419,34 +1608,34 @@ class V2D3HoldoutBenchmarkEvaluator:
             "schema_version": "1.0",
             "artifact_type": "v2_d3_holdout_decision_report",
             "candidate_id": self._candidate_id,
-            "verdict": verdict,
             "holdout_evaluation_decision": holdout_decision,
             "promotion_recommended": promotion_recommended,
-            "promotion_authorized": False,  # Strict Fail-Closed Invariant!
+            "promotion_authorized": False,  # Fail-closed invariant
+            "verdict": verdict,
             "timestamp": datetime.now(UTC).isoformat(),
-            "coverage": coverage_info,
-            "gates_summary": {
-                "coverage_sufficient": coverage_sufficient,
-                "mechanical_pass": mechanical_pass,
-                "quality_gates_pass": quality_gates_pass,
+            "coverage_sufficient": coverage_sufficient,
+            "mechanical_pass": mechanical_pass,
+            "quality_gates_pass": quality_gates_pass,
+            "provider_calls_reconciled": provider_calls_reconciled,
+            "gate_evaluations": {
                 "supported_retention_pass": supp_ret_pass,
                 "negative_catch_pass": neg_catch_pass,
                 "valid_answer_retention_pass": val_ans_ret_pass,
                 "full_answer_accuracy_pass": full_ans_acc_pass,
                 "claim_binary_accuracy_pass": claim_bin_acc_pass,
             },
-            "thresholds": {
-                "min_supported_retention": GATE_MIN_SUPPORTED_RETENTION_RATE,
-                "min_negative_catch": GATE_MIN_NEGATIVE_CATCH_RATE,
-                "min_valid_answer_retention": GATE_MIN_VALID_ANSWER_RETENTION_RATE,
-                "min_full_answer_accuracy": GATE_MIN_FULL_ANSWER_ACCURACY_RATE,
-                "min_claim_binary_accuracy": GATE_MIN_CLAIM_BINARY_ACCURACY_RATE,
+            "rate_thresholds": {
+                "min_supported_retention_rate": GATE_MIN_SUPPORTED_RETENTION_RATE,
+                "min_negative_catch_rate": GATE_MIN_NEGATIVE_CATCH_RATE,
+                "min_valid_answer_retention_rate": GATE_MIN_VALID_ANSWER_RETENTION_RATE,
+                "min_full_answer_accuracy_rate": GATE_MIN_FULL_ANSWER_ACCURACY_RATE,
+                "min_claim_binary_accuracy_rate": GATE_MIN_CLAIM_BINARY_ACCURACY_RATE,
             },
             "pass1_actual_rates": {
                 "supported_retention": supp_ret_val,
                 "negative_catch": neg_catch_val,
                 "valid_answer_retention": val_ans_ret_val,
-                "full_answer_accuracy": full_ans_acc_val,
+                "full_denominator_answer_accuracy": full_ans_acc_val,
                 "claim_binary_accuracy": claim_bin_acc_val,
             },
         }

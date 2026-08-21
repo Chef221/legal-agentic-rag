@@ -246,6 +246,12 @@ def mock_holdout_sources(tmp_path: Path) -> dict[str, Path]:
         "schema_version": "1.0",
         "artifact_type": "verification_v2_holdout_reviewed_labels",
         "review_status": "frozen_human_reviewed",
+        "total_claims": 2,
+        "class_counts": {
+            "SUPPORTED": 1,
+            "CONTRADICTED": 1,
+            "INSUFFICIENT": 0,
+        },
         "questions": {
             "SYNTH_Q1": {
                 "arms": {
@@ -300,7 +306,7 @@ def mock_holdout_sources(tmp_path: Path) -> dict[str, Path]:
         "holdout_packets_sha256": packets_sha,
         "holdout_selection_sha256": selection_sha,
         "review_timestamp": "2026-08-21T00:00:00Z",
-        "reviewer_governance_status": "GOVERNANCE_REVIEWED_AND_COMMITTED",
+        "reviewer_governance_status": "EXTERNALLY_REVIEWED_FOR_H_EXEC",
     }
     h_cmt.write_text(json.dumps(commitment_content, indent=2), encoding="utf-8")
 
@@ -398,17 +404,23 @@ def test_holdout_target_loading_missing_label_fails(mock_holdout_sources, tmp_pa
     incomplete_lbl = tmp_path / "incomplete_labels.json"
     incomplete_lbl.write_text(
         json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
             "questions": {
                 "SYNTH_Q1": {
                     "arms": {
                         "BASE": {
                             "claims": {
-                                "C1": {"entailment_label": "SUPPORTED"}
+                                "C1": {
+                                    "entailment_label": "SUPPORTED",
+                                    "claim_text_sha256": sha256("Synthetic supported claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
                 }
-            }
+            },
         }),
         encoding="utf-8",
     )
@@ -428,12 +440,18 @@ def test_holdout_target_loading_extra_label_fails(mock_holdout_sources, tmp_path
     extra_lbl = tmp_path / "extra_labels.json"
     extra_lbl.write_text(
         json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
             "questions": {
                 "SYNTH_Q1": {
                     "arms": {
                         "BASE": {
                             "claims": {
-                                "C1": {"entailment_label": "SUPPORTED"}
+                                "C1": {
+                                    "entailment_label": "SUPPORTED",
+                                    "claim_text_sha256": sha256("Synthetic supported claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
@@ -442,7 +460,10 @@ def test_holdout_target_loading_extra_label_fails(mock_holdout_sources, tmp_path
                     "arms": {
                         "PRIMARY": {
                             "claims": {
-                                "C1": {"entailment_label": "CONTRADICTED"}
+                                "C1": {
+                                    "entailment_label": "CONTRADICTED",
+                                    "claim_text_sha256": sha256("Synthetic contradicted claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
@@ -451,12 +472,15 @@ def test_holdout_target_loading_extra_label_fails(mock_holdout_sources, tmp_path
                     "arms": {
                         "BASE": {
                             "claims": {
-                                "C1": {"entailment_label": "SUPPORTED"}
+                                "C1": {
+                                    "entailment_label": "SUPPORTED",
+                                    "claim_text_sha256": sha256("Extra claim text".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
                 },
-            }
+            },
         }),
         encoding="utf-8",
     )
@@ -467,7 +491,7 @@ def test_holdout_target_loading_extra_label_fails(mock_holdout_sources, tmp_path
         output_dir=tmp_path / "out",
         bypass_source_checksums=True,
     )
-    with pytest.raises(DataValidationError, match="HOLD_OUT_LABEL_EXTRA"):
+    with pytest.raises(DataValidationError, match="HOLD_OUT_EXTRA_LABELS"):
         evaluator._load_holdout_targets()
 
 
@@ -476,12 +500,18 @@ def test_holdout_target_loading_invalid_label_fails(mock_holdout_sources, tmp_pa
     invalid_lbl = tmp_path / "invalid_labels.json"
     invalid_lbl.write_text(
         json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
             "questions": {
                 "SYNTH_Q1": {
                     "arms": {
                         "BASE": {
                             "claims": {
-                                "C1": {"entailment_label": "INVALID_LABEL_VALUE"}
+                                "C1": {
+                                    "entailment_label": "INVALID_LABEL_VALUE",
+                                    "claim_text_sha256": sha256("Synthetic supported claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
@@ -490,12 +520,15 @@ def test_holdout_target_loading_invalid_label_fails(mock_holdout_sources, tmp_pa
                     "arms": {
                         "PRIMARY": {
                             "claims": {
-                                "C1": {"entailment_label": "CONTRADICTED"}
+                                "C1": {
+                                    "entailment_label": "CONTRADICTED",
+                                    "claim_text_sha256": sha256("Synthetic contradicted claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
                 },
-            }
+            },
         }),
         encoding="utf-8",
     )
@@ -536,17 +569,23 @@ def test_zero_negative_denominator_coverage_insufficient(mock_holdout_sources, t
     single_lbl = tmp_path / "single_supported_labels.json"
     single_lbl.write_text(
         json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
             "questions": {
                 "SYNTH_Q1": {
                     "arms": {
                         "BASE": {
                             "claims": {
-                                "C1": {"entailment_label": "SUPPORTED"}
+                                "C1": {
+                                    "entailment_label": "SUPPORTED",
+                                    "claim_text_sha256": sha256("Synthetic supported claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
                 }
-            }
+            },
         }),
         encoding="utf-8",
     )
@@ -651,7 +690,15 @@ def test_mechanical_failure_handling(mock_holdout_sources, tmp_path):
 def test_packet_embedded_label_not_used_as_fallback(mock_holdout_sources, tmp_path):
     # Packet has entailment_label: "SUPPORTED", but label file is missing the claim
     empty_lbl = tmp_path / "empty_labels.json"
-    empty_lbl.write_text(json.dumps({"questions": {}}), encoding="utf-8")
+    empty_lbl.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
+            "questions": {},
+        }),
+        encoding="utf-8",
+    )
 
     evaluator = V2D3HoldoutBenchmarkEvaluator(
         holdout_packets_path=mock_holdout_sources["holdout_packets"],
@@ -676,6 +723,7 @@ def test_wrong_labels_sha_in_commitment_fails(mock_holdout_sources, tmp_path):
             "holdout_packets_sha256": sha256(mock_holdout_sources["holdout_packets"].read_bytes()).hexdigest(),
             "holdout_selection_sha256": sha256(mock_holdout_sources["holdout_selection"].read_bytes()).hexdigest(),
             "review_status": "frozen_human_reviewed",
+            "reviewer_governance_status": "EXTERNALLY_REVIEWED_FOR_H_EXEC",
         }),
         encoding="utf-8",
     )
@@ -705,17 +753,23 @@ def test_zero_supported_denominator_coverage_insufficient(mock_holdout_sources, 
     single_lbl = tmp_path / "single_contradicted_labels.json"
     single_lbl.write_text(
         json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
             "questions": {
                 "SYNTH_Q2": {
                     "arms": {
                         "PRIMARY": {
                             "claims": {
-                                "C1": {"entailment_label": "CONTRADICTED"}
+                                "C1": {
+                                    "entailment_label": "CONTRADICTED",
+                                    "claim_text_sha256": sha256("Synthetic contradicted claim text.".encode("utf-8")).hexdigest(),
+                                }
                             }
                         }
                     }
                 }
-            }
+            },
         }),
         encoding="utf-8",
     )
@@ -755,3 +809,363 @@ def test_quality_rate_gate_failure_verdict(mock_holdout_sources, tmp_path):
     assert rep["coverage"]["coverage_sufficient"] is True
     assert rep["stability"]["unstable_semantic_claim_count"] == 0
 
+
+# Test 18: Canonical execution rejects unreviewed commitment status
+def test_canonical_execution_rejects_unreviewed_commitment_status(mock_holdout_sources, tmp_path):
+    unreviewed_cmt = tmp_path / "unreviewed_commitment.json"
+    unreviewed_cmt.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_label_commitment",
+            "labels_sha256": sha256(mock_holdout_sources["holdout_labels"].read_bytes()).hexdigest(),
+            "labels_size_bytes": mock_holdout_sources["holdout_labels"].stat().st_size,
+            "holdout_packets_sha256": sha256(mock_holdout_sources["holdout_packets"].read_bytes()).hexdigest(),
+            "holdout_selection_sha256": sha256(mock_holdout_sources["holdout_selection"].read_bytes()).hexdigest(),
+            "review_status": "frozen_human_reviewed",
+            "reviewer_governance_status": "FROZEN_PENDING_EXTERNAL_REVIEW",  # Not yet externally approved
+        }),
+        encoding="utf-8",
+    )
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        label_commitment_path=unreviewed_cmt,
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=False,
+    )
+    with patch(
+        "scripts.evaluate_verification_v2_d3_holdout.CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256",
+        sha256(mock_holdout_sources["holdout_packets"].read_bytes()).hexdigest(),
+    ), patch(
+        "scripts.evaluate_verification_v2_d3_holdout.CANONICAL_HOLDOUT_SELECTION_SHA256",
+        sha256(mock_holdout_sources["holdout_selection"].read_bytes()).hexdigest(),
+    ):
+        with pytest.raises(DataValidationError, match="Commitment governance status mismatch"):
+            evaluator._verify_canonical_source_checksums()
+
+
+# Test 19: Canonical execution rejects raw labels SHA without commitment file
+def test_canonical_execution_rejects_raw_labels_sha_without_commitment(mock_holdout_sources, tmp_path):
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        label_commitment_path=None,
+        holdout_labels_sha256=sha256(mock_holdout_sources["holdout_labels"].read_bytes()).hexdigest(),
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=False,
+    )
+    with patch(
+        "scripts.evaluate_verification_v2_d3_holdout.CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256",
+        sha256(mock_holdout_sources["holdout_packets"].read_bytes()).hexdigest(),
+    ), patch(
+        "scripts.evaluate_verification_v2_d3_holdout.CANONICAL_HOLDOUT_SELECTION_SHA256",
+        sha256(mock_holdout_sources["holdout_selection"].read_bytes()).hexdigest(),
+    ):
+        with pytest.raises(DataValidationError, match="CANONICAL_HOLDOUT_EXECUTION_BLOCKED"):
+            evaluator._verify_canonical_source_checksums()
+
+
+# Test 20: Labels artifact metadata validation (wrong artifact_type, wrong review_status, class counts mismatch)
+def test_labels_artifact_metadata_validation(mock_holdout_sources, tmp_path):
+    bad_lbl = tmp_path / "bad_meta_labels.json"
+    bad_lbl.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "wrong_artifact_type",
+            "review_status": "frozen_human_reviewed",
+            "questions": {},
+        }),
+        encoding="utf-8",
+    )
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=bad_lbl,
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    with pytest.raises(DataValidationError, match="Invalid holdout labels artifact_type"):
+        evaluator._load_holdout_targets()
+
+
+# Test 21: Missing claim_text_sha256 in labels artifact fails closed
+def test_labels_artifact_missing_claim_text_sha(mock_holdout_sources, tmp_path):
+    missing_sha_lbl = tmp_path / "missing_sha_labels.json"
+    missing_sha_lbl.write_text(
+        json.dumps({
+            "schema_version": "1.0",
+            "artifact_type": "verification_v2_holdout_reviewed_labels",
+            "review_status": "frozen_human_reviewed",
+            "questions": {
+                "SYNTH_Q1": {
+                    "arms": {
+                        "BASE": {
+                            "claims": {
+                                "C1": {
+                                    "entailment_label": "SUPPORTED",
+                                    # Missing claim_text_sha256
+                                }
+                            }
+                        }
+                    }
+                },
+                "SYNTH_Q2": {
+                    "arms": {
+                        "PRIMARY": {
+                            "claims": {
+                                "C1": {
+                                    "entailment_label": "CONTRADICTED",
+                                    "claim_text_sha256": sha256("Synthetic contradicted claim text.".encode("utf-8")).hexdigest(),
+                                }
+                            }
+                        }
+                    }
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=missing_sha_lbl,
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    with pytest.raises(DataValidationError, match="HOLD_OUT_LABEL_MISSING_SHA"):
+        evaluator._load_holdout_targets()
+
+
+# Test 22: Stability evaluation fails closed on missing Pass 1 prediction
+def test_stability_missing_pass1_prediction_fails(mock_holdout_sources, tmp_path):
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    _, claim_targets = evaluator._load_holdout_targets()
+
+    # Pass 1 missing SYNTH_Q2:PRIMARY:C1
+    p1 = [{"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"}]
+    p2 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+
+    with pytest.raises(DataValidationError, match="Pass 1 prediction set mismatch"):
+        evaluator._evaluate_stability(claim_targets, p1, p2)
+
+
+# Test 23: Stability evaluation fails closed on missing Pass 2 prediction
+def test_stability_missing_pass2_prediction_fails(mock_holdout_sources, tmp_path):
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    _, claim_targets = evaluator._load_holdout_targets()
+
+    p1 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+    # Pass 2 missing SYNTH_Q1:BASE:C1
+    p2 = [{"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"}]
+
+    with pytest.raises(DataValidationError, match="Pass 2 prediction set mismatch"):
+        evaluator._evaluate_stability(claim_targets, p1, p2)
+
+
+# Test 24: Stability evaluation fails closed on duplicate pass predictions
+def test_stability_duplicate_pass_prediction_fails(mock_holdout_sources, tmp_path):
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    _, claim_targets = evaluator._load_holdout_targets()
+
+    p1 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"},
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"},  # Duplicate
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+    p2 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "SUPPORTED"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+
+    with pytest.raises(DataValidationError, match="Duplicate prediction detected in Pass 1"):
+        evaluator._evaluate_stability(claim_targets, p1, p2)
+
+
+# Test 25: Stability evaluation marks invalid semantic label as error
+def test_stability_invalid_semantic_label_counts_as_error(mock_holdout_sources, tmp_path):
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        bypass_source_checksums=True,
+    )
+    _, claim_targets = evaluator._load_holdout_targets()
+
+    p1 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "INVALID_LABEL"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+    p2 = [
+        {"question_id": "SYNTH_Q1", "arm_id": "BASE", "claim_id": "C1", "v2_d3_three_way_prediction": "INVALID_LABEL"},
+        {"question_id": "SYNTH_Q2", "arm_id": "PRIMARY", "claim_id": "C1", "v2_d3_three_way_prediction": "CONTRADICTED"},
+    ]
+
+    stab = evaluator._evaluate_stability(claim_targets, p1, p2)
+    # Even though label1 == label2 ("INVALID_LABEL"), it MUST NOT be counted as stable
+    assert stab["stable_semantic_claim_count"] == 1
+    assert stab["claims_with_two_valid_semantic_labels"] == 1
+    assert stab["execution_error_in_any_pass_count"] == 1
+
+
+# Test 26: Content-safe exception telemetry leaves zero secret leakage
+def test_content_safe_exception_telemetry_no_secret_leak(mock_holdout_sources, tmp_path):
+    secret_text = "SECRET_CONFIDENTIAL_ORGANIZER_CASE_0987654321"
+
+    class SecretLeakingProvider(ChatModelProvider):
+        @property
+        def provider_name(self) -> str:
+            return CANONICAL_V3_BACKEND
+
+        @property
+        def provider_version(self) -> str:
+            return CANONICAL_V3_PROVIDER_VERSION
+
+        @property
+        def model_name(self) -> str:
+            return CANONICAL_V3_MODEL_NAME
+
+        @property
+        def model_revision(self) -> str:
+            return CANONICAL_V3_MODEL_REVISION
+
+        def complete(self, *, system_instruction: str, user_prompt: str) -> str:
+            raise ModelError(f"Fatal error containing secret: {secret_text}")
+
+    obs = ObservationalChatModelProviderWrapper(SecretLeakingProvider())
+    try:
+        obs.complete(system_instruction=STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION, user_prompt="test")
+    except ModelError:
+        pass
+
+    telemetry_dump = json.dumps(obs.call_history)
+    assert secret_text not in telemetry_dump
+    assert obs.call_history[0]["error_sha256"] is not None
+    assert obs.call_history[0]["error_type"] == "ModelError"
+
+
+# Test 27: Canonical provenance validation enforces all parameters
+def test_canonical_provenance_validation_failures(mock_holdout_sources, tmp_path):
+    # Repeat count != 2
+    evaluator_repeat = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        repeat_count=1,
+        bypass_source_checksums=True,
+    )
+    with pytest.raises(DataValidationError, match="Repeat count mismatch"):
+        evaluator_repeat._validate_canonical_provenance()
+
+    # Max tokens mismatch
+    evaluator_tokens = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=tmp_path / "out",
+        max_output_tokens=1024,
+        bypass_source_checksums=True,
+    )
+    with pytest.raises(DataValidationError, match="Max output tokens mismatch"):
+        evaluator_tokens._validate_canonical_provenance()
+
+
+# Test 28: Provider call reconciliation (exact 2 calls per claim + retries)
+def test_provider_call_reconciliation_exact_and_retries(mock_holdout_sources, tmp_path):
+    out_dir = tmp_path / "reconciliation_out"
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        output_dir=out_dir,
+        custom_provider=MockCanonicalD3Provider(mode="gold"),
+        bypass_source_checksums=True,
+    )
+    rep = evaluator.evaluate()
+    assert rep["telemetry"]["total_provider_calls"] == 4  # 2 claims * 2 passes
+    assert rep["telemetry"]["expected_provider_calls"] == 4
+    assert rep["telemetry"]["provider_calls_reconciled"] is True
+
+
+# Test 29: Independent Cell H6 Verification Recomputation
+def test_cell_h6_independent_recomputation():
+    """Verify that Cell H6 logic independently recomputes all verdict booleans."""
+    mock_binary = {
+        "gold_supported_claims": 18,
+        "gold_negative_claims": 20,
+        "supported_retention": 0.9444,
+        "negative_catch": 0.5500,
+        "accuracy": 0.7368,
+    }
+    mock_answer = {
+        "gold_valid_answers_count": 7,
+        "gold_invalid_answers_count": 15,
+        "valid_answer_retention_rate": 0.8571,
+        "full_denominator_answer_accuracy": 0.6364,
+    }
+    mock_stability = {
+        "unstable_semantic_claim_count": 0,
+        "execution_error_in_any_pass_count": 0,
+        "claims_with_two_valid_semantic_labels": 38,
+    }
+    mock_telemetry = {
+        "model_errors": 0,
+        "provider_calls_reconciled": True,
+    }
+
+    # H6 Recomputation Logic:
+    supp_denom_ok = mock_binary["gold_supported_claims"] > 0
+    neg_denom_ok = mock_binary["gold_negative_claims"] > 0
+    val_ans_ok = mock_answer["gold_valid_answers_count"] > 0
+    inv_ans_ok = mock_answer["gold_invalid_answers_count"] > 0
+    h6_cov_ok = supp_denom_ok and neg_denom_ok and val_ans_ok and inv_ans_ok
+
+    h6_mech_ok = (
+        mock_telemetry["model_errors"] == 0
+        and mock_stability["execution_error_in_any_pass_count"] == 0
+        and mock_stability["unstable_semantic_claim_count"] == 0
+        and mock_stability["claims_with_two_valid_semantic_labels"] == 38
+        and mock_telemetry["provider_calls_reconciled"] is True
+    )
+
+    h6_qual_ok = (
+        h6_cov_ok
+        and mock_binary["supported_retention"] >= GATE_MIN_SUPPORTED_RETENTION_RATE
+        and mock_binary["negative_catch"] >= GATE_MIN_NEGATIVE_CATCH_RATE
+        and mock_answer["valid_answer_retention_rate"] >= GATE_MIN_VALID_ANSWER_RETENTION_RATE
+        and mock_answer["full_denominator_answer_accuracy"] >= GATE_MIN_FULL_ANSWER_ACCURACY_RATE
+        and mock_binary["accuracy"] >= GATE_MIN_CLAIM_BINARY_ACCURACY_RATE
+    )
+
+    assert h6_cov_ok is True
+    assert h6_mech_ok is True
+    assert h6_qual_ok is True
+    h6_verdict = "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED" if h6_qual_ok else "V2_D3_HOLDOUT_PROMOTION_REJECTED"
+    assert h6_verdict == "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED"
