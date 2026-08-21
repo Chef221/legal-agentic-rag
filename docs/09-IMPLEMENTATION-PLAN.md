@@ -2529,3 +2529,16 @@ reports are reviewed.
 - candidate V2-D3 implementation (`a6e8bca1...`), prompt (`546cd8bd...`), schema (`3591144a...`), model revision (`a1d308df...`), and rate gates remain strictly frozen;
 - no model inference (no Qwen, no D3, no Kaggle) executed;
 - next action: external review of new execution-authority commit, then canonical one-shot Kaggle H-EXEC.
+
+## 77. Milestone 51.12 — Priority B: Phase H-EXEC Attempt 0 Invalidation, Pre-Inference Provider Harness Correction, Preflight Constructor Smoke Gate, and Recovery Attempt 1 Authorization
+
+**Status:** Completed & Ready for Review (Harness: `scripts/evaluate_verification_v2_d3_holdout.py`, Unit Tests: `tests/unit/evaluation/test_verification_v2_d3_holdout.py`, Decision: `D126`, Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+- recorded and invalidated Attempt 0 (`H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699`) due to synchronous `TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'` before provider instantiation or Pass 1 start (0 provider calls, 0 D3 predictions, 0 holdout metrics; zero holdout scientific results consumed);
+- ported proven provider construction logic from `scripts/evaluate_verification_v2_d3_development.py` to `scripts/evaluate_verification_v2_d3_holdout.py`, instantiating `TransformersChatProvider` via `SemanticVerificationConfig.as_generation_config()` with fail-closed GenerationConfig invariant assertions;
+- added a model-free constructor-contract smoke gate in `--preflight-only` before declaring readiness (recording `provider_constructor_contract_verified: True`);
+- added regression tests (`test_init_v3_provider_real_construction_contract`, `test_init_v3_provider_invalid_generation_config_fails_closed`, `test_preflight_verifies_provider_constructor_contract`) with monkeypatched runtime-load guards to guarantee zero weight loading during construction/preflight;
+- verified `TransformersChatProvider` source, candidate V2-D3 implementation (`a6e8bca1...`), prompt (`546cd8bd...`), schema (`3591144a...`), frozen labels (`85d348db...`), tracked commitment (`5cc7f58ed5...`), and rate gates remain 100% byte-identical;
+- no model inference (no Qwen, no D3, no Kaggle) executed;
+- authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle GPU session following external review of this corrected commit;
+- next action: external review of corrected execution-authority commit, then canonical one-shot Kaggle H-EXEC Recovery Attempt 1.

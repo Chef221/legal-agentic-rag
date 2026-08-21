@@ -430,12 +430,20 @@ The immediate next action is:
      - External chain-of-custody review passed (D125, decision: `APPROVED`).
      - Approved commitment tracked in repository at `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`, size `1,060` bytes, `reviewer_governance_status: "EXTERNALLY_REVIEWED_FOR_H_EXEC"`).
      - Candidate V2-D3 and promotion rate gates remain strictly frozen.
-   - **Next Action in Priority B**: External review of new execution-authority commit, then canonical one-shot Kaggle H-EXEC execution.
+   - **Task B-H-EXEC ATTEMPT 0 INVALIDATION & PRE-INFERENCE HARNESS REPAIR (D126, M51.12)**:
+     - Canonical H-EXEC Attempt 0 on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699` failed synchronously during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`) before provider instantiation, model weight loading, or Pass 1 start.
+     - Classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` (0 provider calls, 0 D3 predictions, 0 holdout metrics; zero holdout scientific results consumed).
+     - Repaired `scripts/evaluate_verification_v2_d3_holdout.py` by porting the proven provider construction architecture from `scripts/evaluate_verification_v2_d3_development.py` via `SemanticVerificationConfig.as_generation_config()`, with fail-closed GenerationConfig invariant assertions.
+     - Added model-free provider-constructor smoke verification to the `--preflight-only` gate (recording `provider_constructor_contract_verified: True`) and added unit regression tests with monkeypatched `_load_runtime` guards.
+     - Candidate V2-D3 implementation (`a6e8bca1...`), prompt (`546cd8bd...`), schema (`3591144a...`), frozen labels (`85d348db...`), tracked commitment (`5cc7f58ed5...`), and promotion rate gates remain strictly frozen and byte-identical.
+     - Exactly ONE recovery execution authorized as **H-EXEC Recovery Attempt 1** on a fresh Kaggle GPU session following external review of the corrected execution-authority commit.
+   - **Next Action in Priority B**: External review of corrected execution-authority commit, then canonical one-shot Kaggle H-EXEC Recovery Attempt 1 execution.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase H-EXEC Attempt 0 and Harness Correction?** Resolved: Canonical H-EXEC Attempt 0 on commit `21b7ffcf10d4621b0fdcbf18dcd565e4d5186699` encountered a mechanical pre-inference harness defect during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`). Synchronous failure occurred before provider construction, weight loading, or Pass 1 start (0 provider calls, 0 D3 predictions, 0 holdout metrics produced). Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE` with zero scientific holdout consumption. Repaired `scripts/evaluate_verification_v2_d3_holdout.py` to construct `TransformersChatProvider` via `SemanticVerificationConfig.as_generation_config()`. Added model-free constructor smoke verification to `--preflight-only` and unit regression tests with runtime loading guards. Candidate V2-D3, prompt, schema, frozen labels, commitment, and rate gates remain 100% immutable. Authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle session (D126, M51.12).
 - **What happened in Phase H-LABEL and H-EXEC Authorization?** Resolved: Phase H-LABEL human review completed across all 16 primary review packets (31 claims: 24 SUPPORTED, 1 CONTRADICTED, 6 INSUFFICIENT) with zero model predictions. Labels frozen into immutable artifact `verification-v2-holdout-reviewed-labels-v1.json` (SHA-256 `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215`). Pending commitment `c7755e37...` externally reviewed and approved. Approved commitment tracked in repository at `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`). Goverance status set to `EXTERNALLY_REVIEWED_FOR_H_EXEC`. Candidate V2-D3 and rate gates remain frozen.
 - **What happened in Pre-H-LABEL Integrity Hardening?** Resolved: Completed final pre-holdout hardening pass (D124). Added duplicate-key-aware JSON loader and fail-closed duplicate review checks to `scripts/freeze_verification_v2_holdout_labels.py`. Changed commitment status initialization to `FROZEN_PENDING_EXTERNAL_REVIEW`. Required `--label-commitment` with `EXTERNALLY_REVIEWED_FOR_H_EXEC` for canonical H-EXEC. Validated label artifact metadata and per-claim `claim_text_sha256`. Enforced exact prediction-set equality and eliminated fail-open stability bugs. Replaced raw exception strings with content-safe telemetry (`error_type`, `error_sha256`, `error_message_length`). Added provider call reconciliation gate. Hardened `_validate_canonical_provenance()` with fail-closed checks on all execution parameters. Updated Runbook Cell H1 with runtime package assertions and Cell H6 with independent evidence recomputation assertions.
 - **What happened in V2-D3 Holdout Governance Hardening?** Resolved: Hardened holdout evaluation governance into two distinct irreversible phases (Phase H-LABEL for human gold freezing and Phase H-EXEC for Kaggle execution). Created `scripts/freeze_verification_v2_holdout_labels.py` and hardened `scripts/evaluate_verification_v2_d3_holdout.py` with exact packet-label claim set equality, non-vacuous coverage denominator gates, zero-denominator None semantics, pinned Kaggle environment, and single model loading. Tested exclusively on synthetic fixtures with zero real holdout exposure.
@@ -486,11 +494,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (Phase H-LABEL Complete; Human Gold Labels Frozen; D125 Accepted; Label Commitment Externally Approved; Config Tracked; Frozen V2-D3 Candidate Unchanged; Authorized for Phase H-EXEC)
+    0.50.7 (Phase H-EXEC Attempt 0 Invalidated; Harness Repaired; Preflight Constructor Gate Added; D126 Accepted; Frozen V2-D3 & Labels Unchanged; Authorized for Recovery Attempt 1)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (Phase H-LABEL Complete & Approved — Authorized for Canonical One-Shot Kaggle H-EXEC)
+    Priority B — Verification-correctness audit (H-EXEC Pre-Inference Repair Complete — Authorized for Canonical Kaggle Recovery Attempt 1)
 
 Next action:
-    External review of new execution-authority commit, then canonical one-shot Kaggle H-EXEC execution
+    External review of corrected execution-authority commit, then canonical one-shot Kaggle H-EXEC Recovery Attempt 1 execution
 ```

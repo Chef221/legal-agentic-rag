@@ -1169,3 +1169,92 @@ def test_cell_h6_independent_recomputation():
     assert h6_qual_ok is True
     h6_verdict = "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED" if h6_qual_ok else "V2_D3_HOLDOUT_PROMOTION_REJECTED"
     assert h6_verdict == "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED"
+
+
+def test_init_v3_provider_real_construction_contract(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Test that real TransformersChatProvider is constructed via GenerationConfig without loading model weights."""
+    from legal_agentic_rag.generation.transformers_provider import TransformersChatProvider
+
+    # Guard: Fail if _load_runtime is invoked during provider construction
+    def _forbidden_load_runtime(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("FORBIDDEN: TransformersChatProvider._load_runtime was called during provider initialization!")
+
+    monkeypatch.setattr(TransformersChatProvider, "_load_runtime", _forbidden_load_runtime)
+
+    dummy_packets = tmp_path / "packets.zip"
+    dummy_packets.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    dummy_labels = tmp_path / "labels.json"
+    dummy_labels.write_text("{}", encoding="utf-8")
+
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=dummy_packets,
+        holdout_labels_path=dummy_labels,
+        bypass_source_checksums=True,
+    )
+
+    provider = evaluator._init_v3_provider()
+    assert isinstance(provider, TransformersChatProvider)
+    assert provider.provider_name == "transformers"
+    assert provider.model_name == "Qwen/Qwen2.5-3B-Instruct"
+    assert provider.model_revision == "a1d308dfcc03e09da285d49d912439a655a571e8"
+    assert provider._device == "cuda"
+    assert provider._torch_dtype == "float16"
+    assert provider._temperature == 0.0
+    assert provider._max_input_tokens == 8192
+    assert provider._max_output_tokens == 512
+    assert provider._runtime is None, "Provider runtime must remain unloaded (lazy) upon construction"
+
+    # Verify identity validation succeeds
+    evaluator._validate_runtime_provider_identity(provider)
+
+
+def test_init_v3_provider_invalid_generation_config_fails_closed(tmp_path: Path) -> None:
+    """Test that invalid GenerationConfig invariants cause _init_v3_provider to fail closed."""
+    dummy_packets = tmp_path / "packets.zip"
+    dummy_packets.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    dummy_labels = tmp_path / "labels.json"
+    dummy_labels.write_text("{}", encoding="utf-8")
+
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=dummy_packets,
+        holdout_labels_path=dummy_labels,
+        max_input_tokens=4096,  # Incompatible with canonical 8192 invariant
+        bypass_source_checksums=True,
+    )
+
+    with pytest.raises(DataValidationError, match="GenerationConfig invariants failed"):
+        evaluator._init_v3_provider()
+
+
+def test_preflight_verifies_provider_constructor_contract(
+    monkeypatch: pytest.MonkeyPatch, mock_holdout_sources: dict[str, Path], tmp_path: Path
+) -> None:
+    """Test that --preflight-only executes provider constructor contract verification without running model inference."""
+    from legal_agentic_rag.generation.transformers_provider import TransformersChatProvider
+
+    # Guard: Fail if _load_runtime is invoked during preflight
+    def _forbidden_load_runtime(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("FORBIDDEN: TransformersChatProvider._load_runtime was called during preflight!")
+
+    monkeypatch.setattr(TransformersChatProvider, "_load_runtime", _forbidden_load_runtime)
+
+    out_dir = tmp_path / "preflight_out"
+
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=mock_holdout_sources["holdout_packets"],
+        holdout_labels_path=mock_holdout_sources["holdout_labels"],
+        holdout_selection_path=mock_holdout_sources["holdout_selection"],
+        label_commitment_path=mock_holdout_sources["label_commitment"],
+        output_dir=out_dir,
+        preflight_only=True,
+        bypass_source_checksums=True,
+    )
+
+    report = evaluator.evaluate()
+    assert report["artifact_type"] == "v2_d3_holdout_preflight_report"
+    assert report["preflight_status"]["provider_constructor_contract_verified"] is True
+    assert report["preflight_status"]["model_execution_skipped"] is True
+    assert report["preflight_status"]["v0_verifier_replayed"] is True
+    assert report["preflight_status"]["sources_verified"] is True
+    assert (out_dir / "results" / "v2_d3_holdout_report.json").is_file()
+    assert not (out_dir / "telemetry" / "provider_calls.jsonl").exists()

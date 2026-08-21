@@ -112,6 +112,16 @@ Phase H-LABEL human review and label freezing completed successfully.
 | `verification-v2-d3-holdout-label-commitment.json` (Pending) | `c7755e37e394e80484f73c52ee6965c34c65917c38fa83b1dc453bbb466bcf86` | 823 | Historical Pending-Review Commitment |
 | `configs/verification-v2-d3-holdout-label-commitment.json` (Approved) | `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc` | 1,060 | Tracked Approved Commitment (`EXTERNALLY_REVIEWED_FOR_H_EXEC`) |
 
+### 3.4 Phase H-EXEC Attempt 0 Invalidation & Recovery Attempt 1 Authorization
+An initial canonical H-EXEC attempt on Kaggle GPU (`21b7ffcf10d4621b0fdcbf18dcd565e4d5186699`) encountered a mechanical pre-inference harness defect during provider instantiation (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`).
+
+**Attempt 0 Audit & Invalidation Findings:**
+1. **Zero Model Inference:** The failure occurred synchronously in `_init_v3_provider()` before any provider object was constructed, before model weights were loaded, and before Pass 1 began. Total provider calls = 0, D3 predictions = 0, holdout metrics produced = 0.
+2. **Classification:** Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE`. Zero scientific holdout results were consumed.
+3. **Root Cause & Repair:** `evaluate_verification_v2_d3_holdout.py` was corrected to port the proven provider construction path from `evaluate_verification_v2_d3_development.py`, constructing `TransformersChatProvider` strictly via `SemanticVerificationConfig.as_generation_config()`.
+4. **Preflight Constructor Smoke Gate Added:** Added a model-free provider-constructor smoke verification check into `--preflight-only` to ensure wiring integrity before future model execution.
+5. **Recovery Execution Authorization:** Exactly ONE recovery run is authorized on a fresh Kaggle session as **H-EXEC Recovery Attempt 1** following external review of the corrected commit. Candidate V2-D3, prompt, schema, frozen labels, commitment, and promotion rate gates remain 100% immutable.
+
 ---
 
 ## 4. Pre-Registered Promotion Gates & Decision Protocol

@@ -3012,3 +3012,35 @@ Phase H-LABEL human review and gold-label freezing was executed across the 16 pr
    - Candidate V2-D3 remains strictly frozen (`a6e8bca1...`, prompt `546cd8bd...`, schema `3591144a...`, `Qwen/Qwen2.5-3B-Instruct` rev `a1d308df...`).
    - Rate thresholds remain strictly frozen (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`).
    - Zero post-hoc modifications, candidate edits, prompt edits, threshold edits, label edits, or rerun loops permitted.
+
+---
+
+## D126 — Phase H-EXEC Attempt 0 Invalidation, Pre-Inference Provider Harness Correction, Preflight Constructor Smoke Gate, and Recovery Attempt 1 Authorization
+
+**Status:** Accepted (Harness: `scripts/evaluate_verification_v2_d3_holdout.py`, Tests: `tests/unit/evaluation/test_verification_v2_d3_holdout.py`, Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+**Context:**
+The initial canonical H-EXEC execution attempt on Kaggle GPU (`21b7ffcf10d4621b0fdcbf18dcd565e4d5186699`) encountered a mechanical pre-inference harness defect during provider initialization (`TypeError: TransformersChatProvider.__init__() got an unexpected keyword argument 'model_name'`). An emergency pre-inference harness correction was conducted to align the holdout evaluation harness with the proven development provider construction architecture.
+
+**Decisions & Invariants:**
+1. **Attempt 0 Invalidation & Classification**:
+   - Attempt 0 failed synchronously at `V2D3HoldoutBenchmarkEvaluator._init_v3_provider()` before any provider object was instantiated, before model weights were loaded, and before Pass 1 started.
+   - Telemetry count: 0 provider calls, 0 model weights loaded, 0 D3 predictions produced, 0 holdout performance metrics generated.
+   - Formally classified as `H_EXEC_ATTEMPT_0_INVALID_PRE_INFERENCE_HARNESS_FAILURE`. Zero scientific holdout results were consumed.
+2. **Root Cause & Construction Port**:
+   - `scripts/evaluate_verification_v2_d3_holdout.py` incorrectly passed keyword arguments directly to `TransformersChatProvider.__init__()` rather than wrapping them in `GenerationConfig`.
+   - Repaired by porting the proven, validated provider construction logic from `scripts/evaluate_verification_v2_d3_development.py`:
+     `cfg = SemanticVerificationConfig(...); generation_cfg = cfg.as_generation_config(); return TransformersChatProvider(generation_cfg)`
+   - Enforced fail-closed assertions on `GenerationConfig` canonical constants (`transformers`, `Qwen/Qwen2.5-3B-Instruct`, `a1d308df...`, `cuda`, `float16`, `local_files_only=False`, `timeout=180.0`, `8192/512`, `retries=1`, `temperature=0.0`).
+3. **Model-Free Provider Constructor Preflight Smoke Gate**:
+   - Updated the `--preflight-only` path to execute a model-free provider-constructor smoke verification check before declaring readiness.
+   - Validates that `_init_v3_provider()` and `_validate_runtime_provider_identity()` succeed without calling `complete()`, without calling `_require_runtime()`, and without loading model weights.
+   - Records `provider_constructor_contract_verified: True` in preflight output.
+4. **Regression Testing**:
+   - Added unit regression tests (`test_init_v3_provider_real_construction_contract`, `test_init_v3_provider_invalid_generation_config_fails_closed`, `test_preflight_verifies_provider_constructor_contract`) with monkeypatched `_load_runtime` guards to verify lazy loading and eliminate fail-open regressions.
+5. **Frozen Invariants Unchanged**:
+   - Core provider source (`src/legal_agentic_rag/generation/transformers_provider.py`) is completely unchanged.
+   - Candidate V2-D3 implementation (`a6e8bca1...`), prompt (`546cd8bd...`), and schema (`3591144a...`) remain 100% byte-identical.
+   - Frozen human gold labels (`85d348db...`, 9,383 bytes), label commitment (`5cc7f58ed5...`), and promotion thresholds remain 100% immutable.
+6. **Recovery Governance**:
+   - Exactly ONE recovery execution is authorized on a fresh Kaggle session as **H-EXEC Recovery Attempt 1** following external review of the corrected execution-authority commit.

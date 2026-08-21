@@ -50,6 +50,7 @@ from typing import Any
 import zipfile
 
 import legal_agentic_rag
+from legal_agentic_rag.configuration.online import SemanticVerificationConfig
 from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
 from legal_agentic_rag.generation.citation_verifier import RuleBasedCitationVerifier
@@ -329,6 +330,9 @@ class V2D3HoldoutBenchmarkEvaluator:
 
         # 5. Preflight Gate Check
         if self._preflight_only:
+            # Model-free constructor-contract smoke gate before preflight declares ready
+            raw_provider = self._init_v3_provider()
+            self._validate_runtime_provider_identity(raw_provider)
             _LOGGER.info("Holdout preflight validation requested. Skipping model execution.")
             total_duration = perf_counter() - start_time
             preflight_report = self._build_preflight_report(
@@ -1014,30 +1018,57 @@ class V2D3HoldoutBenchmarkEvaluator:
                 )
 
     def _init_v3_provider(self) -> ChatModelProvider:
-        """Instantiate canonical or custom ChatModelProvider."""
+        """Construct real TransformersChatProvider with canonical parameters."""
         if self._custom_provider is not None:
             return self._custom_provider
 
-        _LOGGER.info(
-            "Initializing canonical Transformers provider (%s, %s, %s, %s)...",
-            CANONICAL_V3_MODEL_NAME,
-            CANONICAL_V3_MODEL_REVISION,
-            self._device,
-            self._torch_dtype,
-        )
-        return TransformersChatProvider(
+        cfg = SemanticVerificationConfig(
+            backend=CANONICAL_V3_BACKEND,
             model_name=CANONICAL_V3_MODEL_NAME,
-            revision=CANONICAL_V3_MODEL_REVISION,
+            model_revision=CANONICAL_V3_MODEL_REVISION,
             device=self._device,
             torch_dtype=self._torch_dtype,
-            temperature=self._temperature,
+            local_files_only=False,
+            timeout_seconds=self._timeout_seconds,
             max_input_tokens=self._max_input_tokens,
             max_output_tokens=self._max_output_tokens,
-            timeout_seconds=self._timeout_seconds,
+            max_structured_output_retries=self._max_structured_output_retries,
         )
+        generation_cfg = cfg.as_generation_config()
+
+        if (
+            generation_cfg.backend != CANONICAL_V3_BACKEND
+            or generation_cfg.model_name != CANONICAL_V3_MODEL_NAME
+            or generation_cfg.model_revision != CANONICAL_V3_MODEL_REVISION
+            or generation_cfg.device != CANONICAL_V3_DEVICE
+            or generation_cfg.torch_dtype != CANONICAL_V3_TORCH_DTYPE
+            or generation_cfg.local_files_only is not False
+            or generation_cfg.timeout_seconds != CANONICAL_V3_TIMEOUT_SECONDS
+            or generation_cfg.max_input_tokens != CANONICAL_V3_MAX_INPUT_TOKENS
+            or generation_cfg.max_output_tokens != CANONICAL_V3_MAX_OUTPUT_TOKENS
+            or generation_cfg.max_structured_output_retries != CANONICAL_V3_MAX_STRUCTURED_RETRIES
+            or generation_cfg.temperature != 0.0
+        ):
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: GenerationConfig invariants failed: {generation_cfg}"
+            )
+
+        return TransformersChatProvider(generation_cfg)
 
     def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
-        """Assert runtime provider model matches frozen candidate configuration."""
+        """Validate that provider runtime identity strictly matches canonical constants."""
+        if self._custom_provider is not None:
+            return
+        p_name = getattr(provider, "provider_name", "unknown")
+        if p_name != CANONICAL_V3_BACKEND:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Provider name mismatch: expected '{CANONICAL_V3_BACKEND}', got '{p_name}'"
+            )
+        p_ver = getattr(provider, "provider_version", "unknown")
+        if not self._bypass_source_checksums and p_ver != CANONICAL_V3_PROVIDER_VERSION:
+            raise DataValidationError(
+                f"INVALID_VERIFIER_BENCHMARK_PROVENANCE: Provider version mismatch: expected '{CANONICAL_V3_PROVIDER_VERSION}', got '{p_ver}'"
+            )
         if not self._bypass_source_checksums:
             if provider.model_name != CANONICAL_V3_MODEL_NAME:
                 raise DataValidationError(
@@ -1707,6 +1738,7 @@ class V2D3HoldoutBenchmarkEvaluator:
                 "sources_verified": True,
                 "schema_validated": True,
                 "v0_verifier_replayed": True,
+                "provider_constructor_contract_verified": True,
                 "model_execution_skipped": True,
                 "ready_for_execution": coverage_sufficient,
             },
