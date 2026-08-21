@@ -2542,3 +2542,20 @@ reports are reviewed.
 - no model inference (no Qwen, no D3, no Kaggle) executed;
 - authorized exactly ONE recovery run as **H-EXEC Recovery Attempt 1** on a fresh Kaggle GPU session following external review of this corrected commit;
 - next action: external review of corrected execution-authority commit, then canonical one-shot Kaggle H-EXEC Recovery Attempt 1.
+
+## 78. Milestone 51.13 — Priority B: V2-D3 Fresh-Holdout Evaluation Closure, Promotion Rejection, Holdout Burning, and Forensic Failure Analysis
+
+**Status:** Completed (Evidence Archive: `verification-v2-d3-holdout-evidence.zip` SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`, Size `10,463 bytes`, Commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8`, Postmortem: `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`, Decision: `D127`)
+
+- formally verified canonical fresh-holdout evidence archive `verification-v2-d3-holdout-evidence.zip` (SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`, 10,463 bytes, 9 members) executed on Kaggle GPU on reviewed authority commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8`;
+- recorded final holdout evaluation verdict: `V2_D3_HOLDOUT_EXECUTION_FAILURE`, decision: `REJECT_V2_D3_PROMOTION`, `promotion_recommended: false`, `promotion_authorized: false`;
+- recorded exact Pass 1 scientific metrics: Supported Retention Rate = 22/23 = 95.65% (PASS), Negative Catch Rate = 2/7 = 28.57% (FAILED vs 50.0% minimum gate), Valid Answer Retention = 8/10 = 80.0% (PASS), Full Answer Accuracy = 10/16 = 62.50% (PASS), Claim Binary Accuracy = 24/30 = 80.00% (PASS);
+- recorded operational telemetry: 61/62 provider calls succeeded, 0 retries, 1 call failure (`103383:PRIMARY:C1`) due to transient cold-start runtime loading on Call 1 (duration 54.55s), 30/30 stable claims;
+- isolated operational failure from semantic quality: confirmed that eliminating runtime errors does not repair the failed negative catch rate;
+- permanently closed V2-D3 development track, burned the 31 holdout claims for use as diagnostic development data only, and kept production semantic verifier disabled;
+- conducted forensic failure analysis across all 9 non-trivial cases: classified 5 False Accepts (3x `ACTOR_ROLE_MISMATCH`, 1x `CONDITION_EXCEPTION_OMITTED`, 1x `ACTION_OBJECT_MISMATCH`/`QUANTITY_TEMPORAL_MISMATCH`), 1 False Reject (`SYNTAX_FRAGMENT_STRICTNESS`), and 2 True Negatives;
+- ranked root causes: #1 Lack of explicit legal dimension decomposition, #2 Lexical entailment bias, #3 Context-blind fragment evaluation;
+- proposed and recommended V3 architecture: Option C (Structured Dimension Decomposition with 3 boolean predicates and deterministic aggregation);
+- assessed system-level engineering ROI: recommended shifting primary focus to Generation Grounding / Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth tuning;
+- no production code or V3 implementation added in this diagnostic task;
+- next action: shift engineering focus to Generation Grounding & Prompt Optimization, with V3 verifier design planned modularly.

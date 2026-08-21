@@ -3044,3 +3044,45 @@ The initial canonical H-EXEC execution attempt on Kaggle GPU (`21b7ffcf10d4621b0
    - Frozen human gold labels (`85d348db...`, 9,383 bytes), label commitment (`5cc7f58ed5...`), and promotion thresholds remain 100% immutable.
 6. **Recovery Governance**:
    - Exactly ONE recovery execution is authorized on a fresh Kaggle session as **H-EXEC Recovery Attempt 1** following external review of the corrected execution-authority commit.
+
+---
+
+## D127 — V2-D3 Fresh-Holdout Evaluation Closure, Promotion Rejection, Holdout Burning, and Forensic Failure Analysis
+
+**Status:** Accepted (Evidence: `verification-v2-d3-holdout-evidence.zip` SHA-256 `9e2b38d4189f9c68901051a07b999845c660ec6ab4b4fa1e6ec69d3088fe6a5d`, Size `10,463` bytes, Commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8`, Postmortem: `docs/32-V2-D3-HOLDOUT-CLOSURE-AND-POSTMORTEM.md`)
+
+**Context:**
+The canonical one-shot Phase H-EXEC evaluation of candidate V2-D3 (`StructuredSemanticCitationVerifierD3`) was executed on Kaggle GPU on commit `77561aa7c4b242e12d011a84a21f3a262a17a0f8`. The evaluation completed 62 provider calls across 31 claims with authoritative Pass 1 metrics and stability Pass 2 validation.
+
+**Decisions & Invariants:**
+1. **Formal Evaluation Verdict & Decision**:
+   - Verdict: `V2_D3_HOLDOUT_EXECUTION_FAILURE`
+   - Evaluation Decision: `REJECT_V2_D3_PROMOTION`
+   - `promotion_recommended = False`
+   - `promotion_authorized = False` (Strict Invariant)
+   - Production semantic verifier remains **DISABLED** in production pipelines.
+2. **Scientific Metric Evaluation**:
+   - Pass 1 Supported Retention Rate: $22 / 23 = 95.65\%$ (Passed $\ge 0.88$ gate).
+   - Pass 1 Negative Catch Rate: $2 / 7 = 28.57\%$ (**FAILED** $\ge 0.50$ gate).
+   - Pass 1 Valid Answer Retention Rate: $8 / 10 = 80.00\%$ (Passed $\ge 0.80$ gate).
+   - Pass 1 Full Answer Accuracy: $10 / 16 = 62.50\%$ (Passed $\ge 0.60$ gate).
+   - Pass 1 Claim Binary Accuracy: $24 / 30 = 80.00\%$ (Passed $\ge 0.70$ gate).
+   - Negative catch failed significantly ($28.57\%$ vs $50.0\%$ threshold); 5 out of 7 negative claims escaped as False Accepts.
+3. **Operational Telemetry & Error Isolation**:
+   - 61/62 provider calls succeeded. 1 call (`103383:PRIMARY:C1`) failed with `BackendInitializationError` on Call 1 due to transient cold-start runtime loading. In Pass 2, Call 32 for `103383:PRIMARY:C1` executed cleanly and predicted `SUPPORTED`.
+   - Stability: 30/30 successfully executed claims were 100% deterministic between Pass 1 and Pass 2.
+   - Operational error remediation is separated from semantic verifier quality: fixing cold-start initialization would not repair the failed negative catch rate.
+4. **Permanent Closure & Holdout Burning Invariants**:
+   - Candidate V2-D3 development track is **PERMANENTLY CLOSED**.
+   - **NO D3.3** will be created.
+   - The 31 holdout claims are **BURNED / CONSUMED** and are converted to diagnostic development data only.
+   - **NO holdout reruns** or post-hoc threshold changes permitted.
+   - Any future candidate promotion requires a brand-new, untouched holdout.
+5. **Post-Holdout Forensic Analysis Findings**:
+   - 5 False Accepts classified: 3 $\times$ `ACTOR_ROLE_MISMATCH` (`125893:C1`, `125893:C3`, `90897:C1`), 1 $\times$ `CONDITION_EXCEPTION_OMITTED` (`45427:C1`), 1 $\times$ `ACTION_OBJECT_MISMATCH` / `QUANTITY_TEMPORAL_MISMATCH` (`95695:C1`).
+   - 1 False Reject classified: `SYNTAX_FRAGMENT_STRICTNESS` (`61523:C1`).
+   - Comparison with True Negatives (`162759:C1`, `3339:C1`) proves D3 only catches negatives with overt lexical antonyms or total keyword absence, failing on subtle legal subject substitutions and condition omissions.
+6. **Future Architecture Direction (V3 Candidate)**:
+   - Root cause: Single-call holistic entailment is dominated by lexical similarity, masking legal actor and scope boundaries.
+   - Recommended next architecture: Option C (Structured Dimension Decomposition with 3 focused boolean checks: `legal_actor_aligned`, `activity_and_scope_aligned`, `conditions_and_numbers_accurate` with deterministic aggregation).
+   - Strategic Priority: Shift primary engineering focus to Generation Grounding / Prompt Optimization (Task 2 metric leverage) and Retrieval / Reranking depth.
