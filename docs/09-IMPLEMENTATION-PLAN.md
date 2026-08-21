@@ -2475,3 +2475,32 @@ reports are reviewed.
 - emitted external selection report, content-free public commitment, and sealed review ZIP;
 - strictly preserved holdout blindness: zero question IDs or prompts exposed in tracked documentation or console summary;
 - next active action: develop V2 verifier using ONLY the 38-claim development benchmark while the fresh holdout remains sealed.
+
+## 73. Milestone 51.8 — Priority B: Candidate V2-D3.1 Benchmark Execution and Closure
+
+**Status:** Completed & Closed (Authoritative run archive: `verification-v2-d31-development-evidence.zip` SHA-256: `e14f9656a13a04b8e545d88a5dca13653fa317166ff530f45e4b13124f864041`, size `18,379 bytes`, 11 members, Verdict: `V2_D31_DEVELOPMENT_BENCHMARK_PASS`, Decision: `KEEP_D3`, Commit: `1383bf379a01c3f7456e3c41ba3be42846ceee2c`)
+
+- evaluated monolithic two-gate verifier candidate V2-D3.1 on the 38-claim development benchmark;
+- confirmed mechanical execution pass with 0 model errors, 0 retries, and 38/38 stable claims across 2 passes (76 calls);
+- characterized behavioral trade-off: high contradiction sensitivity (6/7 recall) came with severe overcalling (14 false contradiction positives, 30% precision), dropping supported retention to 12/18 (66.67% vs D3's 94.44%) and regressing 6/7 D3 fixes;
+- formally closed V2-D3.1 with decision `KEEP_D3` (`d31_supersedes_d3 = false`, `promotion_authorized = false`).
+
+## 74. Milestone 51.9 — Priority B: Candidate V2-D3.2 Benchmark Execution and Closure
+
+**Status:** Completed & Closed (Authoritative run archive: `verification-v2-d32-development-evidence.zip` SHA-256: `bf44b9d77172d4f1823b62c02abae9e462bfbb9fdc5c650ba87e192e4928878f`, size `28,738 bytes`, 13 members, Verdict: `V2_D32_DEVELOPMENT_BENCHMARK_PASS`, Decision: `KEEP_D3`, Commit: `e5db78f0796c53e973fc63f9dd98df6c95f43f6e`)
+
+- evaluated asymmetric two-stage verifier candidate V2-D3.2 (Frozen D3 Base + Strict Contradiction Confirmation Overlay) on the 38-claim development benchmark;
+- verified mechanical execution pass with 0 model errors, 0 retries, 38/38 stable claims, and 0 base D3 drift across 152 reconciled provider calls;
+- confirmed overlay behavior: 0 false overrides produced, preserving 100% of D3 gains (7/7) and 17/18 supported retention, but caught 0 contradictions (net delta = 0 vs D3);
+- formally closed V2-D3.2 with decision `KEEP_D3` (`d32_supersedes_d3 = false`, `promotion_authorized = false`).
+
+## 75. Milestone 51.10 — Priority B: Candidate V2-D3 Freezing and Fresh Holdout Protocol Pre-Registration
+
+**Status:** Completed & Ready for Review (Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`, Evaluation Harness: `scripts/evaluate_verification_v2_d3_holdout.py`, Unit Tests: `tests/unit/evaluation/test_verification_v2_d3_holdout.py`)
+
+- officially selected and frozen Candidate **V2-D3** (`Qwen/Qwen2.5-3B-Instruct` revision `a1d308dfcc03e09da285d49d912439a655a571e8`, System Prompt SHA `546cd8bd...`, Implementation SHA `a6e8bca1...`);
+- permanently closed the 38-claim development benchmark for candidate tuning, prompt engineering, threshold tuning, and overlay creation (no D3.3);
+- pre-registered immutable rate gates for holdout evaluation (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`) and mechanical gates (0 model errors, 0 execution errors, 0 unstable claims);
+- implemented and validated holdout evaluation harness with content-safe telemetry and two-pass stability verification;
+- strictly preserved holdout blindness (zero inspection of holdout questions, claims, evidence, or labels);
+- next action: external review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before one-shot Kaggle holdout execution.

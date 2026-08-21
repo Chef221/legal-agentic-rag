@@ -495,15 +495,66 @@ print("\n*** DOWNLOAD BEFORE ENDING SESSION ***\n" + "="*75)
 
 ---
 
-## 8. Explicit Governance Invariants
+## 8. Canonical Benchmark Execution & Formal Closure: `KEEP_D3`
 
-- **V2-D3.1 CLOSED AS `KEEP_D3`**
-- **V2-D3 REMAINS CURRENT BEST EXECUTED CANDIDATE**
-- **V2-D3.2 IMPLEMENTED — NOT YET EXECUTED**
-- **V2-D3.2 IS THE FINAL PLANNED DEVELOPMENT ITERATION**
-- **NO D3.3 PLANNED**
-- **D3.2 NOT YET SELECTED OVER D3**
-- **FRESH HOLDOUT REMAINS STRICTLY SEALED & UNREVIEWED**
-- **NO HOLDOUT QIDS COMPUTED OR INSPECTED**
+### 8.1 Canonical Evidence Archive Identity
+On August 21, 2026, Candidate **V2-D3.2** completed its canonical development benchmark execution on Kaggle in accordance with this pre-registered protocol.
+
+```
+══════════════════════════════════════════════════════════════════════════
+Candidate:                  V2-D3.2
+Execution Git Commit:       e5db78f0796c53e973fc63f9dd98df6c95f43f6e
+Canonical Evidence Archive: verification-v2-d32-development-evidence.zip
+SHA-256:                    bf44b9d77172d4f1823b62c02abae9e462bfbb9fdc5c650ba87e192e4928878f
+Archive Size:               28,738 bytes
+Archive Member Count:       13
+Verdict:                    V2_D32_DEVELOPMENT_BENCHMARK_PASS
+Development Decision:       KEEP_D3
+d32_supersedes_d3:          false
+promotion_authorized:       false (Fail-Closed)
+══════════════════════════════════════════════════════════════════════════
+```
+
+### 8.2 Three-Candidate Comparison: D3 vs D3.1 vs D3.2
+| Metric Category | Canonical D3 (Baseline) | Diagnostic D3.1 | Overlay D3.2 | Delta (D3.2 vs D3) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Binary Claim Accuracy** | **28 / 38 (73.68%)** | 30 / 38 (78.95%) | **28 / 38 (73.68%)** | 0 |
+| **Supported Retained (Gold=18)** | **17 / 18 (94.44%)** | 12 / 18 (66.67%) | **17 / 18 (94.44%)** | 0 |
+| **Negative Caught (Gold=20)** | 11 / 20 (55.00%) | 18 / 20 (90.00%) | 11 / 20 (55.00%) | 0 |
+| **Three-Way Claim Accuracy** | **24 / 38 (63.16%)** | 20 / 38 (52.63%) | **24 / 38 (63.16%)** | 0 |
+| **Contradictions Caught (Gold=7)** | 0 / 7 (0.00%) | 6 / 7 (85.71%) | 0 / 7 (0.00%) | 0 |
+| **Answer-Level Accuracy** | 14 / 22 (63.64%) | 17 / 22 (77.27%) | 14 / 22 (63.64%) | 0 |
+| **D3 Gains Preserved (Out of 7)** | 7 / 7 (100.0%) | 1 / 7 (14.29%) | **7 / 7 (100.0%)** | 0 |
+| **Base D3 Pass 1 Fidelity** | 38 / 38 (100%) | N/A | **38 / 38 (100%)** | Exact match |
+| **Base D3 Pass 2 Fidelity** | 38 / 38 (100%) | N/A | **38 / 38 (100%)** | Exact match |
+| **Strict Conflict Positives** | N/A | 20 | **0 / 38 (0.0%)** | 0 overrides |
+| **False Overrides Applied** | N/A | 14 | **0** | Zero false overrides |
+| **Mechanical Stability** | 38 / 38 (100%) | 38 / 38 (100%) | **38 / 38 (100%)** | 0 errors, 152 calls |
+
+### 8.3 Mechanical & Operational Reconciliations
+- **Total Provider Calls:** Exactly 152 calls across 2 passes (76 frozen D3 base calls + 76 strict contradiction calls).
+- **Model Errors & Retries:** Exactly 0 errors, 0 retries.
+- **Stability:** 38/38 stable claims across both passes.
+- **Base D3 Drift:** Exactly 0 drift across Pass 1 (38/38) and Pass 2 (38/38).
+
+### 8.4 Scientific Findings & Decision
+1. **Flawless Calibration Preservation:** D3.2 completely avoided the destructive over-calling behavior of D3.1 (which had 14 false overrides and degraded supported retention from 17/18 down to 12/18). D3.2 produced **0 false overrides**, preserving 100% of D3's high supported retention (17/18) and all 7/7 historical D3 fixes.
+2. **Strict Conflict Under-Sensitivity:** Under the strict two-gate formulation (`same_material_proposition = true` AND `cannot_both_be_true = true`), the overlay emitted 0 conflict positives on the 38 development claims. Consequently, D3.2 did not catch any of the 7 human contradiction cases.
+3. **No Empirical Superiority over D3:** Because D3.2 produced 0 overrides, its behavior and accuracy on the 38 development claims are identical to frozen D3, while requiring double the provider calls (152 calls vs 76 calls).
+4. **Pre-Registered Decision:** As pre-registered in Section 7.2, because D3.2 achieved Net Delta = 0 vs D3, it does not supersede D3 (`d32_supersedes_d3: false`).
+5. **Formal Candidate Selection:** **V2-D3** is officially selected and frozen as the champion development candidate to proceed to the Fresh Holdout evaluation.
+
+---
+
+## 9. Final Development Closure Invariants
+
+- **V2-D3.1 FORMALLY CLOSED AS `KEEP_D3`**
+- **V2-D3.2 FORMALLY CLOSED AS `KEEP_D3`**
+- **V2-D3 FORMALLY FROZEN AS THE SELECTED V2 CANDIDATE**
+- **DEVELOPMENT BENCHMARK (38 CLAIMS) IS PERMANENTLY CLOSED FOR CANDIDATE TUNING**
+- **THERE IS NO D3.3**
+- **NO PROMPT TUNING, NO THRESHOLD TUNING, NO NEW OVERLAYS**
+- **NEXT PHASE: PRE-REGISTER AND EXECUTE FRESH HOLDOUT PROTOCOL FOR FROZEN V2-D3**
+- **FRESH HOLDOUT DATA REMAINS STRICTLY SEALED & UNREVIEWED**
 - **NO PRODUCTION WIRING MODIFIED (SEMANTIC VERIFIER DISABLED IN PROD)**
 - **ZERO CHANGES TO RETRIEVAL / RERANKING / GENERATION CORE**

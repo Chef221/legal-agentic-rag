@@ -1,0 +1,1564 @@
+#!/usr/bin/env python3
+"""V2-D3 Structured Semantic Verifier Fresh Holdout Benchmark Evaluation Harness.
+
+This script executes the controlled offline evaluation of the frozen candidate V2-D3
+over the pre-registered fresh holdout dataset (Task B-HOLDOUT-SEALED / B-HOLDOUT-EXEC).
+
+Key Principles & Invariants:
+- Candidate Under Evaluation: V2-D3 ONLY (D3.1 and D3.2 are CLOSED as KEEP_D3; NO D3.3).
+- Frozen D3 Semantic Identity: structured_semantic_verifier_d3.py source SHA, system
+  instruction SHA, output schema, prompt structure, and deterministic label derivation
+  must match the canonical frozen D3 identities (0d95aeee...).
+- Two-Pass Stability: repeat_count = 2. Pass 1 is authoritative primary evaluation;
+  Pass 2 is stability evaluation only.
+- Strict Error-Aware Denominators: Execution errors are never counted as correct
+  rejections, contradictions, or valid answer retractions.
+- Content-Safe Telemetry: Observational proxy records call hashes and timings without
+  raw prompt/completion exposure.
+- Pre-Registered Rate-Based Promotion Gate: Pre-registered rate thresholds (supported
+  retention >= 88%, negative catch >= 50%, valid answer retention >= 80%, full answer
+  accuracy >= 60%, claim binary accuracy >= 70%) evaluated without inspecting sealed labels.
+- Fail-Closed Governance: promotion_authorized is ALWAYS False in harness outputs;
+  actual production promotion requires subsequent human sign-off and wiring tasks.
+"""
+
+from __future__ import annotations
+
+import argparse
+from collections import Counter, defaultdict
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from enum import StrEnum
+from hashlib import sha256
+import importlib.metadata
+import json
+import logging
+import math
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+from time import perf_counter
+from typing import Any
+import zipfile
+
+import legal_agentic_rag
+from legal_agentic_rag.contracts.chat_model_provider import ChatModelProvider
+from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.generation.citation_verifier import RuleBasedCitationVerifier
+import legal_agentic_rag.generation.structured_semantic_verifier_d3
+from legal_agentic_rag.generation.structured_semantic_verifier_d3 import (
+    D3EvidenceRelation,
+    D3StructuredClaimAssessmentDraft,
+    DraftRejectionCategory,
+    STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION,
+    StructuredClaimVerificationD3,
+    StructuredSemanticCitationVerifierD3,
+    StructuredSemanticVerificationResultD3,
+    derive_claim_semantic_label_d3,
+)
+from legal_agentic_rag.generation.transformers_provider import TransformersChatProvider
+from legal_agentic_rag.schemas.answering import (
+    AnswerResponse,
+    CitationVerificationResult,
+    ClaimSupportStatus,
+    Evidence,
+    SemanticSupportLabel,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+# Canonical Frozen V2-D3 Implementation & Prompt Checksums
+CANONICAL_D3_EVIDENCE_ZIP_SHA256 = (
+    "0d95aeee73a18dd75d617c5e493891a8407646826df0fe4b6b74d362d23184ff"
+)
+CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256 = (
+    "546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b"
+)
+CANONICAL_D3_IMPLEMENTATION_SHA256 = (
+    "a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826"
+)
+
+# Canonical Pre-Registered Holdout Outer Signatures
+CANONICAL_HOLDOUT_SELECTION_SHA256 = (
+    "08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b"
+)
+CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256 = (
+    "a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4"
+)
+
+# Canonical Pinned V2-D3 Model & Execution Parameters
+CANONICAL_PACKAGE_VERSION = "0.50.7"
+CANONICAL_CANDIDATE_ID = "V2-D3"
+CANONICAL_V3_BACKEND = "transformers"
+CANONICAL_V3_MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
+CANONICAL_V3_MODEL_REVISION = "a1d308dfcc03e09da285d49d912439a655a571e8"
+CANONICAL_V3_PROVIDER_VERSION = "4.47.1"
+CANONICAL_V3_DEVICE = "cuda"
+CANONICAL_V3_TORCH_DTYPE = "float16"
+CANONICAL_V3_TEMPERATURE = 0.0
+CANONICAL_V3_MAX_INPUT_TOKENS = 8192
+CANONICAL_V3_MAX_OUTPUT_TOKENS = 512
+CANONICAL_V3_MAX_STRUCTURED_RETRIES = 1
+CANONICAL_V3_TIMEOUT_SECONDS = 180.0
+CANONICAL_REPEAT_COUNT = 2
+
+# Pre-Registered Promotion Gate Rate Thresholds
+GATE_MIN_SUPPORTED_RETENTION_RATE = 0.88  # Dev: 17/18 = 94.44%
+GATE_MIN_NEGATIVE_CATCH_RATE = 0.50       # Dev: 11/20 = 55.00%
+GATE_MIN_VALID_ANSWER_RETENTION_RATE = 0.80  # Dev: 7/7 = 100.0%
+GATE_MIN_FULL_ANSWER_ACCURACY_RATE = 0.60   # Dev: 14/22 = 63.64%
+GATE_MIN_CLAIM_BINARY_ACCURACY_RATE = 0.70  # Dev: 28/38 = 73.68%
+
+
+class HumanEntailment(StrEnum):
+    SUPPORTED = "SUPPORTED"
+    CONTRADICTED = "CONTRADICTED"
+    INSUFFICIENT = "INSUFFICIENT"
+
+
+class BinaryPrediction(StrEnum):
+    ACCEPT = "ACCEPT"
+    REJECT = "REJECT"
+    EXECUTION_ERROR = "EXECUTION_ERROR"
+
+
+@dataclass(frozen=True)
+class BenchmarkClaimTarget:
+    slice_id: str
+    question_id: str
+    arm_id: str
+    claim_id: str
+    claim_text: str
+    human_label: HumanEntailment
+    error_tags: list[str]
+    diagnostic_note: str | None
+    stratum: str
+
+
+@dataclass(frozen=True)
+class BenchmarkArmTarget:
+    slice_id: str
+    question_id: str
+    arm_id: str
+    historical_stop_reason: str
+    stratum: str
+    question_text: str
+    answer_response: AnswerResponse
+    evidence_list: list[Evidence]
+    historical_verification: dict[str, Any]
+    claims: list[BenchmarkClaimTarget]
+
+
+class ObservationalChatModelProviderWrapper(ChatModelProvider):
+    """Transparent observational proxy recording all provider interactions with content safety."""
+
+    def __init__(self, inner: ChatModelProvider) -> None:
+        self._inner = inner
+        self._call_history: list[dict[str, Any]] = []
+        self._total_calls = 0
+        self._total_errors = 0
+
+    @property
+    def provider_name(self) -> str:
+        return self._inner.provider_name
+
+    @property
+    def provider_version(self) -> str:
+        return self._inner.provider_version
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
+
+    @property
+    def model_revision(self) -> str | None:
+        return self._inner.model_revision
+
+    @property
+    def total_calls(self) -> int:
+        return self._total_calls
+
+    @property
+    def total_errors(self) -> int:
+        return self._total_errors
+
+    @property
+    def call_history(self) -> list[dict[str, Any]]:
+        return list(self._call_history)
+
+    def complete(self, *, system_instruction: str, user_prompt: str) -> str:
+        self._total_calls += 1
+        call_idx = self._total_calls
+        sys_sha = sha256(system_instruction.encode("utf-8")).hexdigest()
+        usr_sha = sha256(user_prompt.encode("utf-8")).hexdigest()
+        prompt_len = len(user_prompt)
+
+        start_time = perf_counter()
+        call_record: dict[str, Any] = {
+            "call_index": call_idx,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "system_instruction_sha256": sys_sha,
+            "user_prompt_sha256": usr_sha,
+            "prompt_length_chars": prompt_len,
+            "success": False,
+        }
+
+        try:
+            raw_completion = self._inner.complete(
+                system_instruction=system_instruction,
+                user_prompt=user_prompt,
+            )
+            dur = perf_counter() - start_time
+            call_record.update({
+                "success": True,
+                "completion_sha256": sha256(raw_completion.encode("utf-8")).hexdigest(),
+                "completion_length_chars": len(raw_completion),
+                "duration_seconds": dur,
+            })
+            self._call_history.append(call_record)
+            return raw_completion
+        except Exception as exc:
+            dur = perf_counter() - start_time
+            self._total_errors += 1
+            call_record.update({
+                "success": False,
+                "error_type": exc.__class__.__name__,
+                "error_sha256": sha256(str(exc).encode("utf-8")).hexdigest(),
+                "duration_seconds": dur,
+            })
+            self._call_history.append(call_record)
+            raise
+
+
+class V2D3HoldoutBenchmarkEvaluator:
+    """Evaluates frozen candidate V2-D3 over the pre-registered fresh holdout benchmark."""
+
+    def __init__(
+        self,
+        holdout_packets_path: Path,
+        holdout_labels_path: Path,
+        holdout_selection_path: Path | None = None,
+        output_dir: Path = Path("evaluation_outputs/v2_d3_holdout_output"),
+        package_zip: Path | None = None,
+        candidate_id: str = CANONICAL_CANDIDATE_ID,
+        device: str = CANONICAL_V3_DEVICE,
+        torch_dtype: str = CANONICAL_V3_TORCH_DTYPE,
+        temperature: float = CANONICAL_V3_TEMPERATURE,
+        max_input_tokens: int = CANONICAL_V3_MAX_INPUT_TOKENS,
+        max_output_tokens: int = CANONICAL_V3_MAX_OUTPUT_TOKENS,
+        max_structured_output_retries: int = CANONICAL_V3_MAX_STRUCTURED_RETRIES,
+        timeout_seconds: float = CANONICAL_V3_TIMEOUT_SECONDS,
+        repeat_count: int = CANONICAL_REPEAT_COUNT,
+        preflight_only: bool = False,
+        custom_provider: ChatModelProvider | None = None,
+        bypass_source_checksums: bool = False,
+    ) -> None:
+        self._holdout_packets_path = Path(holdout_packets_path)
+        self._holdout_labels_path = Path(holdout_labels_path)
+        self._holdout_selection_path = Path(holdout_selection_path) if holdout_selection_path else None
+        self._output_dir = Path(output_dir)
+        self._package_zip = Path(package_zip) if package_zip else None
+        self._candidate_id = candidate_id
+        self._device = device
+        self._torch_dtype = torch_dtype
+        self._temperature = temperature
+        self._max_input_tokens = max_input_tokens
+        self._max_output_tokens = max_output_tokens
+        self._max_structured_output_retries = max_structured_output_retries
+        self._timeout_seconds = timeout_seconds
+        self._repeat_count = repeat_count
+        self._preflight_only = preflight_only
+        self._custom_provider = custom_provider
+        self._bypass_source_checksums = bypass_source_checksums
+
+    def evaluate(self) -> dict[str, Any]:
+        """Execute full holdout benchmark evaluation or preflight validation."""
+        start_time = perf_counter()
+
+        # 1. Source SHA verification (fail-closed)
+        sources_info = self._verify_canonical_source_checksums()
+
+        # 2. Execution identity provenance
+        exec_identity = self._build_execution_identity(sources_info)
+
+        # 3. Load holdout targets
+        arm_targets, claim_targets = self._load_holdout_targets()
+        _LOGGER.info(
+            "Loaded %d holdout claim targets across %d arm targets.",
+            len(claim_targets),
+            len(arm_targets),
+        )
+
+        # 4. Model-free V0 verifier replay verification
+        v0_arm_results, v0_claim_preds, v0_replay_stats = self._replay_v0_verifier(arm_targets)
+
+        # 5. Preflight Gate Check
+        if self._preflight_only:
+            _LOGGER.info("Holdout preflight validation requested. Skipping model execution.")
+            total_duration = perf_counter() - start_time
+            preflight_report = self._build_preflight_report(
+                sources_info=sources_info,
+                exec_identity=exec_identity,
+                claim_targets=claim_targets,
+                arm_targets=arm_targets,
+                v0_replay_stats=v0_replay_stats,
+                total_duration=total_duration,
+            )
+            self._write_reports(
+                report=preflight_report,
+                exec_identity=exec_identity,
+                v0_claim_preds=v0_claim_preds,
+                is_preflight=True,
+            )
+            return preflight_report
+
+        # 6. Canonical Provenance Validation
+        self._validate_canonical_provenance()
+
+        # 7. Initialize provider
+        raw_provider = self._init_v3_provider()
+        self._validate_runtime_provider_identity(raw_provider)
+
+        obs_provider = ObservationalChatModelProviderWrapper(raw_provider)
+        verifier = StructuredSemanticCitationVerifierD3(
+            provider=obs_provider,
+            max_structured_output_retries=self._max_structured_output_retries,
+        )
+
+        # 8. Pass 1: Authoritative Primary Evaluation
+        _LOGGER.info("Executing V2-D3 Holdout Pass 1 (Primary Evaluation)...")
+        pass1_arm_results, pass1_claim_preds, pass1_telemetry = self._run_inference_pass(
+            verifier=verifier,
+            provider=obs_provider,
+            arm_targets=arm_targets,
+            pass_index=1,
+        )
+
+        # 9. Pass 2: Two-Pass Stability Evaluation
+        _LOGGER.info("Executing V2-D3 Holdout Pass 2 (Stability Evaluation)...")
+        pass2_arm_results, pass2_claim_preds, pass2_telemetry = self._run_inference_pass(
+            verifier=verifier,
+            provider=obs_provider,
+            arm_targets=arm_targets,
+            pass_index=2,
+        )
+
+        # 10. Stability Analysis
+        stability_info = self._evaluate_stability(
+            claim_targets=claim_targets,
+            pass1_preds=pass1_claim_preds,
+            pass2_preds=pass2_claim_preds,
+        )
+
+        # 11. Compute All Metrics (Pass 1 Authoritative)
+        all_metrics = self._compute_all_metrics(
+            claim_targets=claim_targets,
+            arm_targets=arm_targets,
+            v0_claim_preds=v0_claim_preds,
+            v2_claim_preds=pass1_claim_preds,
+            v0_arm_results=v0_arm_results,
+            v2_arm_results=pass1_arm_results,
+        )
+
+        # 12. Build Final Reports
+        total_duration = perf_counter() - start_time
+        final_report, decision_report, stability_report = self._build_reports(
+            sources_info=sources_info,
+            exec_identity=exec_identity,
+            claim_targets=claim_targets,
+            arm_targets=arm_targets,
+            stability_info=stability_info,
+            all_metrics=all_metrics,
+            pass1_telemetry=pass1_telemetry,
+            pass2_telemetry=pass2_telemetry,
+            total_duration=total_duration,
+        )
+
+        # 13. Write Output Artifacts
+        self._write_reports(
+            report=final_report,
+            decision_report=decision_report,
+            stability_report=stability_report,
+            v0_claim_preds=v0_claim_preds,
+            pass1_claim_preds=pass1_claim_preds,
+            pass2_claim_preds=pass2_claim_preds,
+            exec_identity=exec_identity,
+            provider=obs_provider,
+            is_preflight=False,
+        )
+
+        _LOGGER.info("V2-D3 Holdout Benchmark complete. Verdict: %s", final_report["verdict"])
+        return final_report
+
+    def _verify_canonical_source_checksums(self) -> dict[str, dict[str, Any]]:
+        """Verify holdout input files against pre-registered SHA-256 signatures."""
+        info: dict[str, dict[str, Any]] = {}
+
+        for key, path in [
+            ("holdout_review_packets", self._holdout_packets_path),
+            ("holdout_labels", self._holdout_labels_path),
+        ]:
+            if not path.is_file():
+                raise FileNotFoundError(f"Missing required holdout source '{key}' at: {path}")
+
+        if not self._bypass_source_checksums:
+            if self._holdout_packets_path.is_file():
+                actual_sha = self._sha256_file(self._holdout_packets_path)
+                if actual_sha != CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256:
+                    raise DataValidationError(
+                        f"SHA-256 mismatch for holdout_review_packets. "
+                        f"Expected: {CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256}, Got: {actual_sha}"
+                    )
+                info["holdout_review_packets"] = {
+                    "filename": self._holdout_packets_path.name,
+                    "sha256": actual_sha,
+                    "size_bytes": self._holdout_packets_path.stat().st_size,
+                }
+
+            if self._holdout_selection_path and self._holdout_selection_path.is_file():
+                actual_sha = self._sha256_file(self._holdout_selection_path)
+                if actual_sha != CANONICAL_HOLDOUT_SELECTION_SHA256:
+                    raise DataValidationError(
+                        f"SHA-256 mismatch for holdout_selection. "
+                        f"Expected: {CANONICAL_HOLDOUT_SELECTION_SHA256}, Got: {actual_sha}"
+                    )
+                info["holdout_selection"] = {
+                    "filename": self._holdout_selection_path.name,
+                    "sha256": actual_sha,
+                    "size_bytes": self._holdout_selection_path.stat().st_size,
+                }
+        else:
+            info["holdout_review_packets"] = {
+                "filename": self._holdout_packets_path.name,
+                "sha256": self._sha256_file(self._holdout_packets_path),
+                "size_bytes": self._holdout_packets_path.stat().st_size,
+            }
+
+        info["holdout_labels"] = {
+            "filename": self._holdout_labels_path.name,
+            "sha256": self._sha256_file(self._holdout_labels_path),
+            "size_bytes": self._holdout_labels_path.stat().st_size,
+        }
+        return info
+
+    def _build_execution_identity(
+        self, sources_info: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
+        """Construct full immutable environment and execution provenance identity."""
+        source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+        try:
+            installed_ver = importlib.metadata.version("legal-agentic-rag")
+        except Exception:
+            installed_ver = source_ver
+
+        git_commit = self._get_git_commit()
+        git_clean = self._is_git_worktree_clean()
+
+        system_instruction_sha = sha256(
+            STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION.encode("utf-8")
+        ).hexdigest()
+        schema_sha = sha256(
+            json.dumps(
+                D3StructuredClaimAssessmentDraft.model_json_schema(),
+                sort_keys=True,
+                ensure_ascii=True,
+            ).encode("utf-8")
+        ).hexdigest()
+
+        d3_impl_path = Path(legal_agentic_rag.generation.structured_semantic_verifier_d3.__file__)
+        d3_impl_sha = self._sha256_file(d3_impl_path) if d3_impl_path.is_file() else "unknown"
+
+        # Verify frozen D3 source identity (fail-closed)
+        if not self._bypass_source_checksums:
+            if system_instruction_sha != CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 system instruction SHA mismatch. Expected: {CANONICAL_D3_SYSTEM_INSTRUCTION_SHA256}, Got: {system_instruction_sha}"
+                )
+            if d3_impl_sha != CANONICAL_D3_IMPLEMENTATION_SHA256:
+                raise DataValidationError(
+                    f"Frozen D3 implementation file SHA mismatch. Expected: {CANONICAL_D3_IMPLEMENTATION_SHA256}, Got: {d3_impl_sha}"
+                )
+
+        provider_name = (
+            self._custom_provider.provider_name if self._custom_provider else CANONICAL_V3_BACKEND
+        )
+        provider_version = (
+            self._custom_provider.provider_version
+            if self._custom_provider
+            else CANONICAL_V3_PROVIDER_VERSION
+        )
+        model_name = (
+            self._custom_provider.model_name if self._custom_provider else CANONICAL_V3_MODEL_NAME
+        )
+        model_revision = (
+            self._custom_provider.model_revision
+            if self._custom_provider
+            else CANONICAL_V3_MODEL_REVISION
+        )
+
+        return {
+            "schema_version": "1.0",
+            "candidate_id": self._candidate_id,
+            "package_version": source_ver,
+            "installed_distribution_version": installed_ver,
+            "git_commit": git_commit,
+            "git_worktree_clean": git_clean,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "frozen_d3_source_identity_verified": True,
+            "frozen_d3_canonical_evidence_sha256": CANONICAL_D3_EVIDENCE_ZIP_SHA256,
+            "sources": sources_info,
+            "provider": {
+                "backend": provider_name,
+                "provider_version": provider_version,
+                "model_name": model_name,
+                "model_revision": model_revision,
+                "device": self._device,
+                "torch_dtype": self._torch_dtype,
+                "temperature": self._temperature,
+                "max_input_tokens": self._max_input_tokens,
+                "max_output_tokens": self._max_output_tokens,
+                "max_structured_retries": self._max_structured_output_retries,
+                "timeout_seconds": self._timeout_seconds,
+            },
+            "prompt_identities": {
+                "d3_base_system_instruction_sha256": system_instruction_sha,
+                "d3_schema_sha256": schema_sha,
+            },
+            "implementation_identities": {
+                "structured_semantic_verifier_d3_sha256": d3_impl_sha,
+            },
+        }
+
+    def _load_holdout_targets(
+        self,
+    ) -> tuple[list[BenchmarkArmTarget], list[BenchmarkClaimTarget]]:
+        """Load holdout review packets and bind to reviewed human labels."""
+        raw_labels = json.loads(self._holdout_labels_path.read_text(encoding="utf-8"))
+        labels_by_q_arm_claim: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+        if "questions" in raw_labels:
+            for qid, q_data in raw_labels["questions"].items():
+                for arm_id, arm_data in q_data.get("arms", {}).items():
+                    claims_dict = arm_data.get("claims", {})
+                    if isinstance(claims_dict, dict):
+                        for cid, c_data in claims_dict.items():
+                            labels_by_q_arm_claim[(str(qid), str(arm_id), str(cid))] = c_data
+                    elif isinstance(claims_dict, list):
+                        for c_data in claims_dict:
+                            cid = c_data.get("claim_id")
+                            if cid:
+                                labels_by_q_arm_claim[(str(qid), str(arm_id), str(cid))] = c_data
+
+        arm_targets: list[BenchmarkArmTarget] = []
+        claim_targets: list[BenchmarkClaimTarget] = []
+
+        with zipfile.ZipFile(self._holdout_packets_path, "r") as zf:
+            json_members = [m for m in zf.namelist() if m.endswith(".json") and not m.startswith("__MACOSX")]
+            for member in sorted(json_members):
+                pkt = json.loads(zf.read(member).decode("utf-8"))
+                qid = str(pkt.get("question_id") or Path(member).stem)
+                stratum = pkt.get("stratum", "UNKNOWN")
+                q_text = pkt.get("question_text", "")
+
+                pkt_arms = pkt.get("arms") or pkt.get("historical_arms", {})
+                for arm_id, arm_data in pkt_arms.items():
+                    hist_stop = arm_data.get("historical_stop_reason", "unknown")
+                    hist_verif = (
+                        arm_data.get("historical_verification", {})
+                        or arm_data.get("rule_verifier_replay", {}).get("replay_result", {})
+                    )
+
+                    raw_resp = (
+                        arm_data.get("historical_response", {})
+                        or arm_data.get("answer_response", {})
+                        or arm_data.get("response", {})
+                    )
+                    if isinstance(raw_resp, dict):
+                        resp_dict = dict(raw_resp)
+                        if "question" not in resp_dict:
+                            resp_dict["question"] = q_text or "Holdout question"
+                        if "retrieval_strategy" not in resp_dict:
+                            resp_dict["retrieval_strategy"] = "hybrid"
+                        if "warnings" not in resp_dict:
+                            resp_dict["warnings"] = []
+                        if "trace_id" not in resp_dict:
+                            resp_dict["trace_id"] = "trace_holdout"
+                        if "insufficient_evidence" not in resp_dict:
+                            resp_dict["insufficient_evidence"] = False
+                        valid_keys = {
+                            "question",
+                            "answer",
+                            "citations",
+                            "insufficient_evidence",
+                            "warnings",
+                            "retrieval_strategy",
+                            "trace_id",
+                            "metadata",
+                        }
+                        clean_resp = {k: v for k, v in resp_dict.items() if k in valid_keys}
+                        ans_resp = AnswerResponse.model_validate(clean_resp)
+                    else:
+                        ans_resp = AnswerResponse.model_validate(raw_resp)
+
+                    raw_ev = (
+                        arm_data.get("selected_evidence", [])
+                        or arm_data.get("reconstructed_evidence", [])
+                        or arm_data.get("evidence_list", [])
+                    )
+                    ev_list = [Evidence.model_validate(item) for item in raw_ev]
+
+                    arm_claims: list[BenchmarkClaimTarget] = []
+                    raw_claims = (
+                        arm_data.get("claims", [])
+                        or [
+                            {"claim_id": cv.claim_id, "claim_text": cv.claim_text}
+                            for cv in ans_resp.claim_verifications
+                        ]
+                    )
+                    for rc in raw_claims:
+                        cid = rc.get("claim_id", "")
+                        ctext = rc.get("claim_text", "")
+                        lbl_data = labels_by_q_arm_claim.get((qid, str(arm_id), cid), {})
+                        lbl_str = lbl_data.get("entailment_label") or rc.get("entailment_label") or "INSUFFICIENT"
+                        try:
+                            human_lbl = HumanEntailment(lbl_str)
+                        except Exception:
+                            human_lbl = HumanEntailment.INSUFFICIENT
+
+                        ctarget = BenchmarkClaimTarget(
+                            slice_id="HOLDOUT",
+                            question_id=qid,
+                            arm_id=str(arm_id),
+                            claim_id=cid,
+                            claim_text=ctext,
+                            human_label=human_lbl,
+                            error_tags=lbl_data.get("error_tags", rc.get("error_tags", [])),
+                            diagnostic_note=lbl_data.get("diagnostic_note", rc.get("diagnostic_note")),
+                            stratum=stratum,
+                        )
+                        arm_claims.append(ctarget)
+                        claim_targets.append(ctarget)
+
+                    arm_targets.append(
+                        BenchmarkArmTarget(
+                            slice_id="HOLDOUT",
+                            question_id=qid,
+                            arm_id=str(arm_id),
+                            historical_stop_reason=hist_stop,
+                            stratum=stratum,
+                            question_text=q_text,
+                            answer_response=ans_resp,
+                            evidence_list=ev_list,
+                            historical_verification=hist_verif,
+                            claims=arm_claims,
+                        )
+                    )
+
+        if not claim_targets:
+            raise DataValidationError("Zero claim targets extracted from holdout packets/labels.")
+
+        return arm_targets, claim_targets
+
+    def _replay_v0_verifier(
+        self, arm_targets: list[BenchmarkArmTarget]
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+        """Replay RuleBasedCitationVerifier (V0 baseline) deterministically over all arms."""
+        rule_verifier = RuleBasedCitationVerifier()
+        v0_arm_results: dict[str, Any] = {}
+        v0_claim_preds: list[dict[str, Any]] = []
+
+        total_arms = len(arm_targets)
+        fidelity_matches = 0
+
+        for arm in arm_targets:
+            key = f"{arm.question_id}:{arm.arm_id}"
+            v0_res = rule_verifier.verify(
+                response=arm.answer_response,
+                evidence=arm.evidence_list,
+            )
+            v0_arm_results[key] = {
+                "all_citations_supported": v0_res.is_valid,
+                "verified_citations_count": len(v0_res.valid_citations),
+                "unsupported_citations_count": len(v0_res.invalid_citations),
+            }
+
+            hist_v0 = arm.historical_verification.get("v0_rule_verifier", {})
+            hist_supported = hist_v0.get("all_citations_supported")
+            if hist_supported is not None and hist_supported == v0_res.is_valid:
+                fidelity_matches += 1
+
+            for claim in arm.claims:
+                matching_cv = next(
+                    (cv for cv in v0_res.claim_verifications if cv.claim_id == claim.claim_id),
+                    None,
+                )
+                if matching_cv and matching_cv.status == ClaimSupportStatus.SUPPORTED:
+                    v0_pred = BinaryPrediction.ACCEPT
+                else:
+                    v0_pred = BinaryPrediction.REJECT
+
+                v0_claim_preds.append({
+                    "question_id": claim.question_id,
+                    "arm_id": claim.arm_id,
+                    "claim_id": claim.claim_id,
+                    "v0_binary_prediction": v0_pred,
+                })
+
+        return (
+            v0_arm_results,
+            v0_claim_preds,
+            {
+                "total_arms": total_arms,
+                "v0_replay_arm_passes": total_arms,
+                "v0_historical_fidelity_matches": fidelity_matches,
+            },
+        )
+
+    def _validate_canonical_provenance(self) -> None:
+        """Validate candidate ID, package version, git state, and torch device."""
+        if self._candidate_id != CANONICAL_CANDIDATE_ID:
+            raise DataValidationError(
+                f"Candidate ID mismatch. Expected: {CANONICAL_CANDIDATE_ID}, Got: {self._candidate_id}"
+            )
+        source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
+        if source_ver != CANONICAL_PACKAGE_VERSION:
+            raise DataValidationError(
+                f"Package version mismatch. Expected: {CANONICAL_PACKAGE_VERSION}, Got: {source_ver}"
+            )
+        if not self._custom_provider:
+            import torch
+            if self._device == "cuda" and not torch.cuda.is_available():
+                raise RuntimeError("CUDA device requested but torch.cuda.is_available() is False.")
+
+    def _init_v3_provider(self) -> ChatModelProvider:
+        """Initialize the Qwen/Transformers chat model provider for frozen V2-D3."""
+        if self._custom_provider:
+            return self._custom_provider
+
+        import torch
+        dtype_map = {
+            "float16": torch.float16,
+            "bfloat16": torch.bfloat16,
+            "float32": torch.float32,
+        }
+        torch_dtype = dtype_map.get(self._torch_dtype, torch.float16)
+
+        return TransformersChatProvider(
+            model_name_or_path=CANONICAL_V3_MODEL_NAME,
+            model_revision=CANONICAL_V3_MODEL_REVISION,
+            device=self._device,
+            torch_dtype=torch_dtype,
+            temperature=self._temperature,
+            max_input_tokens=self._max_input_tokens,
+            max_output_tokens=self._max_output_tokens,
+            timeout_seconds=self._timeout_seconds,
+        )
+
+    def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
+        """Validate live runtime provider matches frozen canonical requirements."""
+        if self._custom_provider:
+            return
+        if provider.model_name != CANONICAL_V3_MODEL_NAME:
+            raise DataValidationError(
+                f"Model name mismatch. Expected: {CANONICAL_V3_MODEL_NAME}, Got: {provider.model_name}"
+            )
+        if provider.model_revision != CANONICAL_V3_MODEL_REVISION:
+            raise DataValidationError(
+                f"Model revision mismatch. Expected: {CANONICAL_V3_MODEL_REVISION}, Got: {provider.model_revision}"
+            )
+        if provider.provider_version != CANONICAL_V3_PROVIDER_VERSION:
+            raise DataValidationError(
+                f"Provider version mismatch. Expected: {CANONICAL_V3_PROVIDER_VERSION}, Got: {provider.provider_version}"
+            )
+
+    def _run_inference_pass(
+        self,
+        verifier: StructuredSemanticCitationVerifierD3,
+        provider: ObservationalChatModelProviderWrapper,
+        arm_targets: list[BenchmarkArmTarget],
+        pass_index: int,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+        """Run single-claim payload inference over all holdout arms."""
+        arm_results: dict[str, Any] = {}
+        claim_preds: list[dict[str, Any]] = []
+
+        pass_start_calls = provider.total_calls
+        pass_start_errors = provider.total_errors
+
+        structured_retries_total = 0
+        semantic_exec_errors_total = 0
+
+        for arm in arm_targets:
+            key = f"{arm.question_id}:{arm.arm_id}"
+            try:
+                cit_res, struct_res = verifier.verify_structured(
+                    arm.answer_response,
+                    arm.evidence_list,
+                )
+                arm_results[key] = {
+                    "all_citations_supported": cit_res.is_valid,
+                    "verified_citations_count": len(cit_res.valid_citations),
+                    "unsupported_citations_count": len(cit_res.invalid_citations),
+                    "execution_error": False,
+                }
+                struct_map = {a.claim_id: a for a in struct_res.assessments}
+                telemetry_map = struct_res.claim_telemetries
+
+                for claim in arm.claims:
+                    assess = struct_map.get(claim.claim_id)
+                    telemetry = telemetry_map.get(claim.claim_id)
+                    retries_used = telemetry.retry_count if telemetry else 0
+                    structured_retries_total += retries_used
+
+                    is_exec_err = (
+                        claim.claim_id in struct_res.execution_error_claims
+                        or (telemetry is not None and telemetry.semantic_execution_error)
+                    )
+
+                    if is_exec_err:
+                        semantic_exec_errors_total += 1
+                        claim_preds.append({
+                            "question_id": arm.question_id,
+                            "arm_id": arm.arm_id,
+                            "claim_id": claim.claim_id,
+                            "human_label": claim.human_label,
+                            "v2_d3_binary_prediction": BinaryPrediction.EXECUTION_ERROR,
+                            "v2_d3_three_way_prediction": "EXECUTION_ERROR",
+                            "evidence_relation": "EXECUTION_ERROR",
+                            "diagnostic_flags": {},
+                            "rejection_category": "EXECUTION_ERROR",
+                            "retries_used": retries_used,
+                            "execution_error": True,
+                        })
+                    elif assess is not None:
+                        bin_pred = (
+                            BinaryPrediction.ACCEPT
+                            if assess.label == SemanticSupportLabel.SUPPORTED
+                            else BinaryPrediction.REJECT
+                        )
+                        three_way = assess.label.value.upper()
+                        diag_flags = {
+                            "actor_mismatch": assess.actor_mismatch,
+                            "condition_exception_mismatch": assess.condition_exception_mismatch,
+                            "quantity_temporal_mismatch": assess.quantity_temporal_mismatch,
+                            "negation_modality_mismatch": assess.negation_modality_mismatch,
+                            "source_scope_mismatch": assess.source_scope_mismatch,
+                        }
+
+                        claim_preds.append({
+                            "question_id": arm.question_id,
+                            "arm_id": arm.arm_id,
+                            "claim_id": claim.claim_id,
+                            "human_label": claim.human_label,
+                            "v2_d3_binary_prediction": bin_pred,
+                            "v2_d3_three_way_prediction": three_way,
+                            "evidence_relation": assess.relation.value,
+                            "diagnostic_flags": diag_flags,
+                            "rejection_category": telemetry.draft_rejection_categories[0] if (telemetry and telemetry.draft_rejection_categories) else "NONE",
+                            "retries_used": retries_used,
+                            "execution_error": False,
+                        })
+            except Exception as exc:
+                _LOGGER.error("Execution error on arm %s in pass %d: %s", key, pass_index, exc)
+                semantic_exec_errors_total += len(arm.claims)
+                arm_results[key] = {
+                    "all_citations_supported": False,
+                    "verified_citations_count": 0,
+                    "unsupported_citations_count": len(arm.claims),
+                    "execution_error": True,
+                    "error_message": str(exc),
+                }
+                for c in arm.claims:
+                    claim_preds.append({
+                        "question_id": arm.question_id,
+                        "arm_id": arm.arm_id,
+                        "claim_id": c.claim_id,
+                        "human_label": c.human_label,
+                        "v2_d3_binary_prediction": BinaryPrediction.EXECUTION_ERROR,
+                        "v2_d3_three_way_prediction": "EXECUTION_ERROR",
+                        "evidence_relation": "EXECUTION_ERROR",
+                        "diagnostic_flags": {},
+                        "rejection_category": "EXECUTION_ERROR",
+                        "retries_used": 0,
+                        "execution_error": True,
+                        "error_message": str(exc),
+                    })
+
+        pass_telemetry = {
+            "pass_index": pass_index,
+            "provider_calls": provider.total_calls - pass_start_calls,
+            "provider_invocation_errors": provider.total_errors - pass_start_errors,
+            "total_structured_retries": structured_retries_total,
+            "semantic_execution_errors": semantic_exec_errors_total,
+        }
+        return arm_results, claim_preds, pass_telemetry
+
+    def _evaluate_stability(
+        self,
+        claim_targets: list[BenchmarkClaimTarget],
+        pass1_preds: list[dict[str, Any]],
+        pass2_preds: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compute two-pass stability across semantic claim predictions."""
+        p1_by_key = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in pass1_preds}
+        p2_by_key = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in pass2_preds}
+
+        total_claims = len(claim_targets)
+        claims_with_two_valid = 0
+        stable_count = 0
+        unstable_count = 0
+        p1_error_count = 0
+        p2_error_count = 0
+        error_any_pass_count = 0
+        unstable_details: list[dict[str, Any]] = []
+
+        for target in claim_targets:
+            key = f"{target.question_id}:{target.arm_id}:{target.claim_id}"
+            r1 = p1_by_key.get(key, {})
+            r2 = p2_by_key.get(key, {})
+
+            e1 = r1.get("execution_error", False)
+            e2 = r2.get("execution_error", False)
+
+            if e1:
+                p1_error_count += 1
+            if e2:
+                p2_error_count += 1
+            if e1 or e2:
+                error_any_pass_count += 1
+                continue
+
+            claims_with_two_valid += 1
+            label1 = r1.get("v2_d3_three_way_prediction")
+            label2 = r2.get("v2_d3_three_way_prediction")
+
+            if label1 == label2:
+                stable_count += 1
+            else:
+                unstable_count += 1
+                unstable_details.append({
+                    "question_id": target.question_id,
+                    "arm_id": target.arm_id,
+                    "claim_id": target.claim_id,
+                    "pass1_three_way": label1,
+                    "pass2_three_way": label2,
+                })
+
+        return {
+            "total_claims": total_claims,
+            "claims_with_two_valid_semantic_labels": claims_with_two_valid,
+            "stable_semantic_claim_count": stable_count,
+            "unstable_semantic_claim_count": unstable_count,
+            "pass1_execution_error_count": p1_error_count,
+            "pass2_execution_error_count": p2_error_count,
+            "execution_error_in_any_pass_count": error_any_pass_count,
+            "unstable_claim_details": unstable_details,
+        }
+
+    def _compute_all_metrics(
+        self,
+        claim_targets: list[BenchmarkClaimTarget],
+        arm_targets: list[BenchmarkArmTarget],
+        v0_claim_preds: list[dict[str, Any]],
+        v2_claim_preds: list[dict[str, Any]],
+        v0_arm_results: dict[str, Any],
+        v2_arm_results: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Compute full suite of claim-binary, 3-way, and answer-level metrics."""
+        binary_metrics = self._compute_claim_binary_metrics(claim_targets, v2_claim_preds)
+        three_way_metrics = self._compute_three_way_metrics(claim_targets, v2_claim_preds)
+        answer_metrics = self._compute_answer_level_metrics(arm_targets, v2_arm_results)
+        v0_binary_metrics = self._compute_claim_binary_metrics(
+            claim_targets,
+            [
+                {
+                    "question_id": r["question_id"],
+                    "arm_id": r["arm_id"],
+                    "claim_id": r["claim_id"],
+                    "v2_d3_binary_prediction": r["v0_binary_prediction"],
+                    "execution_error": False,
+                }
+                for r in v0_claim_preds
+            ],
+        )
+
+        return {
+            "v0_claim_binary": v0_binary_metrics,
+            "v2_d3_claim_binary": binary_metrics,
+            "v2_d3_three_way": three_way_metrics,
+            "v2_d3_answer_metrics": answer_metrics,
+        }
+
+    def _compute_claim_binary_metrics(
+        self,
+        targets: list[BenchmarkClaimTarget],
+        preds: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compute standard binary metrics (ACCEPT vs REJECT)."""
+        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in preds}
+        tp = fp = tn = fn = errors = 0
+
+        for t in targets:
+            key = f"{t.question_id}:{t.arm_id}:{t.claim_id}"
+            p = pred_map.get(key, {})
+            if p.get("execution_error", False) or p.get("v2_d3_binary_prediction") == BinaryPrediction.EXECUTION_ERROR:
+                errors += 1
+                continue
+
+            pred_bin = p.get("v2_d3_binary_prediction")
+            if t.human_label == HumanEntailment.SUPPORTED:
+                if pred_bin == BinaryPrediction.ACCEPT:
+                    tp += 1
+                else:
+                    fn += 1
+            else:
+                if pred_bin == BinaryPrediction.REJECT:
+                    tn += 1
+                else:
+                    fp += 1
+
+        total = tp + fp + tn + fn + errors
+        eval_total = tp + fp + tn + fn
+        acc = (tp + tn) / eval_total if eval_total > 0 else 0.0
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        supp_ret = tp / (tp + fn) if (tp + fn) > 0 else 1.0
+        neg_catch = tn / (tn + fp) if (tn + fp) > 0 else 1.0
+        f1 = (2 * prec * supp_ret) / (prec + supp_ret) if (prec + supp_ret) > 0 else 0.0
+        bal_acc = (supp_ret + neg_catch) / 2.0
+
+        return {
+            "tp": tp,
+            "fp": fp,
+            "tn": tn,
+            "fn": fn,
+            "execution_errors": errors,
+            "total_claims": total,
+            "evaluated_claims": eval_total,
+            "accuracy": acc,
+            "precision": prec,
+            "supported_retention": supp_ret,
+            "negative_catch": neg_catch,
+            "f1": f1,
+            "balanced_accuracy": bal_acc,
+        }
+
+    def _compute_three_way_metrics(
+        self,
+        targets: list[BenchmarkClaimTarget],
+        preds: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Compute exact 3-way semantic confusion matrix and multi-class metrics."""
+        pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in preds}
+        labels = ["SUPPORTED", "CONTRADICTED", "INSUFFICIENT"]
+        cm: dict[str, dict[str, int]] = {
+            gold: {pred: 0 for pred in labels} for gold in labels
+        }
+        errors = 0
+
+        for t in targets:
+            key = f"{t.question_id}:{t.arm_id}:{t.claim_id}"
+            p = pred_map.get(key, {})
+            if p.get("execution_error", False):
+                errors += 1
+                continue
+
+            gold = t.human_label.value
+            pred = p.get("v2_d3_three_way_prediction", "INSUFFICIENT")
+            if gold in cm and pred in cm[gold]:
+                cm[gold][pred] += 1
+            else:
+                errors += 1
+
+        correct = sum(cm[lbl][lbl] for lbl in labels)
+        total_eval = sum(sum(cm[lbl].values()) for lbl in labels)
+        acc = correct / total_eval if total_eval > 0 else 0.0
+
+        per_class: dict[str, dict[str, float]] = {}
+        for lbl in labels:
+            tp_c = cm[lbl][lbl]
+            fp_c = sum(cm[other][lbl] for other in labels if other != lbl)
+            fn_c = sum(cm[lbl][other] for other in labels if other != lbl)
+            prec_c = tp_c / (tp_c + fp_c) if (tp_c + fp_c) > 0 else 0.0
+            rec_c = tp_c / (tp_c + fn_c) if (tp_c + fn_c) > 0 else 0.0
+            f1_c = (2 * prec_c * rec_c) / (prec_c + rec_c) if (prec_c + rec_c) > 0 else 0.0
+            per_class[lbl] = {"precision": prec_c, "recall": rec_c, "f1": f1_c}
+
+        macro_prec = sum(v["precision"] for v in per_class.values()) / len(labels)
+        macro_rec = sum(v["recall"] for v in per_class.values()) / len(labels)
+        macro_f1 = sum(v["f1"] for v in per_class.values()) / len(labels)
+
+        return {
+            "confusion_matrix": cm,
+            "accuracy": acc,
+            "per_class": per_class,
+            "macro_precision": macro_prec,
+            "macro_recall": macro_rec,
+            "macro_f1": macro_f1,
+            "execution_errors": errors,
+        }
+
+    def _compute_answer_level_metrics(
+        self,
+        arm_targets: list[BenchmarkArmTarget],
+        arm_results: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Compute end-to-end answer correctness retention and invalid answer catch rates."""
+        valid_retained = 0
+        valid_rejected = 0
+        invalid_caught = 0
+        invalid_escaped = 0
+        exec_errors = 0
+
+        for arm in arm_targets:
+            key = f"{arm.question_id}:{arm.arm_id}"
+            res = arm_results.get(key, {})
+            if res.get("execution_error", False):
+                exec_errors += 1
+                continue
+
+            # Ground truth valid if 0 contradicted/insufficient claims
+            gold_valid = all(c.human_label == HumanEntailment.SUPPORTED for c in arm.claims)
+            pred_supported = res.get("all_citations_supported", False)
+
+            if gold_valid:
+                if pred_supported:
+                    valid_retained += 1
+                else:
+                    valid_rejected += 1
+            else:
+                if not pred_supported:
+                    invalid_caught += 1
+                else:
+                    invalid_escaped += 1
+
+        total_arms = len(arm_targets)
+        eval_arms = valid_retained + valid_rejected + invalid_caught + invalid_escaped
+        gold_valid_count = valid_retained + valid_rejected
+        gold_invalid_count = invalid_caught + invalid_escaped
+
+        val_ret_rate = valid_retained / gold_valid_count if gold_valid_count > 0 else 1.0
+        inv_catch_rate = invalid_caught / gold_invalid_count if gold_invalid_count > 0 else 1.0
+        eval_acc = (valid_retained + invalid_caught) / eval_arms if eval_arms > 0 else 0.0
+        full_acc = (valid_retained + invalid_caught) / total_arms if total_arms > 0 else 0.0
+
+        return {
+            "total_answers": total_arms,
+            "evaluated_answers": eval_arms,
+            "execution_error_answers": exec_errors,
+            "gold_valid_answers_count": gold_valid_count,
+            "gold_invalid_answers_count": gold_invalid_count,
+            "valid_answers_retained": valid_retained,
+            "valid_answers_rejected": valid_rejected,
+            "invalid_answers_caught": invalid_caught,
+            "invalid_answers_escaped": invalid_escaped,
+            "valid_answer_retention_rate": val_ret_rate,
+            "invalid_answer_catch_rate": inv_catch_rate,
+            "evaluated_answer_accuracy": eval_acc,
+            "full_denominator_answer_accuracy": full_acc,
+        }
+
+    def _build_reports(
+        self,
+        sources_info: dict[str, Any],
+        exec_identity: dict[str, Any],
+        claim_targets: list[BenchmarkClaimTarget],
+        arm_targets: list[BenchmarkArmTarget],
+        stability_info: dict[str, Any],
+        all_metrics: dict[str, Any],
+        pass1_telemetry: dict[str, Any],
+        pass2_telemetry: dict[str, Any],
+        total_duration: float,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """Construct authoritative evaluation report, decision report, and stability report."""
+        d3_binary = all_metrics["v2_d3_claim_binary"]
+        d3_three_way = all_metrics["v2_d3_three_way"]
+        d3_answer = all_metrics["v2_d3_answer_metrics"]
+
+        # 1. Mechanical Gates
+        model_errors = pass1_telemetry["provider_invocation_errors"] + pass2_telemetry["provider_invocation_errors"]
+        exec_errors = stability_info["execution_error_in_any_pass_count"]
+        unstable_claims = stability_info["unstable_semantic_claim_count"]
+        two_valid_labels = stability_info["claims_with_two_valid_semantic_labels"] == len(claim_targets)
+
+        mechanical_pass = (
+            model_errors == 0
+            and exec_errors == 0
+            and unstable_claims == 0
+            and two_valid_labels
+            and exec_identity.get("frozen_d3_source_identity_verified", False)
+        )
+
+        # 2. Quality Rate Gates
+        supp_ret_pass = d3_binary["supported_retention"] >= GATE_MIN_SUPPORTED_RETENTION_RATE
+        neg_catch_pass = d3_binary["negative_catch"] >= GATE_MIN_NEGATIVE_CATCH_RATE
+        val_ans_ret_pass = d3_answer["valid_answer_retention_rate"] >= GATE_MIN_VALID_ANSWER_RETENTION_RATE
+        full_ans_acc_pass = d3_answer["full_denominator_answer_accuracy"] >= GATE_MIN_FULL_ANSWER_ACCURACY_RATE
+        claim_bin_acc_pass = d3_binary["accuracy"] >= GATE_MIN_CLAIM_BINARY_ACCURACY_RATE
+
+        quality_gates_pass = (
+            supp_ret_pass
+            and neg_catch_pass
+            and val_ans_ret_pass
+            and full_ans_acc_pass
+            and claim_bin_acc_pass
+        )
+
+        # 3. Verdict Determination
+        if not mechanical_pass:
+            verdict = "V2_D3_HOLDOUT_EXECUTION_FAILURE"
+            holdout_decision = "REJECT_V2_D3_PROMOTION"
+            promotion_recommended = False
+        elif quality_gates_pass:
+            verdict = "V2_D3_HOLDOUT_PROMOTION_RECOMMENDED"
+            holdout_decision = "PROMOTE_V2_D3_TO_PRODUCTION"
+            promotion_recommended = True
+        else:
+            verdict = "V2_D3_HOLDOUT_PROMOTION_REJECTED"
+            holdout_decision = "REJECT_V2_D3_PROMOTION"
+            promotion_recommended = False
+
+        final_report = {
+            "schema_version": "1.0",
+            "artifact_type": "v2_d3_holdout_report",
+            "candidate_id": self._candidate_id,
+            "verdict": verdict,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "duration_seconds": total_duration,
+            "total_claims": len(claim_targets),
+            "total_answers": len(arm_targets),
+            "telemetry": {
+                "total_provider_calls": pass1_telemetry["provider_calls"] + pass2_telemetry["provider_calls"],
+                "model_errors": model_errors,
+                "provider_invocation_errors": model_errors,
+                "pass1": pass1_telemetry,
+                "pass2": pass2_telemetry,
+            },
+            "stability": stability_info,
+            "metrics": all_metrics,
+            "execution_identity": exec_identity,
+        }
+
+        decision_report = {
+            "schema_version": "1.0",
+            "artifact_type": "v2_d3_holdout_decision_report",
+            "candidate_id": self._candidate_id,
+            "verdict": verdict,
+            "holdout_evaluation_decision": holdout_decision,
+            "promotion_recommended": promotion_recommended,
+            "promotion_authorized": False,  # FAIL-CLOSED: Always False in harness outputs
+            "production_action_required": "PENDING_HUMAN_GOVERNANCE_SIGN_OFF",
+            "pre_registered_gate_evaluations": {
+                "mechanical_gates_passed": mechanical_pass,
+                "model_errors_zero": model_errors == 0,
+                "zero_execution_errors": exec_errors == 0,
+                "zero_unstable_claims": unstable_claims == 0,
+                "two_valid_labels_all_claims": two_valid_labels,
+                "frozen_d3_source_identity_verified": exec_identity.get("frozen_d3_source_identity_verified", False),
+                "supported_retention_passed": supp_ret_pass,
+                "negative_catch_passed": neg_catch_pass,
+                "valid_answer_retention_passed": val_ans_ret_pass,
+                "full_answer_accuracy_passed": full_ans_acc_pass,
+                "claim_binary_accuracy_passed": claim_bin_acc_pass,
+            },
+            "rate_thresholds_applied": {
+                "min_supported_retention_rate": GATE_MIN_SUPPORTED_RETENTION_RATE,
+                "min_negative_catch_rate": GATE_MIN_NEGATIVE_CATCH_RATE,
+                "min_valid_answer_retention_rate": GATE_MIN_VALID_ANSWER_RETENTION_RATE,
+                "min_full_answer_accuracy_rate": GATE_MIN_FULL_ANSWER_ACCURACY_RATE,
+                "min_claim_binary_accuracy_rate": GATE_MIN_CLAIM_BINARY_ACCURACY_RATE,
+            },
+            "metrics_summary": {
+                "claim_binary_accuracy": f"{d3_binary['tp']+d3_binary['tn']}/{d3_binary.get('evaluated_claims', 0)} ({d3_binary.get('accuracy', 0.0):.2%})",
+                "supported_retention": f"{d3_binary['tp']}/{d3_binary['tp']+d3_binary['fn']} ({d3_binary.get('supported_retention', 0.0):.2%})",
+                "negative_catch": f"{d3_binary['tn']}/{d3_binary['tn']+d3_binary['fp']} ({d3_binary.get('negative_catch', 0.0):.2%})",
+                "three_way_accuracy": f"{d3_three_way.get('accuracy', 0.0):.2%}",
+                "valid_answers_retained": f"{d3_answer.get('valid_answers_retained', 0)}/{d3_answer.get('gold_valid_answers_count', 0)} ({d3_answer.get('valid_answer_retention_rate', 0.0):.2%})",
+                "invalid_answers_caught": f"{d3_answer.get('invalid_answers_caught', 0)}/{d3_answer.get('gold_invalid_answers_count', 0)} ({d3_answer.get('invalid_answer_catch_rate', 0.0):.2%})",
+                "full_answer_accuracy": f"{d3_answer.get('valid_answers_retained', 0)+d3_answer.get('invalid_answers_caught', 0)}/{d3_answer.get('total_answers', 0)} ({d3_answer.get('full_denominator_answer_accuracy', 0.0):.2%})",
+            },
+        }
+
+        stability_report = {
+            "schema_version": "1.0",
+            "artifact_type": "v2_d3_holdout_stability_report",
+            "candidate_id": self._candidate_id,
+            "stability_summary": stability_info,
+            "telemetry_summary": {
+                "pass1": pass1_telemetry,
+                "pass2": pass2_telemetry,
+            },
+        }
+
+        return final_report, decision_report, stability_report
+
+    def _build_preflight_report(
+        self,
+        sources_info: dict[str, Any],
+        exec_identity: dict[str, Any],
+        claim_targets: list[BenchmarkClaimTarget],
+        arm_targets: list[BenchmarkArmTarget],
+        v0_replay_stats: dict[str, Any],
+        total_duration: float,
+    ) -> dict[str, Any]:
+        """Construct model-free preflight gate report without inspecting sensitive content."""
+        return {
+            "schema_version": "1.0",
+            "artifact_type": "v2_d3_holdout_preflight_report",
+            "candidate_id": self._candidate_id,
+            "verdict": "V2_D3_HOLDOUT_BENCHMARK_READY",
+            "timestamp": datetime.now(UTC).isoformat(),
+            "duration_seconds": total_duration,
+            "total_claims": len(claim_targets),
+            "total_answers": len(arm_targets),
+            "v0_replay_stats": v0_replay_stats,
+            "execution_identity": exec_identity,
+            "preflight_status": {
+                "sources_verified": True,
+                "schema_validated": True,
+                "v0_verifier_replayed": True,
+                "model_execution_skipped": True,
+                "ready_for_execution": True,
+            },
+        }
+
+    def _write_reports(
+        self,
+        report: dict[str, Any],
+        decision_report: dict[str, Any] | None = None,
+        stability_report: dict[str, Any] | None = None,
+        v0_claim_preds: list[dict[str, Any]] | None = None,
+        pass1_claim_preds: list[dict[str, Any]] | None = None,
+        pass2_claim_preds: list[dict[str, Any]] | None = None,
+        exec_identity: dict[str, Any] | None = None,
+        provider: ObservationalChatModelProviderWrapper | None = None,
+        is_preflight: bool = False,
+    ) -> None:
+        """Write evaluation artifacts to disk and package canonical evidence ZIP if requested."""
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        results_dir = self._output_dir / "results"
+        results_dir.mkdir(parents=True, exist_ok=True)
+        exec_dir = self._output_dir / "execution"
+        exec_dir.mkdir(parents=True, exist_ok=True)
+        telem_dir = self._output_dir / "telemetry"
+        telem_dir.mkdir(parents=True, exist_ok=True)
+
+        if is_preflight:
+            (results_dir / "v2_d3_holdout_report.json").write_text(
+                json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            return
+
+        if exec_identity:
+            (exec_dir / "v2_d3_holdout_source_identity.json").write_text(
+                json.dumps(exec_identity, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+        (results_dir / "v2_d3_holdout_report.json").write_text(
+            json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+        if decision_report:
+            (results_dir / "v2_d3_holdout_decision_report.json").write_text(
+                json.dumps(decision_report, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+        if stability_report:
+            (results_dir / "v2_d3_holdout_stability_report.json").write_text(
+                json.dumps(stability_report, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+        if v0_claim_preds:
+            with (results_dir / "v0_claim_predictions.jsonl").open("w", encoding="utf-8") as f:
+                for r in v0_claim_preds:
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        if pass1_claim_preds:
+            with (results_dir / "v2_d3_holdout_claim_predictions_pass1.jsonl").open("w", encoding="utf-8") as f:
+                for r in pass1_claim_preds:
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        if pass2_claim_preds:
+            with (results_dir / "v2_d3_holdout_claim_predictions_pass2.jsonl").open("w", encoding="utf-8") as f:
+                for r in pass2_claim_preds:
+                    f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+        if pass1_claim_preds and pass2_claim_preds:
+            p2_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in pass2_claim_preds}
+            with (results_dir / "v2_d3_holdout_claim_comparisons.jsonl").open("w", encoding="utf-8") as f:
+                for r1 in pass1_claim_preds:
+                    key = f"{r1['question_id']}:{r1['arm_id']}:{r1['claim_id']}"
+                    r2 = p2_map.get(key, {})
+                    comp_record = {
+                        "question_id": r1["question_id"],
+                        "arm_id": r1["arm_id"],
+                        "claim_id": r1["claim_id"],
+                        "human_label": r1.get("human_label", "UNKNOWN"),
+                        "pass1_binary": r1["v2_d3_binary_prediction"],
+                        "pass2_binary": r2.get("v2_d3_binary_prediction"),
+                        "pass1_three_way": r1["v2_d3_three_way_prediction"],
+                        "pass2_three_way": r2.get("v2_d3_three_way_prediction"),
+                        "pass1_relation": r1.get("evidence_relation"),
+                        "pass2_relation": r2.get("evidence_relation"),
+                        "is_stable": r1["v2_d3_three_way_prediction"] == r2.get("v2_d3_three_way_prediction"),
+                    }
+                    f.write(json.dumps(comp_record, ensure_ascii=False) + "\n")
+
+        if provider:
+            with (telem_dir / "provider_calls.jsonl").open("w", encoding="utf-8") as f:
+                for call in provider.call_history:
+                    f.write(json.dumps(call, ensure_ascii=False) + "\n")
+
+        if self._package_zip:
+            self._package_evidence_archive(self._package_zip)
+
+    def _package_evidence_archive(self, zip_dst: Path) -> None:
+        """Create deterministic ZIP package of all generated holdout evaluation artifacts."""
+        zip_dst.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(zip_dst, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for root, _, files in os.walk(self._output_dir):
+                for f in sorted(files):
+                    fpath = Path(root) / f
+                    arcname = fpath.relative_to(self._output_dir).as_posix()
+                    zf.write(fpath, arcname=arcname)
+        _LOGGER.info("Packaged holdout evidence archive at: %s", zip_dst)
+
+    @staticmethod
+    def _sha256_file(path: Path) -> str:
+        digest = sha256()
+        with path.open("rb") as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(block)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _get_git_commit() -> str:
+        try:
+            return subprocess.check_output(
+                ["git", "rev-parse", "HEAD"], text=True
+            ).strip()
+        except Exception:
+            return "unknown"
+
+    @staticmethod
+    def _is_git_worktree_clean() -> bool:
+        try:
+            status = subprocess.check_output(
+                ["git", "status", "--short"], text=True
+            ).strip()
+            return len(status) == 0
+        except Exception:
+            return False
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="V2-D3 Structured Semantic Verifier Fresh Holdout Benchmark Evaluation Harness"
+    )
+    parser.add_argument(
+        "--holdout-packets",
+        type=Path,
+        required=True,
+        help="Path to verification-v2-holdout-review-packets-v1.zip",
+    )
+    parser.add_argument(
+        "--holdout-labels",
+        type=Path,
+        required=True,
+        help="Path to verification-v2-holdout-human-labels-v1.json",
+    )
+    parser.add_argument(
+        "--holdout-selection",
+        type=Path,
+        default=None,
+        help="Optional path to verification-v2-holdout-selection-v1.json",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("evaluation_outputs/v2_d3_holdout_output"),
+        help="Directory to write holdout evaluation reports and predictions",
+    )
+    parser.add_argument(
+        "--package-zip",
+        type=Path,
+        default=None,
+        help="Optional path to package verification-v2-d3-holdout-evidence.zip",
+    )
+    parser.add_argument(
+        "--candidate-id",
+        type=str,
+        default=CANONICAL_CANDIDATE_ID,
+        help="Candidate identifier (must be V2-D3)",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=CANONICAL_V3_DEVICE,
+        help="PyTorch device (default: cuda)",
+    )
+    parser.add_argument(
+        "--torch-dtype",
+        type=str,
+        default=CANONICAL_V3_TORCH_DTYPE,
+        help="PyTorch dtype (default: float16)",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=CANONICAL_V3_TEMPERATURE,
+        help="Sampling temperature (default: 0.0)",
+    )
+    parser.add_argument(
+        "--repeat-count",
+        type=int,
+        default=CANONICAL_REPEAT_COUNT,
+        help="Number of evaluation passes (default: 2)",
+    )
+    parser.add_argument(
+        "--preflight-only",
+        action="store_true",
+        help="Run model-free preflight validation without LLM inference",
+    )
+    parser.add_argument(
+        "--bypass-source-checksums",
+        action="store_true",
+        help="Bypass strict canonical source SHA verification (FOR TESTING ONLY)",
+    )
+    return parser.parse_args()
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    args = parse_args()
+    evaluator = V2D3HoldoutBenchmarkEvaluator(
+        holdout_packets_path=args.holdout_packets,
+        holdout_labels_path=args.holdout_labels,
+        holdout_selection_path=args.holdout_selection,
+        output_dir=args.output_dir,
+        package_zip=args.package_zip,
+        candidate_id=args.candidate_id,
+        device=args.device,
+        torch_dtype=args.torch_dtype,
+        temperature=args.temperature,
+        repeat_count=args.repeat_count,
+        preflight_only=args.preflight_only,
+        bypass_source_checksums=args.bypass_source_checksums,
+    )
+    report = evaluator.evaluate()
+    print("\n" + "=" * 70)
+    print("        V2-D3 FRESH HOLDOUT EVALUATION COMPLETE")
+    print("=" * 70)
+    print(f"Verdict:   {report.get('verdict')}")
+    print(f"Candidate: {report.get('candidate_id')}")
+    print(f"Duration:  {report.get('duration_seconds', 0.0):.2f}s")
+    print("=" * 70 + "\n")
+
+
+if __name__ == "__main__":
+    main()

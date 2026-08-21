@@ -2862,3 +2862,62 @@ The selection commitment is archived in `verification-v2-holdout-selection-v1.js
 3. **Strict Development vs Holdout Separation**: All future V2 development, tuning, and prompt engineering must use ONLY the 38-claim development benchmark (`verification_benchmark_v1_role = "development_after_first_evaluation"`).
 4. **Mandatory Freezing Before Unsealing**: The fresh holdout MUST NOT be unsealed for human forensic review until the candidate V2 system (code, prompt, model, inference parameters, promotion gates) is completely frozen.
 5. **Reserve Replacement Invariant**: The 8 fresh reserve cases may only be used for mechanical reconstruction/provenance failure, never for undesirable human labels or performance optimization.
+
+---
+
+## D120 — Candidate V2-D3.1 Benchmark Outcome, High-Recall Contradiction Overcalling, and Formal Decision: `KEEP_D3`
+
+**Status:** Accepted (Verdict: `V2_D31_DEVELOPMENT_BENCHMARK_PASS`, Decision: `KEEP_D3`)
+
+**Context:**
+Candidate V2-D3.1 (monolithic two-gate verifier: Gate 1 contradiction check $\to$ Gate 2 support/insufficient check) was evaluated on Kaggle GPU under execution commit `1383bf379a01c3f7456e3c41ba3be42846ceee2c`.
+Evidence was archived in `verification-v2-d31-development-evidence.zip` (SHA-256 `e14f9656a13a04b8e545d88a5dca13653fa317166ff530f45e4b13124f864041`, size `18,379` bytes, 11 members).
+
+**Empirical Summary & Findings:**
+1. **Mechanical Execution**: `V2_D31_DEVELOPMENT_BENCHMARK_PASS` (0 model errors, 0 retries, 38/38 stable claims, 76 provider calls).
+2. **Behavioral Characterization**: D3.1 operated as a high-recall / low-precision contradiction detector. It caught 6/7 gold contradictions (85.71% recall), but emitted 14 false contradiction positives (10 on gold `INSUFFICIENT`, 4 on gold `SUPPORTED`), yielding a contradiction precision of only 30.00%.
+3. **Severe Supported Retention Regression**: Supported claim retention dropped from 17/18 (94.44% in D3) down to 12/18 (66.67%), and 6 of 7 historical D3 fixes regressed.
+4. **Decision**: `KEEP_D3`. Candidate V2-D3.1 does not supersede D3 (`d31_supersedes_d3 = false`, `promotion_authorized = false`).
+
+---
+
+## D121 — Candidate V2-D3.2 Benchmark Outcome, Strict Conflict Calibration, and Formal Decision: `KEEP_D3`
+
+**Status:** Accepted (Verdict: `V2_D32_DEVELOPMENT_BENCHMARK_PASS`, Decision: `KEEP_D3`)
+
+**Context:**
+Candidate V2-D3.2 (asymmetric two-stage verifier: Call A Frozen D3 Base + Call B Strict Contradiction Confirmation Overlay) was evaluated on Kaggle GPU under execution commit `e5db78f0796c53e973fc63f9dd98df6c95f43f6e`.
+Evidence was archived in `verification-v2-d32-development-evidence.zip` (SHA-256 `bf44b9d77172d4f1823b62c02abae9e462bfbb9fdc5c650ba87e192e4928878f`, size `28,738` bytes, 13 members).
+
+**Empirical Summary & Findings:**
+1. **Mechanical Execution**: `V2_D32_DEVELOPMENT_BENCHMARK_PASS` (0 model errors, 0 retries, 38/38 stable claims, 152 provider calls reconciled across 2 passes).
+2. **Base D3 Fidelity**: 0 drift across Pass 1 (38/38) and Pass 2 (38/38).
+3. **Zero False Overrides**: The strict conflict overlay emitted 0 conflict positives on the 38 development claims, producing 0 false overrides and preserving 100% of D3's high supported retention (17/18) and all 7/7 historical D3 fixes.
+4. **Contradiction Sensitivity**: Under the strict two-gate formulation (`same_material_proposition = true` AND `cannot_both_be_true = true`), the overlay caught 0 contradictions, achieving Net Delta = 0 vs D3 while doubling inference calls.
+5. **Decision**: `KEEP_D3`. Candidate V2-D3.2 does not supersede D3 (`d32_supersedes_d3 = false`, `promotion_authorized = false`). Candidate V2-D3.2 is formally closed.
+
+---
+
+## D122 — Formal Freezing of Candidate V2-D3, Closure of Development Phase, and Pre-Registration of Fresh Holdout Evaluation Protocol
+
+**Status:** Accepted (Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+**Context:**
+Following the completion and formal closure of development iterations V2-D3.1 and V2-D3.2, candidate V2-D3 is officially selected and frozen as the exclusive V2 semantic verification candidate to proceed to the Fresh Holdout evaluation.
+
+**Decisions & Invariants:**
+1. **Development Benchmark Permanently Closed**: The 38-claim development benchmark is permanently closed for candidate tuning, prompt engineering, threshold tuning, and overlay creation. There is NO D3.3.
+2. **Frozen Candidate Identity (V2-D3)**:
+   - Model: `Qwen/Qwen2.5-3B-Instruct` (Immutable Revision: `a1d308dfcc03e09da285d49d912439a655a571e8`).
+   - Implementation SHA-256: `a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826`.
+   - System Instruction SHA-256: `546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b`.
+   - Runtime: Transformers 4.47.1, CUDA, float16, temperature 0.0, max retries 1.
+3. **Pre-Registered Promotion Rate Gates (Pass 1 Authoritative)**:
+   - `min_supported_retention_rate = 0.88` (88.00%)
+   - `min_negative_catch_rate = 0.50` (50.00%)
+   - `min_valid_answer_retention_rate = 0.80` (80.00%)
+   - `min_full_answer_accuracy_rate = 0.60` (60.00%)
+   - `min_claim_binary_accuracy_rate = 0.70` (70.00%)
+4. **Pre-Registered Mechanical Gates**: Zero model errors, zero execution errors, zero unstable claims between Pass 1 and Pass 2, complete 2-label verification per claim, exact frozen source SHA matches.
+5. **Strict Holdout Blindness**: Fresh holdout dataset (`verification-v2-holdout-selection-v1.json` SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, `verification-v2-holdout-review-packets-v1.zip` SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`) remains sealed and unreviewed. Zero human inspection of holdout questions, claims, evidence, or labels before execution.
+6. **Promotion vs Authorization Boundary (Fail-Closed)**: Harness outputs `promotion_recommended: true` only upon satisfying all gates. Harness output `promotion_authorized: false` is an invariant fail-closed security boundary. Enabling the semantic verifier in production requires explicit external human governance sign-off and subsequent production codebase configuration.
