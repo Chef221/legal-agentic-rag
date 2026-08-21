@@ -8,6 +8,18 @@ offline foundation required by all three. M46 and M47 remain only as historical
 measurements in design documents; their runnable notebooks, configs and outputs
 have been removed.
 
+## Current Baseline Authority
+
+- **Branch:** `takeover/m491-graphless-narrow20`
+- **T4 Implementation Source Checkpoint:** `1773ad4c0ab95147f18d13036e69ba9b46341cbf`
+- **Status:** **T4 CLOSED**
+- **Serving Architecture:** 4 live retrieval strategies (`BM25`, `DENSE`, `HYBRID`, `HYBRID_RERANK`), 4 retrieval tools (`BM25_SEARCH`, `DENSE_SEARCH`, `HYBRID_SEARCH`, `RERANK_SEARCH`), 7 total runtime tools, 3 active online manifests (`legal_chunks`, `bm25_index`, `vector_index`), no online graph execution.
+- **Relationship Behavior:** candidate pool 20 (`relationship_candidate_k = 20`), global `candidate_k = 40`, `top_k = 10`.
+- **Final Structural Evidence SHA-256:** `1e5f1c2cc20a0a11be99d20bbc928679a7605f99d3ab49841e2159d67865e348`
+- **Behavioral Evidence SHA-256:** `1abdea95697ce5273da9c6b7ac8553bccc41589b9149253783131f86f1694731`
+- **M45 Authority SHA-256:** `7e78ad60ff2982592a9471eb8704fce44042add0496268fade3f32db1823ea7a`
+- **Next:** No active implementation phase. Future improvement work intentionally deferred.
+
 ## 1. Current answer in one minute
 
 - Current best measured candidate: **M49.1**.

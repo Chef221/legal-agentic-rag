@@ -2468,3 +2468,44 @@ Following Phase T4-PROD-A (`D097`), which verified that candidate narrowing (`re
    - Existing M45 packages containing `artifacts/graph` remain fully compatible without rebuild.
 4. **Scope Limitation:**
    - This decision reflects the causal experimental findings of the UIT DSC 2026 competition dataset and does not claim graph algorithms are universally inapplicable outside this evaluated architecture.
+
+---
+
+## D101 — T4 Final Graph Retirement Checkpoint and New Baseline Authority
+
+**Status:** Accepted
+
+**Context & Rationale:**
+With the successful completion and verification of Phase T4-PROD-B3 (`D100`), Phase T4 is officially CLOSED. The takeover production serving architecture establishes a lean, verified, graphless online retrieval and generation pipeline while preserving 100% exact behavioral equivalence on the evaluated competition population, full offline graph construction capabilities, and schema/config parse compatibility.
+
+**New Production Baseline Authority:**
+1. **Status & Live Architecture:**
+   - **T4 is CLOSED.**
+   - The production serving architecture implements exactly four live retrieval strategies: `BM25`, `DENSE`, `HYBRID`, and `HYBRID_RERANK`.
+   - Live retrieval tools: exactly four (`BM25_SEARCH`, `DENSE_SEARCH`, `HYBRID_SEARCH`, `RERANK_SEARCH`).
+   - Fixed runtime registry tools: exactly seven (4 retrieval + `CONTEXT_GRADING` + `ANSWER_GENERATION` + `CITATION_VERIFICATION`).
+   - Active online manifests: exactly three (`LEGAL_CHUNKS`, `BM25_INDEX`, `VECTOR_INDEX`).
+2. **Relationship Routing & Narrowing Parameters:**
+   - RELATIONSHIP query intent routes deterministically to: `HYBRID_RERANK` -> `HYBRID` -> `BM25` fallback.
+   - Retrieval candidate pool parameters: `relationship_candidate_k = 20`, global `candidate_k = 40`, `top_k = 10`.
+3. **Graphless Online Execution & Clean Separation:**
+   - Online runtime operates with no `GraphExpandedRetriever`, no `GRAPH_SEARCH` live tool implementation, no in-memory graph backend, no graph manifest requirement, and no graph payload disk read.
+   - Exact-M45 Kaggle startup verified clean (PASS) with `graph/` physically absent from artifact root.
+4. **Historical & Offline Graph Compatibility:**
+   - Schema enums and structures (`RetrievalStrategy.GRAPH`, `ToolName.GRAPH_SEARCH`, `GraphPathStep`, `RetrievalTrace.graph_path`, `RetrievalTrace.graph_hop`, `ArtifactType.GRAPH_INDEX`) remain preserved for historical log, trace, and report deserialization.
+   - Offline graph indexing and contracts (`GraphBackend`, `AdjacencyGraphBackend`, `competition_offline.py` graph build stage, `build_validation.py`) remain completely intact and available.
+   - `ArtifactConfig.graph_directory` and `GraphIndexConfig` remain supported.
+   - Legacy graph tuning fields in `RetrievalConfig` (`graph_hop_limit`, `graph_seed_chunk_k`, `graph_seed_document_k`, `graph_related_document_k`, `graph_relationship_types`) remain parse-compatible.
+   - Historical configuration with `default_strategy=GRAPH` or `strategy_order` containing `GRAPH` remains parse-compatible, but `GRAPH` is no longer executable by the takeover online runtime.
+   - Existing M45 artifact package requires NO rebuild.
+5. **Verified Evidence Authority & Lineage:**
+   - **Behavioral Evidence Archive:** `t4-graphless-narrow20-evidence.zip` (SHA-256: `1abdea95697ce5273da9c6b7ac8553bccc41589b9149253783131f86f1694731`). Proves 7/7 exact final answers, 7/7 identical warning profiles, and 0.0 aggregate ROUGE/METEOR delta across all 7 relationship-routed queries in frozen Dev-200.
+   - **Final Structural/Runtime Evidence Archive:** `t4-final-graph-retirement-evidence.zip` (SHA-256: `1e5f1c2cc20a0a11be99d20bbc928679a7605f99d3ab49841e2159d67865e348`). Proves clean exact-M45 startup with `graph/` physically absent, 3 active manifests, 7 live tools, and 0 model inference.
+   - **Final Implementation Source Commit:** `1773ad4c0ab95147f18d13036e69ba9b46341cbf`.
+   - **M45 Authority Archive:** `7e78ad60ff2982592a9471eb8704fce44042add0496268fade3f32db1823ea7a`.
+6. **Baseline Authority Definition:**
+   - The new baseline authority is defined as: **M49.1 takeover baseline + graphless online serving + relationship narrow20 preservation + offline/historical graph compatibility**.
+7. **Phase State & Scope Limitation:**
+   - No further T4 work is active.
+   - Next improvement phase is intentionally deferred.
+   - This decision reflects the causal empirical findings on the evaluated UIT DSC 2026 dataset and does not claim graph algorithms are universally inapplicable outside this architecture.
