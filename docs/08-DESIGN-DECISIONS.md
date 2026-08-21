@@ -3165,37 +3165,39 @@ Before investing in large-scale offline chunking or dense embedding overhauls, P
 
 ---
 
-## D130 — Phase D1 Deterministic Legal Document Identity Enrichment Protocol and Feasibility Gate (Phase D1-A)
+## D130 — Phase D1 Deterministic Legal Document Identity Enrichment Protocol, Strict Hardening, and Feasibility Gate (Phase D1-A)
 
-**Status:** D1-A FEASIBILITY COMPLETE — D1-B BM25 A/B NOT YET RUN (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Evidence: `data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`)
+**Status:** D1-A STRICT FEASIBILITY COMPLETE — D1-B BM25 A/B NOT YET RUN (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Strict Evidence: `data-d1a-document-identity-feasibility-strict-evidence.zip` SHA-256 `870ad1447e46b083bcdd8b7cd82e585509615a480c772ccdf229f358b50edbc5`, Original Evidence: `data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`)
 
 **Context:**
-Following the premise falsification and cancellation of the initial token-fallback parent-context proposal, Phase D1 pivots to evaluating deterministic legal document identity extraction (`document_type`, `document_number`) from official context sources (title, source URL, and early passage header) to enrich lexical search representations.
+Following the premise falsification and cancellation of the initial token-fallback parent-context proposal, Phase D1 evaluates deterministic legal document identity extraction (`document_type`, `document_number`) from official context sources (title, source URL, and early passage header) to enrich lexical search representations.
+
+Following external review and prior to observing any BM25 retrieval outcome, the confidence policy was hardened to require strict multi-channel consensus (header agreement with title/URL slugs) for the primary D1-B candidate population, and subset-specific percentage calculations were corrected.
 
 **Decisions & Invariants:**
 1. **Single Causal Variable**:
    - D1 extracts ONLY `document_type` and `document_number`. No other metadata (dates, issuing authority, legal field, effect status) is extracted.
-   - The causal variable is: baseline chunk `search_text` vs candidate `search_text` prepended with `Loại văn bản: <type>` and `Số ký hiệu: <number>` when resolved with high confidence.
-2. **Official Data Only & Extraction Policy**:
-   - Extraction sources restricted to: official context `name`/title, `link`/URL, and early passage header region.
-   - No external legal databases, no LLMs, no semantic guesses, no web crawls.
-3. **Multi-Source Agreement & Own-Document Guard**:
-   - Candidates are extracted independently from Title, URL, and Early Header.
-   - `HIGH_CONFIDENCE`: $\ge 2$ independent fields agree exactly OR 1 field contains an exceptionally explicit canonical document identity and no conflicting candidate exists.
-   - `AMBIGUOUS`: conflicting candidates across sources (fails closed).
-   - `UNRESOLVED`: no safe identity found (fails closed).
+   - The causal variable is: baseline chunk `search_text` vs candidate `search_text` prepended with `Loại văn bản: <type>` and `Số ký hiệu: <number>` when resolved with strict multi-channel consensus.
+2. **Official Data Only & Strict Multi-Channel Policy**:
+   - Title and URL are treated as a single correlated **SLUG CHANNEL**.
+   - Primary candidate population (`STRICT_MULTI_CHANNEL_IDENTITY`) requires agreement between Passage Header and at least one slug source (`all_three`, `url_header`, `title_header`).
+   - Single-source identities and `title_url_only` are classified as `PROVISIONAL_SINGLE_SOURCE` (diagnostic only, strictly excluded from D1-B search representations).
+   - Conflicting candidates fail closed to `AMBIGUOUS`. Missing candidates fail closed to `UNRESOLVED`.
    - Own-Document Guard: Restrict passage extraction strictly to early preamble/header lines to prevent extracting body citations to other referenced laws.
-4. **Feasibility Gate (Phase D1-A) — PASSED**:
-   - Pre-registered Gate A ($\ge 50.0\%$ non-empty coverage): **PASSED at 95.03%** (8,089 / 8,512 non-empty documents).
-   - Pre-registered Gate B ($\ge 70.0\%$ proxy target coverage): **PASSED at 97.45%** (1,299 / 1,333 proxy questions, 796 / 823 unique target documents = 96.72%).
-   - Logical sidecar chunk coverage: 304,504 / 330,768 chunks (92.06%).
-   - Checkpoint decision: `D1A_FEASIBILITY_PASS`.
-5. **Search-Text Token Budget & Structural Invariants for Subsequent Phase D1-B**:
+3. **Strict Feasibility Gate (Phase D1-A) — PASSED**:
+   - Strict Multi-Channel Complete Identity Count: **6,891 documents** (80.77% of all 8,532 contexts, **80.96%** of 8,512 non-empty contexts, **92.12%** of 7,407 titled contexts).
+   - Pre-registered Gate A ($\ge 50.0\%$ non-empty coverage): **PASSED at 80.96%** (6,891 / 8,512).
+   - Pre-registered Gate B ($\ge 70.0\%$ proxy target coverage): **PASSED at 94.67%** (1,262 / 1,333 proxy questions, 770 / 823 unique target documents = 93.56%).
+   - Strict sidecar chunk coverage: 264,765 / 330,768 chunks (80.05%).
+   - Strict proxy population SHA-256: `2b29b553908e2bc1553d1e7402194390609e6f8ca68592bdb0f56200bafa4100`.
+   - Checkpoint decision: `D1A_STRICT_FEASIBILITY_PASS`.
+4. **Search-Text Token Budget & Structural Invariants for Subsequent Phase D1-B**:
    - Token budget ceiling: `max_search_tokens = 512`.
    - Chunk body suffix `chunk.text` is NEVER truncated.
    - 330,768 chunk count, IDs, document IDs, chunk indices, boundaries, and raw text 100% invariant.
+   - Primary D1-B candidate uses ONLY the 6,891 `STRICT_MULTI_CHANNEL_IDENTITY` documents.
    - Experimental index built in scratch; production artifacts and ingestion pipeline remain 100% untouched.
-6. **Pre-Registered Success Gates for Subsequent Phase D1-B (Not Yet Run)**:
+5. **Pre-Registered Success Gates for Subsequent Phase D1-B (Not Yet Run)**:
    - Baseline Replay: Historical 200-QA baseline must reproduce exactly (R@1=48.0%, R@5=71.5%, R@10=79.5%, R@20=86.0%).
    - Primary Gate: Full 1,333 BM25 document Recall@5 improves by $\ge +2.0$ absolute percentage points.
    - Secondary Gate: Recall@10 must not regress.

@@ -2594,24 +2594,26 @@ reports are reviewed.
 - moved hierarchical re-chunking, adjacent window stitching, and secondary metadata extraction to Architectural Backlog;
 - next action: advance to Phase D1-A document identity feasibility measurement.
 
-## 81. Milestone 53 — Phase D1-A: Deterministic Legal Document Identity Feasibility
+## 81. Milestone 53 — Phase D1-A: Deterministic Legal Document Identity Feasibility & Strict Hardening
 
-**Status:** Completed (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Evidence Archive: `C:\Users\Nguyen\Downloads\data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`, Size `6,311 bytes`, 9 members, Decision: `D130`, Checkpoint Verdict: `D1A_FEASIBILITY_PASS`, Unit Tests: `tests/unit/evaluation/test_document_identity_d1.py`)
+**Status:** Completed (Specification: `docs/35-D1-DOCUMENT-IDENTITY-ENRICHMENT.md`, Harness: `scripts/evaluate_document_identity_d1.py`, Strict Evidence: `C:\Users\Nguyen\Downloads\data-d1a-document-identity-feasibility-strict-evidence.zip` SHA-256 `870ad1447e46b083bcdd8b7cd82e585509615a480c772ccdf229f358b50edbc5`, Size `6,448 bytes`, 8 members, Original Evidence: `data-d1a-document-identity-feasibility-evidence.zip` SHA-256 `8c3b3a1f2a74257f3b265e657a1f38975da67777deb8dafa016be029a0d772f3`, Decision: `D130`, Checkpoint Verdict: `D1A_STRICT_FEASIBILITY_PASS`, Unit Tests: `tests/unit/evaluation/test_document_identity_d1.py`)
 
 - implemented deterministic, official-data-only legal document identity extractor (`document_type`, `document_number`) in `scripts/evaluate_document_identity_d1.py` with multi-source consensus across context `name`, `link` URL, and early `passage` header;
 - enforced strict own-document safety guards in passage header parsing, preventing citations to referenced laws in enacting preambles from corrupting document identity;
 - verified canonical source identities for `selected-contexts.zip`, `data-d0-official-data-audit-evidence.zip`, and `train.json`;
+- hardened confidence policy following external review: required `STRICT_MULTI_CHANNEL_IDENTITY` (header agreement with title/URL slugs) for the primary D1-B candidate population, classified single-source / title+URL-only as `PROVISIONAL_SINGLE_SOURCE` (diagnostic only), and corrected subset-specific percentage calculations;
 - executed real feasibility evaluation across all 8,532 official contexts:
-  - 8,089 HIGH_CONFIDENCE complete identities (95.03% of non-empty documents, 94.81% of all documents);
-  - 258 AMBIGUOUS (3.02%) and 185 UNRESOLVED (2.17%) records failing closed;
-  - 7,006 records (86.61% of high-confidence) verified with multi-source agreement ($\ge 2$ sources);
-- evaluated logical sidecar chunk propagation over 330,768 serving chunks: 304,504 chunks (92.06%) covered with complete identity;
-- evaluated coverage over frozen D0 1,333 retrieval-proxy population (`proxy_population_sha256`: `41f13e0bbe8cf91ef12f1cf1bfd325c6bfab6c354c7d874ab12aaf9b2e1f4f9c`):
-  - 1,299 / 1,333 proxy questions covered (97.45%);
-  - 796 / 823 unique proxy target documents covered (96.72%);
-- evaluated pre-registered feasibility gates: Gate A (95.03% $\ge 50.0\%$) PASSED, Gate B (97.45% $\ge 70.0\%$) PASSED;
-- recorded checkpoint decision: `D1A_FEASIBILITY_PASS`;
+  - 6,891 `STRICT_MULTI_CHANNEL` complete identities (80.77% of all 8,532 contexts, 80.96% of 8,512 non-empty contexts, 92.12% of 7,407 titled contexts);
+  - 1,198 `PROVISIONAL_SINGLE_SOURCE` diagnostic identities (115 `title_url_only`, 901 `single_url`, 182 `single_header`, 0 `single_title`);
+  - 258 `AMBIGUOUS` (3.02%) and 185 `UNRESOLVED` (2.17%) records failing closed;
+  - diagnostic high-confidence total: 8,089 (95.03% non-empty, 95.67% titled);
+- evaluated logical sidecar chunk propagation over 330,768 serving chunks: 264,765 chunks (80.05%) covered with strict identity;
+- evaluated coverage over frozen D0 1,333 retrieval-proxy population (`strict_identity_proxy_population_sha256`: `2b29b553908e2bc1553d1e7402194390609e6f8ca68592bdb0f56200bafa4100`):
+  - 1,262 / 1,333 proxy questions covered (94.67%);
+  - 770 / 823 unique proxy target documents covered (93.56%);
+- evaluated pre-registered feasibility gates against strict primary population: Gate A (80.96% $\ge 50.0\%$) PASSED, Gate B (94.67% $\ge 70.0\%$) PASSED;
+- recorded checkpoint decision: `D1A_STRICT_FEASIBILITY_PASS`;
 - strictly preserved production invariants: zero modification to production adapters, chunkers, chunk artifacts, BM25 indices, vector indices, reranker, generator, G1, or verifiers;
-- packaged diagnostic evidence package `data-d1a-document-identity-feasibility-evidence.zip`;
-- all 17 unit tests passing in `tests/unit/evaluation/test_document_identity_d1.py`;
-- next action: external review of D1-A feasibility evidence, followed by Phase D1-B BM25 causal A/B execution.
+- packaged strict diagnostic evidence package `data-d1a-document-identity-feasibility-strict-evidence.zip`;
+- all unit tests passing in `tests/unit/evaluation/test_document_identity_d1.py`;
+- next action: Phase D1-B BM25 causal A/B execution using ONLY the 6,891 `STRICT_MULTI_CHANNEL_IDENTITY` documents.
