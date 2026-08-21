@@ -423,13 +423,20 @@ The immediate next action is:
        - Cell H1 pinned runtime package assertions and Cell H6 independent evidence recomputation & verification assertions;
      - Holdout evaluation protocol pre-registered in `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md` with immutable rate gates (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`).
      - 38 comprehensive unit tests passing across holdout evaluation and label freeze test suites (`test_verification_v2_d3_holdout.py`, `test_freeze_verification_v2_holdout_labels.py`).
-     - Holdout blindness preserved: Zero inspection of real holdout questions, claims, evidence, or labels in this task.
-   - **Next Action in Priority B**: External review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before human gold labeling (Phase H-LABEL).
+   - **Task B-H-LABEL & EXTERNAL H-EXEC AUTHORIZATION COMPLETE**:
+     - Completed neutral human forensic review across all 31 claims of the 16 primary holdout packets (`verification-v2-holdout-review-packets-v1.zip` SHA-256 `a7a59175...`, `verification-v2-holdout-selection-v1.json` SHA-256 `08c480f6...`) with zero model predictions.
+     - Authoritative human gold labels frozen into immutable artifact `verification-v2-holdout-reviewed-labels-v1.json` (SHA-256 `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215`, size `9,383` bytes, 31 claims: 24 SUPPORTED, 1 CONTRADICTED, 6 INSUFFICIENT).
+     - Historical pending commitment recorded: `verification-v2-d3-holdout-label-commitment.json` (SHA-256 `c7755e37e394e80484f73c52ee6965c34c65917c38fa83b1dc453bbb466bcf86`, size `823` bytes, status `FROZEN_PENDING_EXTERNAL_REVIEW`).
+     - External chain-of-custody review passed (D125, decision: `APPROVED`).
+     - Approved commitment tracked in repository at `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`, size `1,060` bytes, `reviewer_governance_status: "EXTERNALLY_REVIEWED_FOR_H_EXEC"`).
+     - Candidate V2-D3 and promotion rate gates remain strictly frozen.
+   - **Next Action in Priority B**: External review of new execution-authority commit, then canonical one-shot Kaggle H-EXEC execution.
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in Phase H-LABEL and H-EXEC Authorization?** Resolved: Phase H-LABEL human review completed across all 16 primary review packets (31 claims: 24 SUPPORTED, 1 CONTRADICTED, 6 INSUFFICIENT) with zero model predictions. Labels frozen into immutable artifact `verification-v2-holdout-reviewed-labels-v1.json` (SHA-256 `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215`). Pending commitment `c7755e37...` externally reviewed and approved. Approved commitment tracked in repository at `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`). Goverance status set to `EXTERNALLY_REVIEWED_FOR_H_EXEC`. Candidate V2-D3 and rate gates remain frozen.
 - **What happened in Pre-H-LABEL Integrity Hardening?** Resolved: Completed final pre-holdout hardening pass (D124). Added duplicate-key-aware JSON loader and fail-closed duplicate review checks to `scripts/freeze_verification_v2_holdout_labels.py`. Changed commitment status initialization to `FROZEN_PENDING_EXTERNAL_REVIEW`. Required `--label-commitment` with `EXTERNALLY_REVIEWED_FOR_H_EXEC` for canonical H-EXEC. Validated label artifact metadata and per-claim `claim_text_sha256`. Enforced exact prediction-set equality and eliminated fail-open stability bugs. Replaced raw exception strings with content-safe telemetry (`error_type`, `error_sha256`, `error_message_length`). Added provider call reconciliation gate. Hardened `_validate_canonical_provenance()` with fail-closed checks on all execution parameters. Updated Runbook Cell H1 with runtime package assertions and Cell H6 with independent evidence recomputation assertions.
 - **What happened in V2-D3 Holdout Governance Hardening?** Resolved: Hardened holdout evaluation governance into two distinct irreversible phases (Phase H-LABEL for human gold freezing and Phase H-EXEC for Kaggle execution). Created `scripts/freeze_verification_v2_holdout_labels.py` and hardened `scripts/evaluate_verification_v2_d3_holdout.py` with exact packet-label claim set equality, non-vacuous coverage denominator gates, zero-denominator None semantics, pinned Kaggle environment, and single model loading. Tested exclusively on synthetic fixtures with zero real holdout exposure.
 - **What happened in V2-D3.2 Execution?** Resolved: V2-D3.2 completed canonical Kaggle execution (`e5db78f0796c53e973fc63f9dd98df6c95f43f6e`, evidence `verification-v2-d32-development-evidence.zip` SHA-256 `bf44b9d77172d4f1823b62c02abae9e462bfbb9fdc5c650ba87e192e4928878f`). Reconciled 152 calls, 0 errors, 0 retries, 38/38 stable claims, 0 base drift. Overcall was 0 (0 false overrides, 7/7 D3 gains preserved), but caught 0 contradictions (net delta 0 vs D3). Formal decision: `KEEP_D3`. V2-D3.2 formally closed.
@@ -479,11 +486,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (V2-D3 Pre-H-LABEL Integrity Hardening Complete; D124 Accepted; Frozen V2-D3 Candidate Identical; Fail-Closed Label & Stability Gates Implemented; Content-Safe Telemetry Verified; Runbook Cell H1 & H6 Hardened; Holdout Blindness Preserved)
+    0.50.7 (Phase H-LABEL Complete; Human Gold Labels Frozen; D125 Accepted; Label Commitment Externally Approved; Config Tracked; Frozen V2-D3 Candidate Unchanged; Authorized for Phase H-EXEC)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (V2-D3 Pre-Holdout Hardening Complete — Pending External Protocol Review Before Phase H-LABEL Human Gold Freezing)
+    Priority B — Verification-correctness audit (Phase H-LABEL Complete & Approved — Authorized for Canonical One-Shot Kaggle H-EXEC)
 
 Next action:
-    External review of pre-registered frozen holdout evaluation protocol (docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md) before Phase H-LABEL human gold labeling
+    External review of new execution-authority commit, then canonical one-shot Kaggle H-EXEC execution
 ```

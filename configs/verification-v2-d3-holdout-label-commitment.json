@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "verification_v2_holdout_label_commitment",
+  "artifact_filename": "verification-v2-holdout-reviewed-labels-v1.json",
+  "labels_sha256": "85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215",
+  "labels_size_bytes": 9383,
+  "total_questions": 16,
+  "total_arms": 16,
+  "total_claims": 31,
+  "class_counts": {
+    "SUPPORTED": 24,
+    "CONTRADICTED": 1,
+    "INSUFFICIENT": 6
+  },
+  "review_status": "frozen_human_reviewed",
+  "holdout_packets_sha256": "a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4",
+  "holdout_selection_sha256": "08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b",
+  "review_timestamp": "2026-08-21T03:25:25.997454+00:00",
+  "reviewer_governance_status": "EXTERNALLY_REVIEWED_FOR_H_EXEC",
+  "prior_pending_commitment_sha256": "c7755e37e394e80484f73c52ee6965c34c65917c38fa83b1dc453bbb466bcf86",
+  "external_review_scope": "content_free_chain_of_custody_review",
+  "external_reviewed_at": "2026-08-21T03:29:21.705774+00:00"
+}

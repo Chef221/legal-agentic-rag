@@ -2984,3 +2984,31 @@ Prior to initiating Phase H-LABEL human review, a final pre-holdout integrity ha
    - `_validate_canonical_provenance()` enforces fail-closed checks on candidate ID (`V2-D3`), source package version (`0.50.7`), installed package version (`0.50.7`), clean git worktree, `repeat_count == 2`, `device == "cuda"`, `torch_dtype == "float16"`, `temperature == 0.0`, token bounds (`8192/512`), `max_retries == 1`, `timeout == 180.0`, backend (`transformers`), provider version (`4.47.1`), model name, immutable revision, and exact D3 implementation, system instruction, and schema SHA-256 digests.
 9. **Independent Recomputation in Cell H6**:
    - Runbook Cell H6 recomputes all coverage booleans, mechanical pass criteria, provider call reconciliation, and quality rate gates directly from evidence metrics, asserting exact match against decision reports and verifying `promotion_authorized == False`.
+
+---
+
+## D125 — Phase H-LABEL Completion, Human Gold-Label Freeze, and External Chain-of-Custody Approval for Phase H-EXEC
+
+**Status:** Accepted (Artifacts: `verification-v2-holdout-reviewed-labels-v1.json`, `configs/verification-v2-d3-holdout-label-commitment.json`, Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+**Context:**
+Phase H-LABEL human review and gold-label freezing was executed across the 16 primary holdout review packets. Following human label entry and freeze verification, an external chain-of-custody review was conducted on the content-free label commitment, transitioning the governance state to authorize the canonical one-shot Phase H-EXEC run on Kaggle GPU.
+
+**Decisions & Invariants:**
+1. **Holdout Unsealing & Neutral Human Review Workflow**:
+   - The 16 primary review packets from canonical archive `verification-v2-holdout-review-packets-v1.zip` (SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`) and selection binding `verification-v2-holdout-selection-v1.json` (SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`) were unsealed strictly for neutral human forensic review.
+   - Zero model predictions, zero prior verifier suggestions, and zero automatic labels were produced or displayed.
+2. **Authoritative Human Gold Labels Frozen**:
+   - The human reviewer assigned gold entailment labels across all 31 claims (16 questions, 16 arms).
+   - Label distribution: **24 SUPPORTED, 1 CONTRADICTED, 6 INSUFFICIENT**.
+   - Every claim is bound to its canonical `claim_text_sha256`.
+   - Immutable label artifact created: `verification-v2-holdout-reviewed-labels-v1.json` (SHA-256 `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215`, size `9,383` bytes, `review_status: "frozen_human_reviewed"`).
+3. **Chain of Custody & Approved Commitment**:
+   - Historical pending commitment: `verification-v2-d3-holdout-label-commitment.json` (SHA-256 `c7755e37e394e80484f73c52ee6965c34c65917c38fa83b1dc453bbb466bcf86`, size `823` bytes, `reviewer_governance_status: "FROZEN_PENDING_EXTERNAL_REVIEW"`).
+   - External chain-of-custody review approved: Created approved commitment `configs/verification-v2-d3-holdout-label-commitment.json` (SHA-256 `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc`, size `1,060` bytes, `reviewer_governance_status: "EXTERNALLY_REVIEWED_FOR_H_EXEC"`).
+   - Provenance fields link `prior_pending_commitment_sha256`, `external_review_scope: "content_free_chain_of_custody_review"`, and timestamp.
+4. **Scope of Authorization**:
+   - Authorization is granted exclusively for the pre-registered one-shot Phase H-EXEC Kaggle execution.
+   - Candidate V2-D3 remains strictly frozen (`a6e8bca1...`, prompt `546cd8bd...`, schema `3591144a...`, `Qwen/Qwen2.5-3B-Instruct` rev `a1d308df...`).
+   - Rate thresholds remain strictly frozen (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`).
+   - Zero post-hoc modifications, candidate edits, prompt edits, threshold edits, label edits, or rerun loops permitted.

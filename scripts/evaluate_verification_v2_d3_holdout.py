@@ -723,16 +723,28 @@ class V2D3HoldoutBenchmarkEvaluator:
         packet_claims_found: set[tuple[str, str, str]] = set()
 
         with zipfile.ZipFile(self._holdout_packets_path, "r") as zf:
-            json_members = [m for m in zf.namelist() if m.endswith(".json") and not m.startswith("__MACOSX")]
+            json_members = [
+                m for m in zf.namelist()
+                if m.endswith(".json")
+                and not m.startswith("__MACOSX")
+                and ("holdout_packets/" in m or "packets/" in m)
+            ]
+            if not json_members:
+                json_members = [
+                    m for m in zf.namelist()
+                    if m.endswith(".json") and not m.startswith("__MACOSX") and "/" not in m
+                ]
             for member in sorted(json_members):
                 pkt = json.loads(zf.read(member).decode("utf-8"), object_pairs_hook=_reject_duplicate_json_keys)
                 qid = str(pkt.get("question_id") or Path(member).stem)
-                stratum = pkt.get("stratum", "UNKNOWN")
-                q_text = pkt.get("question_text", "")
+                stratum = pkt.get("stratum") or pkt.get("holdout_metadata", {}).get("stratum", "UNKNOWN")
+                q_text = pkt.get("question_text") or pkt.get("question", "")
 
                 pkt_arms = pkt.get("arms") or pkt.get("historical_arms", {})
+                if not pkt_arms and "historical_arm" in pkt:
+                    pkt_arms = {"PRIMARY": pkt["historical_arm"]}
                 for arm_id, arm_data in pkt_arms.items():
-                    hist_stop = arm_data.get("historical_stop_reason", "unknown")
+                    hist_stop = arm_data.get("historical_stop_reason") or arm_data.get("agent_outcome", {}).get("stop_reason", "unknown")
                     hist_verif = (
                         arm_data.get("historical_verification", {})
                         or arm_data.get("rule_verifier_replay", {}).get("replay_result", {})
@@ -778,7 +790,10 @@ class V2D3HoldoutBenchmarkEvaluator:
                     ev_list = [Evidence.model_validate(item) for item in raw_ev]
 
                     arm_claims: list[BenchmarkClaimTarget] = []
-                    raw_claims = arm_data.get("claims", [])
+                    raw_claims = (
+                        arm_data.get("claims")
+                        or arm_data.get("historical_verification", {}).get("claim_verifications", [])
+                    )
                     for rc in raw_claims:
                         cid = rc.get("claim_id", "")
                         ctext = rc.get("claim_text", "")

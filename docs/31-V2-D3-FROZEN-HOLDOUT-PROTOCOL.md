@@ -40,7 +40,7 @@ To guarantee that the exact evaluated model behavior is verified against the dev
 | :--- | :--- | :--- |
 | **System Instruction** | `STRUCTURED_SEMANTIC_D3_SYSTEM_INSTRUCTION` | `546cd8bd33b3c640c66023f653c87955418569b56ab9d68c5d2c325fb9bd283b` |
 | **Implementation File** | `structured_semantic_verifier_d3.py` | `a6e8bca15ad14d869e103e1f94fe94bb9a81f9ddc8bc650b280b69b7d57e9826` |
-| **JSON Schema** | `D3StructuredClaimAssessmentDraft` | `37cf5da1fa15c3298ec2fb11d4d03e911295ea912eb89b4f9fbcf5ba878a87ea` |
+| **JSON Schema** | `D3StructuredClaimAssessmentDraft` | `3591144a40b0519d5da9dd262e8edf8814531d798b69deea94fd81fae39f5f61` |
 
 ### 2.2 Inference & Combination Architecture
 For each cited claim:
@@ -97,9 +97,20 @@ The fresh holdout evaluation dataset was generated, reviewed, and sealed under M
 
 ### 3.2 Scientifically Correct Blindness Invariants
 1. **Before Phase H-LABEL Authorization:** Zero holdout inspection. No files opened or listed.
-2. **During Phase H-LABEL:** Human inspection is permitted solely for human reviewers to create independent gold labels. D3 model predictions MUST NOT exist or be visible.
+2. **During Phase H-LABEL:** Human inspection was permitted solely for human reviewers to assign independent gold labels. Zero D3 model predictions existed or were visible.
 3. **After Gold Labels are Frozen:** The label artifact SHA is committed immutably. Zero label edits are permitted.
 4. **During & After Phase H-EXEC:** Zero candidate tuning, zero prompt edits, zero threshold edits, zero label edits, and zero reruns to improve metrics.
+
+### 3.3 Completed Phase H-LABEL Frozen Identities & Approved Commitment
+Phase H-LABEL human review and label freezing completed successfully.
+
+| Artifact File | Canonical SHA-256 Checksum | Size (Bytes) | Status / Governance |
+| :--- | :--- | :--- | :--- |
+| `verification-v2-holdout-selection-v1.json` | `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b` | 16,788 | Pre-Registered Selection Binding |
+| `verification-v2-holdout-review-packets-v1.zip` | `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4` | 108,532 | Sealed Review Packets |
+| `verification-v2-holdout-reviewed-labels-v1.json` | `85d348dbb7da1567398836b96156a9d08fcfe181b676c5ecd593535ec8904215` | 9,383 | Frozen Human Gold Labels (31 claims: 24 S, 1 C, 6 I) |
+| `verification-v2-d3-holdout-label-commitment.json` (Pending) | `c7755e37e394e80484f73c52ee6965c34c65917c38fa83b1dc453bbb466bcf86` | 823 | Historical Pending-Review Commitment |
+| `configs/verification-v2-d3-holdout-label-commitment.json` (Approved) | `5cc7f58ed52c43d091bce98d5296ab68cded981495736a479644aefc1428b6dc` | 1,060 | Tracked Approved Commitment (`EXTERNALLY_REVIEWED_FOR_H_EXEC`) |
 
 ---
 
