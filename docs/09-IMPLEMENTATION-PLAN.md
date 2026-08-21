@@ -2496,11 +2496,12 @@ reports are reviewed.
 
 ## 75. Milestone 51.10 — Priority B: Candidate V2-D3 Freezing and Fresh Holdout Protocol Pre-Registration
 
-**Status:** Completed & Ready for Review (Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`, Evaluation Harness: `scripts/evaluate_verification_v2_d3_holdout.py`, Unit Tests: `tests/unit/evaluation/test_verification_v2_d3_holdout.py`)
+**Status:** Completed & Ready for Review (Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`, Label Freeze Script: `scripts/freeze_verification_v2_holdout_labels.py`, Evaluation Harness: `scripts/evaluate_verification_v2_d3_holdout.py`, Unit Tests: `tests/unit/evaluation/test_verification_v2_d3_holdout.py`, `tests/unit/evaluation/test_freeze_verification_v2_holdout_labels.py`)
 
 - officially selected and frozen Candidate **V2-D3** (`Qwen/Qwen2.5-3B-Instruct` revision `a1d308dfcc03e09da285d49d912439a655a571e8`, System Prompt SHA `546cd8bd...`, Implementation SHA `a6e8bca1...`);
 - permanently closed the 38-claim development benchmark for candidate tuning, prompt engineering, threshold tuning, and overlay creation (no D3.3);
-- pre-registered immutable rate gates for holdout evaluation (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`) and mechanical gates (0 model errors, 0 execution errors, 0 unstable claims);
-- implemented and validated holdout evaluation harness with content-safe telemetry and two-pass stability verification;
-- strictly preserved holdout blindness (zero inspection of holdout questions, claims, evidence, or labels);
-- next action: external review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before one-shot Kaggle holdout execution.
+- established two-phase irreversible lifecycle: **Phase H-LABEL** (human gold labeling without model predictions) and **Phase H-EXEC** (canonical one-shot model execution on Kaggle GPU);
+- pre-registered immutable rate gates for holdout evaluation (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`), non-vacuous coverage gates, and mechanical gates (0 model errors, 0 execution errors, 0 unstable claims);
+- implemented label freeze script (`freeze_verification_v2_holdout_labels.py`) and hardened holdout evaluation harness with fail-closed label validation, content-safe telemetry, single model loading, and two-pass stability verification;
+- strictly preserved holdout blindness (zero inspection of holdout questions, claims, evidence, or labels in this task);
+- next action: external review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before human gold labeling (Phase H-LABEL).

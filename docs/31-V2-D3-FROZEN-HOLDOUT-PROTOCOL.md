@@ -5,7 +5,7 @@
 ### 1.1 Formal Closure of Development Iterations
 The development phase of the V2 Semantic Citation Verifier is officially and permanently **CLOSED**.
 Across the 38-claim development benchmark:
-- **V2-D3** established high calibration, retaining **17/18 (94.44%)** supported claims and fixing 7 historical V0/V1 errors with 0 regressions.
+- **V2-D3** established high calibration, retaining **17/18 (94.44%)** supported claims, achieving **6/7 (85.71%)** valid answer retention, and fixing 7 historical V0/V1 errors with 0 regressions.
 - **V2-D3.1** (monolithic 2-gate) suffered severe overcalling, regressing supported retention to **12/18 (66.67%)** and losing 6/7 D3 fixes $\to$ closed as `KEEP_D3`.
 - **V2-D3.2** (asymmetric strict-conflict overlay) produced 0 false overrides, preserving 100% of D3 gains but failing to catch contradictions $\to$ closed as `KEEP_D3`.
 
@@ -53,49 +53,90 @@ For each cited claim:
 
 ---
 
-## 3. Fresh Holdout Benchmark Specification
+## 3. Fresh Holdout Benchmark Lifecycle & Governance
+
+The holdout evaluation follows a strict, two-phase irreversible lifecycle to guarantee scientific integrity.
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PHASE H-LABEL: HUMAN GOLD FREEZE                │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Candidate V2-D3 is FROZEN (model, prompt SHA, code SHA).            │
+│ 2. Evaluation protocol and promotion rate gates are FROZEN.            │
+│ 3. Human reviewers unseal ONLY the 16 primary review packets.          │
+│ 4. Zero D3 model predictions exist or are visible during review.       │
+│ 5. Reviewers assign gold labels (SUPPORTED, CONTRADICTED, INSUFFICIENT)│
+│ 6. Labels are frozen with freeze_verification_v2_holdout_labels.py.    │
+│ 7. Produces verification-v2-holdout-reviewed-labels-v1.json and        │
+│    content-free label commitment verification-v2-d3-holdout-label-     │
+│    commitment.json (SHA, size, counts, review status).                 │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        PHASE H-EXEC: CANONICAL EXECUTION               │
+├────────────────────────────────────────────────────────────────────────┤
+│ 1. Initiated ONLY after label commitment SHA is externally reviewed.   │
+│ 2. Single canonical execution of V2-D3 on Kaggle GPU.                  │
+│ 3. Harness verifies exact SHA binding across packets, selection, and   │
+│    labels against the frozen commitment.                               │
+│ 4. Two-pass deterministic stability evaluation.                        │
+│ 5. Evaluates non-vacuous coverage and rate gates fail-closed.          │
+│ 6. Zero post-hoc model tuning, prompt edits, threshold edits, or       │
+│    label modifications permitted.                                      │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
 ### 3.1 Pre-Registered Holdout Signatures (Outer Only)
 The fresh holdout evaluation dataset was generated, reviewed, and sealed under Milestone 27.
 
 | Artifact File | Canonical SHA-256 Checksum | Size (Bytes) | Status |
 | :--- | :--- | :--- | :--- |
-| `verification-v2-holdout-selection-v1.json` | `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b` | 16,788 | `sealed_unreviewed` |
-| `verification-v2-holdout-review-packets-v1.zip` | `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4` | 108,532 | `sealed_unreviewed` |
+| `verification-v2-holdout-selection-v1.json` | `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b` | 16,788 | Pre-Registered Selection |
+| `verification-v2-holdout-review-packets-v1.zip` | `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4` | 108,532 | Sealed Review Packets |
 
-### 3.2 Strict Holdout Blindness Invariants
-To preserve the scientific validity of the fresh holdout:
-1. **Zero Inspection:** No coding agent or developer may open, uncompress, list internal file members, inspect question IDs, inspect question texts, inspect claims, inspect evidence texts, or inspect gold labels before canonical execution.
-2. **One-Shot Decision:** The holdout evaluation is a one-time, final decision. No post-hoc tuning or rerun iterations are permitted.
-3. **Model-Free Preflight Gate:** A strict preflight mode (`--preflight-only`) must verify file checksums, runtime dependencies, and schema compatibility before loading weights or running inference.
+### 3.2 Scientifically Correct Blindness Invariants
+1. **Before Phase H-LABEL Authorization:** Zero holdout inspection. No files opened or listed.
+2. **During Phase H-LABEL:** Human inspection is permitted solely for human reviewers to create independent gold labels. D3 model predictions MUST NOT exist or be visible.
+3. **After Gold Labels are Frozen:** The label artifact SHA is committed immutably. Zero label edits are permitted.
+4. **During & After Phase H-EXEC:** Zero candidate tuning, zero prompt edits, zero threshold edits, zero label edits, and zero reruns to improve metrics.
 
 ---
 
 ## 4. Pre-Registered Promotion Gates & Decision Protocol
 
-### 4.1 Evaluation Architecture (Two-Pass Protocol)
-The holdout evaluation executes in two consecutive passes:
-- **Pass 1 (Authoritative):** Evaluates all holdout claims and computes all primary metrics.
-- **Pass 2 (Stability Confirmation):** Evaluates all holdout claims a second time to verify deterministic zero-temperature stability.
+### 4.1 Non-Vacuous Coverage Denominator Gates
+To prevent vacuous passes (e.g. evaluating on a dataset with 0 negative claims), promotion eligibility requires that all four evaluation class denominators are strictly greater than zero:
+1. `gold_supported_claims > 0`
+2. `gold_negative_claims > 0`
+3. `gold_valid_answers > 0`
+4. `gold_invalid_answers > 0`
 
-### 4.2 Pre-Registered Rate Gates
+If any denominator is zero:
+- `verdict = "V2_D3_HOLDOUT_COVERAGE_INSUFFICIENT"`
+- `promotion_recommended = False`
+- `promotion_authorized = False`
+- Affected rate metrics are reported as `null` / `None` (never `1.0`).
+
+### 4.2 Pre-Registered Rate Gates (Pass 1 Authoritative)
 To recommend promoting V2-D3 into production, the authoritative Pass 1 metrics must satisfy all of the following rate thresholds:
 
 | Metric Gate | Pre-Registered Threshold | Primary Rationale |
 | :--- | :---: | :--- |
-| **Supported Claim Retention Rate** | $\ge \mathbf{88.00\%}$ | Prevents false rejections of valid grounded claims; preserves generation utility. |
-| **Negative Claim Catch Rate** | $\ge \mathbf{50.00\%}$ | Ensures meaningful filtering of hallucinated, contradicted, or unsupported claims. |
-| **Valid Answer Retention Rate** | $\ge \mathbf{80.00\%}$ | Protects end-to-end answer preservation for fully grounded answers. |
-| **Full Answer-Level Accuracy** | $\ge \mathbf{60.00\%}$ | Guarantees net positive answer verification correctness across all answer types. |
-| **Binary Claim Accuracy** | $\ge \mathbf{70.00\%}$ | Ensures solid overall binary discrimination on unseen holdout claims. |
+| **Supported Claim Retention Rate** | $\ge \mathbf{88.00\%}$ | Prevents false rejections of valid grounded claims (Dev: 17/18 = 94.44%). |
+| **Negative Claim Catch Rate** | $\ge \mathbf{50.00\%}$ | Ensures meaningful filtering of hallucinated/contradicted claims (Dev: 11/20 = 55.00%). |
+| **Valid Answer Retention Rate** | $\ge \mathbf{80.00\%}$ | Protects end-to-end preservation of valid answers (Dev: 6/7 = 85.71%). |
+| **Full Answer-Level Accuracy** | $\ge \mathbf{60.00\%}$ | Guarantees net positive answer verification correctness (Dev: 14/22 = 63.64%). |
+| **Binary Claim Accuracy** | $\ge \mathbf{70.00\%}$ | Ensures solid overall binary discrimination on unseen claims (Dev: 28/38 = 73.68%). |
 
 ### 4.3 Pre-Registered Mechanical Gates
-In addition to rate thresholds, execution must satisfy:
 1. **Zero Provider Invocation Errors:** `provider_invocation_errors == 0`.
 2. **Zero Execution Errors:** `execution_error_in_any_pass_count == 0`.
 3. **Zero Instability:** `unstable_semantic_claim_count == 0` (100% agreement between Pass 1 and Pass 2).
 4. **Complete Output Validation:** Exactly 2 valid semantic labels per claim across both passes.
 5. **Frozen D3 Source Verification:** Implementation and prompt SHA-256 must match frozen D3 hashes.
+6. **Strict Source Binding:** Packets SHA, selection SHA, and labels SHA must match the pre-registered commitment.
+7. **Exact Packet-Label Set Equality:** Exact claim key match `(question_id, arm_id, claim_id)` with zero missing, extra, or duplicate labels.
 
 ### 4.4 Decision Logic & Verdicts
 ```
@@ -103,19 +144,26 @@ In addition to rate thresholds, execution must satisfy:
                                           │
                                           ▼
                       ┌───────────────────────────────────────┐
-                      │   Check Mechanical & Stability Gates  │
+                      │    Check Non-Vacuous Coverage Gates   │
                       └───────────────────┬───────────────────┘
                                           │
                         ┌─────────────────┴─────────────────┐
-                        │ Pass                              │ Fail
+                        │ Sufficient                        │ Insufficient
                         ▼                                   ▼
         ┌───────────────────────────────┐        ┌───────────────────────────────┐
-        │   Check Rate Quality Gates    │        │  V2_D3_HOLDOUT_EXECUTION_FAIL │
+        │   Check Mechanical Gates      │        │ V2_D3_HOLDOUT_COVERAGE_INSUFF │
         └───────────────┬───────────────┘        │   (REJECT_V2_D3_PROMOTION)    │
                         │                        └───────────────────────────────┘
             ┌───────────┴───────────┐
             │ Pass                  │ Fail
             ▼                       ▼
+┌───────────────────────────────┐ ┌───────────────────────────────┐
+│   Check Quality Rate Gates    │ │ V2_D3_HOLDOUT_EXECUTION_FAIL  │
+└───────────────┬───────────────┘ │   (REJECT_V2_D3_PROMOTION)    │
+                │                 └───────────────────────────────┘
+    ┌───────────┴───────────┐
+    │ Pass                  │ Fail
+    ▼                       ▼
 ┌───────────────────────────────┐ ┌───────────────────────────────┐
 │ V2_D3_HOLDOUT_PROMOTION_RECOMM│ │ V2_D3_HOLDOUT_PROMOTION_REJ   │
 │ (PROMOTE_V2_D3_TO_PRODUCTION) │ │   (REJECT_V2_D3_PROMOTION)    │
@@ -125,22 +173,23 @@ In addition to rate thresholds, execution must satisfy:
 ### 4.5 Promotion vs Authorization Boundary (Fail-Closed Security)
 - Harness outputs `promotion_recommended: true` if and only if all gates pass.
 - Harness output `promotion_authorized: false` is an **unconditional invariant**.
-- Production semantic verifier enablement (`enabled = true` in config/factory) requires human governance review and authorization after inspecting the canonical holdout evidence package.
+- Production semantic verifier enablement (`enabled = true` in config) requires human governance review and authorization after inspecting the canonical holdout evidence package.
 
 ---
 
 ## 5. Kaggle Holdout Execution Runbook (Cells H1–H6)
 
-### Cell H1: Environment Setup & Git Clone
+### Cell H1: Environment Setup, Pinned HF Runtime & Git Checkout
 ```python
 # ==============================================================================
-# CELL H1: ENVIRONMENT SETUP & CODEBASE CLONE
+# CELL H1: ENVIRONMENT SETUP, PINNED HF RUNTIME & CODEBASE CHECKOUT
 # ==============================================================================
 import os
 import subprocess
+import sys
 from pathlib import Path
 
-# Execution Authority Commit
+# Pinned Execution Authority Commit
 REVIEWED_COMMIT_SHA = "PLACEHOLDER_REVIEWED_COMMIT_SHA"
 
 REPO_URL = "https://github.com/Chef221/legal-agentic-rag.git"
@@ -162,17 +211,45 @@ current_commit = subprocess.check_output(
 print(f"Repository verified at reviewed commit: {current_commit}")
 assert current_commit == REVIEWED_COMMIT_SHA, f"Commit mismatch: {current_commit} != {REVIEWED_COMMIT_SHA}"
 
-# Install project in editable mode
-subprocess.run(["pip", "install", "-e", "."], cwd=str(REPO_DIR), check=True)
-print("Environment and editable package installation complete.")
+# Verify clean worktree
+git_status = subprocess.check_output(["git", "status", "--short"], cwd=str(REPO_DIR), text=True).strip()
+assert len(git_status) == 0, f"Git worktree is not clean:\n{git_status}"
+
+# Install exact pinned Hugging Face runtime without reinstalling Torch
+subprocess.run([
+    "pip", "install", "-q",
+    "transformers==4.47.1",
+    "tokenizers==0.21.4",
+    "huggingface-hub==0.27.1",
+    "accelerate==1.2.1",
+], check=True)
+
+# Install project in editable mode without dependencies
+subprocess.run(["python", "-m", "pip", "install", "-q", "-e", ".", "--no-deps"], cwd=str(REPO_DIR), check=True)
+
+# Run subprocess import smoke test
+smoke_cmd = """\
+import torch, transformers, pydantic, legal_agentic_rag
+print(f"Torch Version:        {torch.__version__}")
+print(f"CUDA Available:       {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"GPU Device:           {torch.cuda.get_device_name(0)}")
+print(f"Transformers Version: {transformers.__version__}")
+print(f"Pydantic Version:     {pydantic.__version__}")
+print(f"Package Version:      {legal_agentic_rag.__version__}")
+assert torch.cuda.is_available(), "CUDA device required!"
+"""
+subprocess.run([sys.executable, "-c", smoke_cmd], cwd=str(REPO_DIR), check=True)
+print("Environment setup and runtime verification complete.")
 ```
 
-### Cell H2: Dataset Discovery & Outer Checksum Verification
+### Cell H2: Dataset Discovery & Exact Byte Checksum Verification
 ```python
 # ==============================================================================
-# CELL H2: HOLDOUT DATASET DISCOVERY & CHECKSUM VERIFICATION
+# CELL H2: HOLDOUT DATASET DISCOVERY & BYTE CHECKSUM VERIFICATION
 # ==============================================================================
 from hashlib import sha256
+import json
 from pathlib import Path
 
 def sha256_file(path: Path) -> str:
@@ -182,8 +259,8 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-# Known input dataset locations on Kaggle
 INPUT_DIR = Path("/kaggle/input")
+REPO_DIR = Path("/kaggle/working/legal-agentic-rag")
 
 HOLDOUT_PACKETS_CANDIDATES = list(INPUT_DIR.glob("**/verification-v2-holdout-review-packets-v1.zip"))
 HOLDOUT_SELECTION_CANDIDATES = list(INPUT_DIR.glob("**/verification-v2-holdout-selection-v1.json"))
@@ -196,9 +273,14 @@ assert HOLDOUT_LABELS_CANDIDATES, "verification-v2-holdout-reviewed-labels-v1.js
 HOLDOUT_PACKETS_PATH = HOLDOUT_PACKETS_CANDIDATES[0]
 HOLDOUT_SELECTION_PATH = HOLDOUT_SELECTION_CANDIDATES[0]
 HOLDOUT_LABELS_PATH = HOLDOUT_LABELS_CANDIDATES[0]
+LABEL_COMMITMENT_PATH = REPO_DIR / "configs" / "verification-v2-d3-holdout-label-commitment.json"
+
+assert LABEL_COMMITMENT_PATH.is_file(), f"Label commitment missing: {LABEL_COMMITMENT_PATH}"
+commitment = json.loads(LABEL_COMMITMENT_PATH.read_text(encoding="utf-8"))
 
 EXPECTED_PACKETS_SHA = "a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4"
 EXPECTED_SELECTION_SHA = "08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b"
+EXPECTED_LABELS_SHA = commitment["labels_sha256"]
 
 actual_packets_sha = sha256_file(HOLDOUT_PACKETS_PATH)
 actual_selection_sha = sha256_file(HOLDOUT_SELECTION_PATH)
@@ -210,8 +292,9 @@ print(f"Holdout Labels:    {HOLDOUT_LABELS_PATH} (SHA: {actual_labels_sha})")
 
 assert actual_packets_sha == EXPECTED_PACKETS_SHA, f"Packets SHA mismatch: {actual_packets_sha}"
 assert actual_selection_sha == EXPECTED_SELECTION_SHA, f"Selection SHA mismatch: {actual_selection_sha}"
+assert actual_labels_sha == EXPECTED_LABELS_SHA, f"Labels SHA mismatch: {actual_labels_sha}"
 
-print("All pre-registered holdout input checksums successfully verified.")
+print("All holdout input checksums successfully verified against frozen commitment.")
 ```
 
 ### Cell H3: Model-Free Preflight Gate Verification
@@ -230,6 +313,7 @@ cmd_preflight = [
     "--holdout-packets", str(HOLDOUT_PACKETS_PATH),
     "--holdout-labels", str(HOLDOUT_LABELS_PATH),
     "--holdout-selection", str(HOLDOUT_SELECTION_PATH),
+    "--label-commitment", str(LABEL_COMMITMENT_PATH),
     "--output-dir", str(OUTPUT_DIR / "preflight"),
     "--preflight-only",
 ]
@@ -239,13 +323,13 @@ subprocess.run(cmd_preflight, cwd=str(REPO_DIR), check=True)
 print("Preflight verification PASSED. Ready for model inference.")
 ```
 
-### Cell H4: Model Weight Download & Device Check
+### Cell H4: Model Access Verification (No Double Loading in Notebook Memory)
 ```python
 # ==============================================================================
-# CELL H4: MODEL WEIGHT DOWNLOAD & DEVICE VERIFICATION
+# CELL H4: MODEL ACCESS VERIFICATION (NO NOTEBOOK MEMORY RESIDENCE)
 # ==============================================================================
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoTokenizer
 
 MODEL_NAME = "Qwen/Qwen2.5-3B-Instruct"
 MODEL_REVISION = "a1d308dfcc03e09da285d49d912439a655a571e8"
@@ -254,18 +338,12 @@ assert torch.cuda.is_available(), "CUDA device is required for canonical V2-D3 h
 device_name = torch.cuda.get_device_name(0)
 print(f"CUDA Available: {device_name} (Device Count: {torch.cuda.device_count()})")
 
-print(f"Pre-caching model weights for {MODEL_NAME} (revision: {MODEL_REVISION})...")
+print(f"Verifying tokenizer and model accessibility for {MODEL_NAME}...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, revision=MODEL_REVISION)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    revision=MODEL_REVISION,
-    torch_dtype=torch.float16,
-    device_map="auto",
-)
-print("Model weights successfully loaded and verified.")
+print("Model accessibility verified. Model will be loaded exclusively by the evaluation subprocess.")
 ```
 
-### Cell H5: Live Execution & Canonical Evidence Packaging
+### Cell H5: Live Canonical Execution & Evidence Packaging
 ```python
 # ==============================================================================
 # CELL H5: LIVE HOLDOUT EXECUTION & EVIDENCE PACKAGING
@@ -282,6 +360,7 @@ cmd_eval = [
     "--holdout-packets", str(HOLDOUT_PACKETS_PATH),
     "--holdout-labels", str(HOLDOUT_LABELS_PATH),
     "--holdout-selection", str(HOLDOUT_SELECTION_PATH),
+    "--label-commitment", str(LABEL_COMMITMENT_PATH),
     "--output-dir", str(OUTPUT_DIR),
     "--package-zip", str(PACKAGE_ZIP),
     "--device", "cuda",
@@ -289,7 +368,7 @@ cmd_eval = [
     "--temperature", "0.0",
 ]
 
-print("Launching canonical V2-D3 Holdout Evaluation...")
+print("Launching canonical V2-D3 Holdout Evaluation subprocess...")
 subprocess.run(cmd_eval, cwd=str(REPO_DIR), check=True)
 print(f"Holdout evaluation finished. Evidence package generated at {PACKAGE_ZIP}")
 ```
@@ -344,14 +423,14 @@ with zipfile.ZipFile(PACKAGE_ZIP, "r") as zf:
 
 print(f"Member Count:      {len(members)} (All required members verified)")
 print(f"Provider Calls:    {len(provider_calls)} reconciled across 2 passes")
-print(f"Stability:         {stability['stability_summary']['stable_semantic_claim_count']}/{stability['stability_summary']['total_claims']} stable claims")
+print(f"Stability:         {stability['stability']['stable_semantic_claim_count']}/{stability['stability']['total_claims']} stable claims")
 print(f"Verdict:           {report['verdict']}")
 print(f"Decision:          {decision['holdout_evaluation_decision']}")
 print(f"Promotion Recom:   {decision['promotion_recommended']}")
-print(f"Promotion Auth:    {decision['promotion_authorized']} (Fail-Closed)")
+print(f"Promotion Auth:    {decision['promotion_authorized']} (Fail-Closed Invariant)")
 print("="*75)
-print("Metrics Summary:")
-for k, v in decision.get("metrics_summary", {}).items():
+print("Pass 1 Actual Rates:")
+for k, v in decision.get("pass1_actual_rates", {}).items():
     print(f"  - {k}: {v}")
 print("="*75)
 print("\n*** DOWNLOAD EVIDENCE ARCHIVE BEFORE TERMINATING KAGGLE SESSION ***\n")
@@ -365,8 +444,9 @@ print("\n*** DOWNLOAD EVIDENCE ARCHIVE BEFORE TERMINATING KAGGLE SESSION ***\n")
 - **V2-D3.2 FORMALLY CLOSED AS `KEEP_D3`**
 - **V2-D3 IS FORMALLY FROZEN AS THE EXCLUSIVE V2 CANDIDATE**
 - **DEVELOPMENT BENCHMARK IS PERMANENTLY CLOSED FOR CANDIDATE TUNING**
-- **ZERO HUMAN INSPECTION OF HOLDOUT TEXTS OR LABELS BEFORE EXECUTION**
-- **PRE-REGISTERED RATE GATES AND MECHANICAL GATES ARE IMMUTABLE**
+- **ZERO D3 PREDICTIONS VISIBLE OR EXISTING DURING PHASE H-LABEL REVIEW**
+- **ZERO MODEL TUNING, PROMPT EDITS, OR THRESHOLD EDITS DURING OR AFTER H-EXEC**
+- **PRE-REGISTERED RATE GATES AND NON-VACUOUS COVERAGE GATES ARE IMMUTABLE**
 - **`promotion_authorized` IS UNCONDITIONALLY FALSE IN HARNESS OUTPUTS**
 - **NO PRODUCTION WIRING MODIFIED (SEMANTIC VERIFIER REMAINS DISABLED IN PROD)**
 - **ZERO CHANGES TO RETRIEVAL / RERANKING / GENERATION PIPELINE CORE**

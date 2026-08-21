@@ -411,15 +411,18 @@ The immediate next action is:
     - **Task B-V2-D3-FREEZE & HOLDOUT-PREREGISTRATION COMPLETE**:
       - V2-D3 officially frozen as selected champion V2 development candidate.
       - Development benchmark (38 claims) is permanently CLOSED for candidate tuning. There is NO D3.3.
-      - Fresh Holdout Evaluation Protocol pre-registered in `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md` with immutable rate gates (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`).
-      - Evaluation harness implemented in `scripts/evaluate_verification_v2_d3_holdout.py` and validated with 13 comprehensive unit tests in `tests/unit/evaluation/test_verification_v2_d3_holdout.py`.
-      - Holdout blindness preserved: Zero inspection of holdout questions, claims, evidence, or labels.
-    - **Next Action in Priority B**: External review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before one-shot Kaggle holdout execution.
+      - Two-phase irreversible lifecycle established: **Phase H-LABEL** (human gold labeling without model predictions) and **Phase H-EXEC** (canonical one-shot model execution on Kaggle GPU).
+      - Fresh Holdout Evaluation Protocol pre-registered in `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md` with immutable rate gates (`supp_ret >= 0.88`, `neg_catch >= 0.50`, `val_ans_ret >= 0.80`, `full_ans_acc >= 0.60`, `claim_bin_acc >= 0.70`), non-vacuous coverage gates, and mechanical gates.
+      - Label freeze script implemented in `scripts/freeze_verification_v2_holdout_labels.py` and evaluation harness implemented in `scripts/evaluate_verification_v2_d3_holdout.py` with fail-closed label validation, content-safe telemetry, and two-pass stability verification.
+      - 23 comprehensive unit tests passing across holdout evaluation and label freeze test suites (`tests/unit/evaluation/test_verification_v2_d3_holdout.py`, `tests/unit/evaluation/test_freeze_verification_v2_holdout_labels.py`).
+      - Holdout blindness preserved: Zero inspection of real holdout questions, claims, evidence, or labels in this task.
+    - **Next Action in Priority B**: External review of pre-registered frozen holdout evaluation protocol (`docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`) before human gold labeling (Phase H-LABEL).
 
 ---
 
 ## 16. Status of Historical Questions
 
+- **What happened in V2-D3 Holdout Governance Hardening?** Resolved: Hardened holdout evaluation governance into two distinct irreversible phases (Phase H-LABEL for human gold freezing and Phase H-EXEC for Kaggle execution). Created `scripts/freeze_verification_v2_holdout_labels.py` and hardened `scripts/evaluate_verification_v2_d3_holdout.py` with exact packet-label claim set equality, non-vacuous coverage denominator gates, zero-denominator None semantics, pinned Kaggle environment, and single model loading. Tested exclusively on synthetic fixtures with zero real holdout exposure.
 - **What happened in V2-D3.2 Execution?** Resolved: V2-D3.2 completed canonical Kaggle execution (`e5db78f0796c53e973fc63f9dd98df6c95f43f6e`, evidence `verification-v2-d32-development-evidence.zip` SHA-256 `bf44b9d77172d4f1823b62c02abae9e462bfbb9fdc5c650ba87e192e4928878f`). Reconciled 152 calls, 0 errors, 0 retries, 38/38 stable claims, 0 base drift. Overcall was 0 (0 false overrides, 7/7 D3 gains preserved), but caught 0 contradictions (net delta 0 vs D3). Formal decision: `KEEP_D3`. V2-D3.2 formally closed.
 - **What is the status of V2 Candidate Selection?** Resolved: V2-D3 is officially selected and frozen as the exclusive V2 candidate. Development iterations are permanently closed. There is NO D3.3.
 - **What is the status of the Fresh Holdout Protocol?** Resolved: Pre-registered in `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md` and `scripts/evaluate_verification_v2_d3_holdout.py` with pre-registered rate gates and two-pass stability requirements. Fresh holdout data remains strictly sealed and unreviewed.
@@ -467,11 +470,11 @@ Stable comparison baseline:
     M49.6 production RAG pipeline (pretrained Qwen2.5-3B-Instruct)
 
 Current repository state:
-    0.50.7 (V2-D3.2 Formally Closed as KEEP_D3; V2-D3 Formally Frozen as Selected Candidate; Development Benchmark Permanently Closed; Fresh Holdout Protocol Pre-Registered; Fresh Holdout Sealed; Production Verifier Disabled)
+    0.50.7 (V2-D3.2 Formally Closed as KEEP_D3; V2-D3 Formally Frozen as Selected Candidate; Holdout Label Freeze and Execution Harness Hardened; Pre-Registered Protocol Updated; Holdout Blindness Preserved; Production Verifier Disabled)
 
 Active development frontier:
-    Priority B — Verification-correctness audit (V2-D3 Frozen — Fresh Holdout Protocol Pre-Registered — Pending External Review Before Kaggle Execution)
+    Priority B — Verification-correctness audit (V2-D3 Frozen — Fresh Holdout Protocol & Label Freeze Hardened — Pending External Review Before Phase H-LABEL Gold Freezing)
 
 Next action:
-    External review of pre-registered frozen holdout evaluation protocol (docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md) before Kaggle holdout execution
+    External review of pre-registered frozen holdout evaluation protocol (docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md) before Phase H-LABEL human gold labeling
 ```

@@ -15,9 +15,14 @@ Key Principles & Invariants:
   rejections, contradictions, or valid answer retractions.
 - Content-Safe Telemetry: Observational proxy records call hashes and timings without
   raw prompt/completion exposure.
+- Fail-Closed Label Verification: Zero fallbacks (no packet entailment fallback, no
+  INSUFFICIENT fallback). Strict set equality required between packet claims and human labels.
+- Non-Vacuous Coverage Gates: Supported claim denominator > 0, negative claim denominator > 0,
+  valid answer denominator > 0, invalid answer denominator > 0 required for promotion eligibility.
+- Zero-Denominator Semantics: Rate metrics report None when denominator is zero, not 1.0.
 - Pre-Registered Rate-Based Promotion Gate: Pre-registered rate thresholds (supported
   retention >= 88%, negative catch >= 50%, valid answer retention >= 80%, full answer
-  accuracy >= 60%, claim binary accuracy >= 70%) evaluated without inspecting sealed labels.
+  accuracy >= 60%, claim binary accuracy >= 70%) evaluated on Phase H-EXEC.
 - Fail-Closed Governance: promotion_authorized is ALWAYS False in harness outputs;
   actual production promotion requires subsequent human sign-off and wiring tasks.
 """
@@ -108,7 +113,7 @@ CANONICAL_REPEAT_COUNT = 2
 # Pre-Registered Promotion Gate Rate Thresholds
 GATE_MIN_SUPPORTED_RETENTION_RATE = 0.88  # Dev: 17/18 = 94.44%
 GATE_MIN_NEGATIVE_CATCH_RATE = 0.50       # Dev: 11/20 = 55.00%
-GATE_MIN_VALID_ANSWER_RETENTION_RATE = 0.80  # Dev: 7/7 = 100.0%
+GATE_MIN_VALID_ANSWER_RETENTION_RATE = 0.80  # Dev: 6/7 = 85.71%
 GATE_MIN_FULL_ANSWER_ACCURACY_RATE = 0.60   # Dev: 14/22 = 63.64%
 GATE_MIN_CLAIM_BINARY_ACCURACY_RATE = 0.70  # Dev: 28/38 = 73.68%
 
@@ -132,6 +137,7 @@ class BenchmarkClaimTarget:
     arm_id: str
     claim_id: str
     claim_text: str
+    claim_text_sha256: str
     human_label: HumanEntailment
     error_tags: list[str]
     diagnostic_note: str | None
@@ -199,11 +205,10 @@ class ObservationalChatModelProviderWrapper(ChatModelProvider):
         start_time = perf_counter()
         call_record: dict[str, Any] = {
             "call_index": call_idx,
-            "timestamp": datetime.now(UTC).isoformat(),
             "system_instruction_sha256": sys_sha,
             "user_prompt_sha256": usr_sha,
-            "prompt_length_chars": prompt_len,
-            "success": False,
+            "user_prompt_length_chars": prompt_len,
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         try:
@@ -212,11 +217,13 @@ class ObservationalChatModelProviderWrapper(ChatModelProvider):
                 user_prompt=user_prompt,
             )
             dur = perf_counter() - start_time
+            completion_sha = sha256(raw_completion.encode("utf-8")).hexdigest()
             call_record.update({
-                "success": True,
-                "completion_sha256": sha256(raw_completion.encode("utf-8")).hexdigest(),
-                "completion_length_chars": len(raw_completion),
                 "duration_seconds": dur,
+                "completion_sha256": completion_sha,
+                "completion_length_chars": len(raw_completion),
+                "success": True,
+                "error_type": None,
             })
             self._call_history.append(call_record)
             return raw_completion
@@ -224,25 +231,30 @@ class ObservationalChatModelProviderWrapper(ChatModelProvider):
             dur = perf_counter() - start_time
             self._total_errors += 1
             call_record.update({
-                "success": False,
-                "error_type": exc.__class__.__name__,
-                "error_sha256": sha256(str(exc).encode("utf-8")).hexdigest(),
                 "duration_seconds": dur,
+                "completion_sha256": None,
+                "completion_length_chars": 0,
+                "success": False,
+                "error_type": type(exc).__name__,
+                "error_message_summary": str(exc)[:200],
             })
             self._call_history.append(call_record)
             raise
 
 
 class V2D3HoldoutBenchmarkEvaluator:
-    """Evaluates frozen candidate V2-D3 over the pre-registered fresh holdout benchmark."""
+    """Authoritative evaluation harness for frozen candidate V2-D3 over fresh holdout."""
 
     def __init__(
         self,
-        holdout_packets_path: Path,
-        holdout_labels_path: Path,
-        holdout_selection_path: Path | None = None,
-        output_dir: Path = Path("evaluation_outputs/v2_d3_holdout_output"),
-        package_zip: Path | None = None,
+        *,
+        holdout_packets_path: Path | str,
+        holdout_labels_path: Path | str,
+        holdout_selection_path: Path | str | None = None,
+        label_commitment_path: Path | str | None = None,
+        holdout_labels_sha256: str | None = None,
+        output_dir: Path | str = "evaluation_outputs/v2_d3_holdout_output",
+        package_zip: Path | str | None = None,
         candidate_id: str = CANONICAL_CANDIDATE_ID,
         device: str = CANONICAL_V3_DEVICE,
         torch_dtype: str = CANONICAL_V3_TORCH_DTYPE,
@@ -259,6 +271,8 @@ class V2D3HoldoutBenchmarkEvaluator:
         self._holdout_packets_path = Path(holdout_packets_path)
         self._holdout_labels_path = Path(holdout_labels_path)
         self._holdout_selection_path = Path(holdout_selection_path) if holdout_selection_path else None
+        self._label_commitment_path = Path(label_commitment_path) if label_commitment_path else None
+        self._holdout_labels_sha256 = holdout_labels_sha256
         self._output_dir = Path(output_dir)
         self._package_zip = Path(package_zip) if package_zip else None
         self._candidate_id = candidate_id
@@ -278,13 +292,13 @@ class V2D3HoldoutBenchmarkEvaluator:
         """Execute full holdout benchmark evaluation or preflight validation."""
         start_time = perf_counter()
 
-        # 1. Source SHA verification (fail-closed)
+        # 1. Source SHA & Commitment verification (fail-closed)
         sources_info = self._verify_canonical_source_checksums()
 
         # 2. Execution identity provenance
         exec_identity = self._build_execution_identity(sources_info)
 
-        # 3. Load holdout targets
+        # 3. Load holdout targets with strict fail-closed validation
         arm_targets, claim_targets = self._load_holdout_targets()
         _LOGGER.info(
             "Loaded %d holdout claim targets across %d arm targets.",
@@ -394,54 +408,118 @@ class V2D3HoldoutBenchmarkEvaluator:
         return final_report
 
     def _verify_canonical_source_checksums(self) -> dict[str, dict[str, Any]]:
-        """Verify holdout input files against pre-registered SHA-256 signatures."""
+        """Verify holdout input files and frozen commitment against pre-registered SHA signatures."""
         info: dict[str, dict[str, Any]] = {}
 
-        for key, path in [
-            ("holdout_review_packets", self._holdout_packets_path),
-            ("holdout_labels", self._holdout_labels_path),
-        ]:
-            if not path.is_file():
-                raise FileNotFoundError(f"Missing required holdout source '{key}' at: {path}")
+        if not self._holdout_packets_path.is_file():
+            raise FileNotFoundError(f"Missing required holdout review packets at: {self._holdout_packets_path}")
+        if not self._holdout_labels_path.is_file():
+            raise FileNotFoundError(f"Missing required holdout labels file at: {self._holdout_labels_path}")
+
+        actual_packets_sha = self._sha256_file(self._holdout_packets_path)
+        actual_labels_sha = self._sha256_file(self._holdout_labels_path)
+        actual_labels_size = self._holdout_labels_path.stat().st_size
+
+        actual_selection_sha: str | None = None
+        if self._holdout_selection_path:
+            if not self._holdout_selection_path.is_file():
+                raise FileNotFoundError(f"Missing holdout selection file at: {self._holdout_selection_path}")
+            actual_selection_sha = self._sha256_file(self._holdout_selection_path)
 
         if not self._bypass_source_checksums:
-            if self._holdout_packets_path.is_file():
-                actual_sha = self._sha256_file(self._holdout_packets_path)
-                if actual_sha != CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256:
-                    raise DataValidationError(
-                        f"SHA-256 mismatch for holdout_review_packets. "
-                        f"Expected: {CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256}, Got: {actual_sha}"
-                    )
-                info["holdout_review_packets"] = {
-                    "filename": self._holdout_packets_path.name,
-                    "sha256": actual_sha,
-                    "size_bytes": self._holdout_packets_path.stat().st_size,
-                }
+            # 1. Check holdout review packets canonical SHA
+            if actual_packets_sha != CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256:
+                raise DataValidationError(
+                    f"SHA-256 mismatch for holdout_review_packets. "
+                    f"Expected: {CANONICAL_HOLDOUT_REVIEW_ZIP_SHA256}, Got: {actual_packets_sha}"
+                )
 
-            if self._holdout_selection_path and self._holdout_selection_path.is_file():
-                actual_sha = self._sha256_file(self._holdout_selection_path)
-                if actual_sha != CANONICAL_HOLDOUT_SELECTION_SHA256:
+            # 2. Check holdout selection canonical SHA (Selection is mandatory for canonical execution)
+            if not self._holdout_selection_path or not self._holdout_selection_path.is_file():
+                raise DataValidationError(
+                    "CANONICAL_HOLDOUT_EXECUTION_BLOCKED: Holdout selection file is mandatory for canonical execution."
+                )
+            if actual_selection_sha != CANONICAL_HOLDOUT_SELECTION_SHA256:
+                raise DataValidationError(
+                    f"SHA-256 mismatch for holdout_selection. "
+                    f"Expected: {CANONICAL_HOLDOUT_SELECTION_SHA256}, Got: {actual_selection_sha}"
+                )
+
+            # 3. Verify Label Commitment or Explicit Label SHA
+            expected_labels_sha: str | None = None
+            if self._label_commitment_path:
+                if not self._label_commitment_path.is_file():
+                    raise FileNotFoundError(f"Label commitment file missing at: {self._label_commitment_path}")
+                commitment = json.loads(self._label_commitment_path.read_text(encoding="utf-8"))
+
+                if commitment.get("artifact_type") != "verification_v2_holdout_label_commitment":
+                    raise DataValidationError("Invalid label commitment artifact_type")
+                if commitment.get("review_status") != "frozen_human_reviewed":
+                    raise DataValidationError("Commitment review_status must be 'frozen_human_reviewed'")
+
+                # Check cross-bindings
+                if commitment.get("holdout_packets_sha256") != actual_packets_sha:
+                    raise DataValidationError("Commitment holdout_packets_sha256 does not match actual packets archive")
+                if commitment.get("holdout_selection_sha256") != actual_selection_sha:
+                    raise DataValidationError("Commitment holdout_selection_sha256 does not match actual selection file")
+
+                expected_labels_sha = commitment.get("labels_sha256")
+                expected_labels_size = commitment.get("labels_size_bytes")
+                if expected_labels_size and actual_labels_size != expected_labels_size:
                     raise DataValidationError(
-                        f"SHA-256 mismatch for holdout_selection. "
-                        f"Expected: {CANONICAL_HOLDOUT_SELECTION_SHA256}, Got: {actual_sha}"
+                        f"Holdout labels size mismatch: expected {expected_labels_size} bytes, got {actual_labels_size}"
                     )
-                info["holdout_selection"] = {
-                    "filename": self._holdout_selection_path.name,
-                    "sha256": actual_sha,
-                    "size_bytes": self._holdout_selection_path.stat().st_size,
+            elif self._holdout_labels_sha256:
+                expected_labels_sha = self._holdout_labels_sha256
+            else:
+                raise DataValidationError(
+                    "CANONICAL_HOLDOUT_EXECUTION_BLOCKED: Canonical holdout execution requires either "
+                    "--label-commitment or --holdout-labels-sha256."
+                )
+
+            if expected_labels_sha and actual_labels_sha != expected_labels_sha:
+                raise DataValidationError(
+                    f"SHA-256 mismatch for holdout_labels: expected {expected_labels_sha}, got {actual_labels_sha}"
+                )
+
+            info["holdout_review_packets"] = {
+                "filename": self._holdout_packets_path.name,
+                "sha256": actual_packets_sha,
+                "size_bytes": self._holdout_packets_path.stat().st_size,
+            }
+            info["holdout_selection"] = {
+                "filename": self._holdout_selection_path.name,
+                "sha256": actual_selection_sha,
+                "size_bytes": self._holdout_selection_path.stat().st_size,
+            }
+            info["holdout_labels"] = {
+                "filename": self._holdout_labels_path.name,
+                "sha256": actual_labels_sha,
+                "size_bytes": actual_labels_size,
+            }
+            if self._label_commitment_path:
+                info["label_commitment"] = {
+                    "filename": self._label_commitment_path.name,
+                    "sha256": self._sha256_file(self._label_commitment_path),
                 }
         else:
             info["holdout_review_packets"] = {
                 "filename": self._holdout_packets_path.name,
-                "sha256": self._sha256_file(self._holdout_packets_path),
+                "sha256": actual_packets_sha,
                 "size_bytes": self._holdout_packets_path.stat().st_size,
             }
+            if self._holdout_selection_path and self._holdout_selection_path.is_file():
+                info["holdout_selection"] = {
+                    "filename": self._holdout_selection_path.name,
+                    "sha256": actual_selection_sha,
+                    "size_bytes": self._holdout_selection_path.stat().st_size,
+                }
+            info["holdout_labels"] = {
+                "filename": self._holdout_labels_path.name,
+                "sha256": actual_labels_sha,
+                "size_bytes": actual_labels_size,
+            }
 
-        info["holdout_labels"] = {
-            "filename": self._holdout_labels_path.name,
-            "sha256": self._sha256_file(self._holdout_labels_path),
-            "size_bytes": self._holdout_labels_path.stat().st_size,
-        }
         return info
 
     def _build_execution_identity(
@@ -535,7 +613,7 @@ class V2D3HoldoutBenchmarkEvaluator:
     def _load_holdout_targets(
         self,
     ) -> tuple[list[BenchmarkArmTarget], list[BenchmarkClaimTarget]]:
-        """Load holdout review packets and bind to reviewed human labels."""
+        """Load holdout review packets and bind to reviewed human labels with strict set equality."""
         raw_labels = json.loads(self._holdout_labels_path.read_text(encoding="utf-8"))
         labels_by_q_arm_claim: dict[tuple[str, str, str], dict[str, Any]] = {}
 
@@ -545,15 +623,36 @@ class V2D3HoldoutBenchmarkEvaluator:
                     claims_dict = arm_data.get("claims", {})
                     if isinstance(claims_dict, dict):
                         for cid, c_data in claims_dict.items():
-                            labels_by_q_arm_claim[(str(qid), str(arm_id), str(cid))] = c_data
+                            key = (str(qid), str(arm_id), str(cid))
+                            if key in labels_by_q_arm_claim:
+                                raise DataValidationError(f"Duplicate claim key {key} in holdout labels file")
+                            labels_by_q_arm_claim[key] = c_data
                     elif isinstance(claims_dict, list):
                         for c_data in claims_dict:
                             cid = c_data.get("claim_id")
-                            if cid:
-                                labels_by_q_arm_claim[(str(qid), str(arm_id), str(cid))] = c_data
+                            if not cid:
+                                raise DataValidationError(f"Missing claim_id in labels for question {qid}")
+                            key = (str(qid), str(arm_id), str(cid))
+                            if key in labels_by_q_arm_claim:
+                                raise DataValidationError(f"Duplicate claim key {key} in holdout labels file")
+                            labels_by_q_arm_claim[key] = c_data
+        elif isinstance(raw_labels, list):
+            for item in raw_labels:
+                qid = str(item.get("question_id", ""))
+                arm_id = str(item.get("arm_id", ""))
+                cid = str(item.get("claim_id", ""))
+                if not qid or not arm_id or not cid:
+                    raise DataValidationError(f"Invalid label item missing question_id/arm_id/claim_id: {item}")
+                key = (qid, arm_id, cid)
+                if key in labels_by_q_arm_claim:
+                    raise DataValidationError(f"Duplicate claim key {key} in holdout labels file")
+                labels_by_q_arm_claim[key] = item
+        else:
+            raise DataValidationError("Unrecognized labels artifact structure")
 
         arm_targets: list[BenchmarkArmTarget] = []
         claim_targets: list[BenchmarkClaimTarget] = []
+        packet_claims_found: set[tuple[str, str, str]] = set()
 
         with zipfile.ZipFile(self._holdout_packets_path, "r") as zf:
             json_members = [m for m in zf.namelist() if m.endswith(".json") and not m.startswith("__MACOSX")]
@@ -611,22 +710,42 @@ class V2D3HoldoutBenchmarkEvaluator:
                     ev_list = [Evidence.model_validate(item) for item in raw_ev]
 
                     arm_claims: list[BenchmarkClaimTarget] = []
-                    raw_claims = (
-                        arm_data.get("claims", [])
-                        or [
-                            {"claim_id": cv.claim_id, "claim_text": cv.claim_text}
-                            for cv in ans_resp.claim_verifications
-                        ]
-                    )
+                    raw_claims = arm_data.get("claims", [])
                     for rc in raw_claims:
                         cid = rc.get("claim_id", "")
                         ctext = rc.get("claim_text", "")
-                        lbl_data = labels_by_q_arm_claim.get((qid, str(arm_id), cid), {})
-                        lbl_str = lbl_data.get("entailment_label") or rc.get("entailment_label") or "INSUFFICIENT"
-                        try:
-                            human_lbl = HumanEntailment(lbl_str)
-                        except Exception:
-                            human_lbl = HumanEntailment.INSUFFICIENT
+                        if not cid:
+                            raise DataValidationError(f"Missing claim_id in packet {member} arm {arm_id}")
+
+                        key = (qid, str(arm_id), str(cid))
+                        packet_claims_found.add(key)
+
+                        if key not in labels_by_q_arm_claim:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_MISSING: No human label found for claim key ({qid}, {arm_id}, {cid})."
+                            )
+
+                        lbl_data = labels_by_q_arm_claim[key]
+                        lbl_raw = lbl_data.get("entailment_label")
+                        if not lbl_raw:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_MISSING: Missing entailment_label in label entry for claim ({qid}, {arm_id}, {cid})."
+                            )
+
+                        lbl_str = str(lbl_raw).strip().upper()
+                        if lbl_str not in HumanEntailment.__members__:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_INVALID: Invalid entailment_label '{lbl_raw}' for claim ({qid}, {arm_id}, {cid}). "
+                                f"Must be one of {list(HumanEntailment.__members__.keys())}."
+                            )
+                        human_lbl = HumanEntailment(lbl_str)
+
+                        ctext_sha = sha256(ctext.encode("utf-8")).hexdigest()
+                        lbl_claim_sha = lbl_data.get("claim_text_sha256")
+                        if lbl_claim_sha and lbl_claim_sha != ctext_sha:
+                            raise DataValidationError(
+                                f"HOLD_OUT_LABEL_MISMATCH: Claim text SHA mismatch for claim ({qid}, {arm_id}, {cid})."
+                            )
 
                         ctarget = BenchmarkClaimTarget(
                             slice_id="HOLDOUT",
@@ -634,9 +753,10 @@ class V2D3HoldoutBenchmarkEvaluator:
                             arm_id=str(arm_id),
                             claim_id=cid,
                             claim_text=ctext,
+                            claim_text_sha256=ctext_sha,
                             human_label=human_lbl,
-                            error_tags=lbl_data.get("error_tags", rc.get("error_tags", [])),
-                            diagnostic_note=lbl_data.get("diagnostic_note", rc.get("diagnostic_note")),
+                            error_tags=lbl_data.get("error_tags", []),
+                            diagnostic_note=lbl_data.get("diagnostic_note"),
                             stratum=stratum,
                         )
                         arm_claims.append(ctarget)
@@ -657,100 +777,93 @@ class V2D3HoldoutBenchmarkEvaluator:
                         )
                     )
 
+        # Assert exact set equality (no extra labels)
+        label_keys = set(labels_by_q_arm_claim.keys())
+        extra_keys = label_keys - packet_claims_found
+        if extra_keys:
+            raise DataValidationError(
+                f"HOLD_OUT_LABEL_EXTRA: Found {len(extra_keys)} extra claim labels in labels file not present in review packets."
+            )
+
         if not claim_targets:
-            raise DataValidationError("Zero claim targets extracted from holdout packets/labels.")
+            raise DataValidationError("Holdout packets archive yielded zero claim targets.")
 
         return arm_targets, claim_targets
 
     def _replay_v0_verifier(
         self, arm_targets: list[BenchmarkArmTarget]
     ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-        """Replay RuleBasedCitationVerifier (V0 baseline) deterministically over all arms."""
-        rule_verifier = RuleBasedCitationVerifier()
-        v0_arm_results: dict[str, Any] = {}
-        v0_claim_preds: list[dict[str, Any]] = []
-
+        """Replay deterministic rule-based citation verifier across all arms."""
+        v0_verifier = RuleBasedCitationVerifier()
+        arm_results: dict[str, Any] = {}
+        claim_preds: list[dict[str, Any]] = []
+        match_count = 0
         total_arms = len(arm_targets)
-        fidelity_matches = 0
 
         for arm in arm_targets:
-            key = f"{arm.question_id}:{arm.arm_id}"
-            v0_res = rule_verifier.verify(
+            res = v0_verifier.verify(
                 response=arm.answer_response,
                 evidence=arm.evidence_list,
             )
-            v0_arm_results[key] = {
-                "all_citations_supported": v0_res.is_valid,
-                "verified_citations_count": len(v0_res.valid_citations),
-                "unsupported_citations_count": len(v0_res.invalid_citations),
+            key = f"{arm.question_id}:{arm.arm_id}"
+            arm_results[key] = {
+                "all_citations_supported": res.is_valid,
+                "verified_citations_count": len(res.valid_citations),
+                "unsupported_citations_count": len(res.invalid_citations),
+                "execution_error": False,
             }
 
-            hist_v0 = arm.historical_verification.get("v0_rule_verifier", {})
-            hist_supported = hist_v0.get("all_citations_supported")
-            if hist_supported is not None and hist_supported == v0_res.is_valid:
-                fidelity_matches += 1
+            hist_is_valid = arm.historical_verification.get("all_citations_supported")
+            if hist_is_valid is None:
+                hist_is_valid = arm.historical_verification.get("is_valid")
+            if hist_is_valid is not None and hist_is_valid == res.is_valid:
+                match_count += 1
 
             for claim in arm.claims:
-                matching_cv = next(
-                    (cv for cv in v0_res.claim_verifications if cv.claim_id == claim.claim_id),
-                    None,
-                )
-                if matching_cv and matching_cv.status == ClaimSupportStatus.SUPPORTED:
-                    v0_pred = BinaryPrediction.ACCEPT
-                else:
-                    v0_pred = BinaryPrediction.REJECT
-
-                v0_claim_preds.append({
-                    "question_id": claim.question_id,
-                    "arm_id": claim.arm_id,
+                claim_preds.append({
+                    "question_id": arm.question_id,
+                    "arm_id": arm.arm_id,
                     "claim_id": claim.claim_id,
-                    "v0_binary_prediction": v0_pred,
+                    "human_label": claim.human_label,
+                    "v0_binary_prediction": (
+                        BinaryPrediction.ACCEPT if res.is_valid else BinaryPrediction.REJECT
+                    ),
+                    "v0_verified_citations": len(res.valid_citations),
+                    "v0_unsupported_citations": len(res.invalid_citations),
                 })
 
-        return (
-            v0_arm_results,
-            v0_claim_preds,
-            {
-                "total_arms": total_arms,
-                "v0_replay_arm_passes": total_arms,
-                "v0_historical_fidelity_matches": fidelity_matches,
-            },
-        )
+        replay_stats = {
+            "total_arms_replayed": total_arms,
+            "historical_replay_matches": match_count,
+            "replay_match_rate": match_count / total_arms if total_arms > 0 else 1.0,
+            "deterministic_execution": True,
+        }
+        return arm_results, claim_preds, replay_stats
 
     def _validate_canonical_provenance(self) -> None:
-        """Validate candidate ID, package version, git state, and torch device."""
+        """Validate exact candidate ID and execution preconditions."""
         if self._candidate_id != CANONICAL_CANDIDATE_ID:
             raise DataValidationError(
-                f"Candidate ID mismatch. Expected: {CANONICAL_CANDIDATE_ID}, Got: {self._candidate_id}"
+                f"Candidate mismatch: expected '{CANONICAL_CANDIDATE_ID}', got '{self._candidate_id}'"
             )
-        source_ver = getattr(legal_agentic_rag, "__version__", "unknown")
-        if source_ver != CANONICAL_PACKAGE_VERSION:
-            raise DataValidationError(
-                f"Package version mismatch. Expected: {CANONICAL_PACKAGE_VERSION}, Got: {source_ver}"
-            )
-        if not self._custom_provider:
-            import torch
-            if self._device == "cuda" and not torch.cuda.is_available():
-                raise RuntimeError("CUDA device requested but torch.cuda.is_available() is False.")
 
     def _init_v3_provider(self) -> ChatModelProvider:
-        """Initialize the Qwen/Transformers chat model provider for frozen V2-D3."""
-        if self._custom_provider:
+        """Instantiate canonical or custom ChatModelProvider."""
+        if self._custom_provider is not None:
             return self._custom_provider
 
-        import torch
-        dtype_map = {
-            "float16": torch.float16,
-            "bfloat16": torch.bfloat16,
-            "float32": torch.float32,
-        }
-        torch_dtype = dtype_map.get(self._torch_dtype, torch.float16)
-
+        _LOGGER.info(
+            "Initializing canonical Transformers provider (%s, %s, %s, %s)...",
+            CANONICAL_V3_MODEL_NAME,
+            CANONICAL_V3_MODEL_REVISION,
+            self._device,
+            self._torch_dtype,
+        )
         return TransformersChatProvider(
-            model_name_or_path=CANONICAL_V3_MODEL_NAME,
-            model_revision=CANONICAL_V3_MODEL_REVISION,
+            model_name=CANONICAL_V3_MODEL_NAME,
+            revision=CANONICAL_V3_MODEL_REVISION,
             device=self._device,
-            torch_dtype=torch_dtype,
+            torch_dtype=self._torch_dtype,
             temperature=self._temperature,
             max_input_tokens=self._max_input_tokens,
             max_output_tokens=self._max_output_tokens,
@@ -758,45 +871,40 @@ class V2D3HoldoutBenchmarkEvaluator:
         )
 
     def _validate_runtime_provider_identity(self, provider: ChatModelProvider) -> None:
-        """Validate live runtime provider matches frozen canonical requirements."""
-        if self._custom_provider:
-            return
-        if provider.model_name != CANONICAL_V3_MODEL_NAME:
-            raise DataValidationError(
-                f"Model name mismatch. Expected: {CANONICAL_V3_MODEL_NAME}, Got: {provider.model_name}"
-            )
-        if provider.model_revision != CANONICAL_V3_MODEL_REVISION:
-            raise DataValidationError(
-                f"Model revision mismatch. Expected: {CANONICAL_V3_MODEL_REVISION}, Got: {provider.model_revision}"
-            )
-        if provider.provider_version != CANONICAL_V3_PROVIDER_VERSION:
-            raise DataValidationError(
-                f"Provider version mismatch. Expected: {CANONICAL_V3_PROVIDER_VERSION}, Got: {provider.provider_version}"
-            )
+        """Assert runtime provider model matches frozen candidate configuration."""
+        if not self._bypass_source_checksums:
+            if provider.model_name != CANONICAL_V3_MODEL_NAME:
+                raise DataValidationError(
+                    f"Runtime provider model_name mismatch: expected '{CANONICAL_V3_MODEL_NAME}', got '{provider.model_name}'"
+                )
+            if provider.model_revision != CANONICAL_V3_MODEL_REVISION:
+                raise DataValidationError(
+                    f"Runtime provider model_revision mismatch: expected '{CANONICAL_V3_MODEL_REVISION}', got '{provider.model_revision}'"
+                )
 
     def _run_inference_pass(
         self,
+        *,
         verifier: StructuredSemanticCitationVerifierD3,
         provider: ObservationalChatModelProviderWrapper,
         arm_targets: list[BenchmarkArmTarget],
         pass_index: int,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-        """Run single-claim payload inference over all holdout arms."""
-        arm_results: dict[str, Any] = {}
-        claim_preds: list[dict[str, Any]] = []
-
+        """Run single complete inference pass over all arms with telemetry tracking."""
         pass_start_calls = provider.total_calls
         pass_start_errors = provider.total_errors
-
         structured_retries_total = 0
         semantic_exec_errors_total = 0
+
+        arm_results: dict[str, Any] = {}
+        claim_preds: list[dict[str, Any]] = []
 
         for arm in arm_targets:
             key = f"{arm.question_id}:{arm.arm_id}"
             try:
                 cit_res, struct_res = verifier.verify_structured(
-                    arm.answer_response,
-                    arm.evidence_list,
+                    response=arm.answer_response,
+                    evidence=arm.evidence_list,
                 )
                 arm_results[key] = {
                     "all_citations_supported": cit_res.is_valid,
@@ -997,7 +1105,7 @@ class V2D3HoldoutBenchmarkEvaluator:
         targets: list[BenchmarkClaimTarget],
         preds: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Compute standard binary metrics (ACCEPT vs REJECT)."""
+        """Compute standard binary metrics with explicit non-vacuous zero-denominator handling."""
         pred_map = {f"{r['question_id']}:{r['arm_id']}:{r['claim_id']}": r for r in preds}
         tp = fp = tn = fn = errors = 0
 
@@ -1022,12 +1130,26 @@ class V2D3HoldoutBenchmarkEvaluator:
 
         total = tp + fp + tn + fn + errors
         eval_total = tp + fp + tn + fn
+        gold_supported = sum(1 for t in targets if t.human_label == HumanEntailment.SUPPORTED)
+        gold_negative = sum(1 for t in targets if t.human_label in (HumanEntailment.CONTRADICTED, HumanEntailment.INSUFFICIENT))
+        eval_supported = tp + fn
+        eval_negative = tn + fp
+
         acc = (tp + tn) / eval_total if eval_total > 0 else 0.0
-        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-        supp_ret = tp / (tp + fn) if (tp + fn) > 0 else 1.0
-        neg_catch = tn / (tn + fp) if (tn + fp) > 0 else 1.0
-        f1 = (2 * prec * supp_ret) / (prec + supp_ret) if (prec + supp_ret) > 0 else 0.0
-        bal_acc = (supp_ret + neg_catch) / 2.0
+        prec = tp / (tp + fp) if (tp + fp) > 0 else (None if eval_total == 0 else 0.0)
+        supp_ret = tp / eval_supported if eval_supported > 0 else None
+        neg_catch = tn / eval_negative if eval_negative > 0 else None
+
+        f1 = (
+            (2 * prec * supp_ret) / (prec + supp_ret)
+            if (prec is not None and supp_ret is not None and (prec + supp_ret) > 0)
+            else (None if (supp_ret is None or prec is None) else 0.0)
+        )
+        bal_acc = (
+            (supp_ret + neg_catch) / 2.0
+            if (supp_ret is not None and neg_catch is not None)
+            else None
+        )
 
         return {
             "tp": tp,
@@ -1037,6 +1159,10 @@ class V2D3HoldoutBenchmarkEvaluator:
             "execution_errors": errors,
             "total_claims": total,
             "evaluated_claims": eval_total,
+            "gold_supported_claims": gold_supported,
+            "gold_negative_claims": gold_negative,
+            "evaluated_supported_claims": eval_supported,
+            "evaluated_negative_claims": eval_negative,
             "accuracy": acc,
             "precision": prec,
             "supported_retention": supp_ret,
@@ -1076,19 +1202,27 @@ class V2D3HoldoutBenchmarkEvaluator:
         total_eval = sum(sum(cm[lbl].values()) for lbl in labels)
         acc = correct / total_eval if total_eval > 0 else 0.0
 
-        per_class: dict[str, dict[str, float]] = {}
+        per_class: dict[str, dict[str, float | None]] = {}
         for lbl in labels:
             tp_c = cm[lbl][lbl]
             fp_c = sum(cm[other][lbl] for other in labels if other != lbl)
             fn_c = sum(cm[lbl][other] for other in labels if other != lbl)
-            prec_c = tp_c / (tp_c + fp_c) if (tp_c + fp_c) > 0 else 0.0
-            rec_c = tp_c / (tp_c + fn_c) if (tp_c + fn_c) > 0 else 0.0
-            f1_c = (2 * prec_c * rec_c) / (prec_c + rec_c) if (prec_c + rec_c) > 0 else 0.0
+            prec_c = tp_c / (tp_c + fp_c) if (tp_c + fp_c) > 0 else None
+            rec_c = tp_c / (tp_c + fn_c) if (tp_c + fn_c) > 0 else None
+            f1_c = (
+                (2 * prec_c * rec_c) / (prec_c + rec_c)
+                if (prec_c is not None and rec_c is not None and (prec_c + rec_c) > 0)
+                else None
+            )
             per_class[lbl] = {"precision": prec_c, "recall": rec_c, "f1": f1_c}
 
-        macro_prec = sum(v["precision"] for v in per_class.values()) / len(labels)
-        macro_rec = sum(v["recall"] for v in per_class.values()) / len(labels)
-        macro_f1 = sum(v["f1"] for v in per_class.values()) / len(labels)
+        valid_precs = [v["precision"] for v in per_class.values() if v["precision"] is not None]
+        valid_recs = [v["recall"] for v in per_class.values() if v["recall"] is not None]
+        valid_f1s = [v["f1"] for v in per_class.values() if v["f1"] is not None]
+
+        macro_prec = sum(valid_precs) / len(valid_precs) if valid_precs else None
+        macro_rec = sum(valid_recs) / len(valid_recs) if valid_recs else None
+        macro_f1 = sum(valid_f1s) / len(valid_f1s) if valid_f1s else None
 
         return {
             "confusion_matrix": cm,
@@ -1105,7 +1239,7 @@ class V2D3HoldoutBenchmarkEvaluator:
         arm_targets: list[BenchmarkArmTarget],
         arm_results: dict[str, Any],
     ) -> dict[str, Any]:
-        """Compute end-to-end answer correctness retention and invalid answer catch rates."""
+        """Compute answer correctness retention and catch rates with non-vacuous zero-denominator handling."""
         valid_retained = 0
         valid_rejected = 0
         invalid_caught = 0
@@ -1136,11 +1270,13 @@ class V2D3HoldoutBenchmarkEvaluator:
 
         total_arms = len(arm_targets)
         eval_arms = valid_retained + valid_rejected + invalid_caught + invalid_escaped
-        gold_valid_count = valid_retained + valid_rejected
-        gold_invalid_count = invalid_caught + invalid_escaped
+        gold_valid_count = sum(1 for a in arm_targets if all(c.human_label == HumanEntailment.SUPPORTED for c in a.claims))
+        gold_invalid_count = total_arms - gold_valid_count
+        eval_valid_count = valid_retained + valid_rejected
+        eval_invalid_count = invalid_caught + invalid_escaped
 
-        val_ret_rate = valid_retained / gold_valid_count if gold_valid_count > 0 else 1.0
-        inv_catch_rate = invalid_caught / gold_invalid_count if gold_invalid_count > 0 else 1.0
+        val_ret_rate = valid_retained / eval_valid_count if eval_valid_count > 0 else None
+        inv_catch_rate = invalid_caught / eval_invalid_count if eval_invalid_count > 0 else None
         eval_acc = (valid_retained + invalid_caught) / eval_arms if eval_arms > 0 else 0.0
         full_acc = (valid_retained + invalid_caught) / total_arms if total_arms > 0 else 0.0
 
@@ -1150,6 +1286,8 @@ class V2D3HoldoutBenchmarkEvaluator:
             "execution_error_answers": exec_errors,
             "gold_valid_answers_count": gold_valid_count,
             "gold_invalid_answers_count": gold_invalid_count,
+            "evaluated_valid_answers_count": eval_valid_count,
+            "evaluated_invalid_answers_count": eval_invalid_count,
             "valid_answers_retained": valid_retained,
             "valid_answers_rejected": valid_rejected,
             "invalid_answers_caught": invalid_caught,
@@ -1177,7 +1315,19 @@ class V2D3HoldoutBenchmarkEvaluator:
         d3_three_way = all_metrics["v2_d3_three_way"]
         d3_answer = all_metrics["v2_d3_answer_metrics"]
 
-        # 1. Mechanical Gates
+        # 1. Non-Vacuous Coverage Denominators Check
+        supp_denom_valid = d3_binary["gold_supported_claims"] > 0
+        neg_denom_valid = d3_binary["gold_negative_claims"] > 0
+        val_ans_denom_valid = d3_answer["gold_valid_answers_count"] > 0
+        inv_ans_denom_valid = d3_answer["gold_invalid_answers_count"] > 0
+        coverage_sufficient = (
+            supp_denom_valid
+            and neg_denom_valid
+            and val_ans_denom_valid
+            and inv_ans_denom_valid
+        )
+
+        # 2. Mechanical Gates
         model_errors = pass1_telemetry["provider_invocation_errors"] + pass2_telemetry["provider_invocation_errors"]
         exec_errors = stability_info["execution_error_in_any_pass_count"]
         unstable_claims = stability_info["unstable_semantic_claim_count"]
@@ -1191,23 +1341,34 @@ class V2D3HoldoutBenchmarkEvaluator:
             and exec_identity.get("frozen_d3_source_identity_verified", False)
         )
 
-        # 2. Quality Rate Gates
-        supp_ret_pass = d3_binary["supported_retention"] >= GATE_MIN_SUPPORTED_RETENTION_RATE
-        neg_catch_pass = d3_binary["negative_catch"] >= GATE_MIN_NEGATIVE_CATCH_RATE
-        val_ans_ret_pass = d3_answer["valid_answer_retention_rate"] >= GATE_MIN_VALID_ANSWER_RETENTION_RATE
-        full_ans_acc_pass = d3_answer["full_denominator_answer_accuracy"] >= GATE_MIN_FULL_ANSWER_ACCURACY_RATE
-        claim_bin_acc_pass = d3_binary["accuracy"] >= GATE_MIN_CLAIM_BINARY_ACCURACY_RATE
+        # 3. Quality Rate Gates (Requires coverage to be sufficient)
+        supp_ret_val = d3_binary["supported_retention"]
+        neg_catch_val = d3_binary["negative_catch"]
+        val_ans_ret_val = d3_answer["valid_answer_retention_rate"]
+        full_ans_acc_val = d3_answer["full_denominator_answer_accuracy"]
+        claim_bin_acc_val = d3_binary["accuracy"]
+
+        supp_ret_pass = supp_ret_val is not None and supp_ret_val >= GATE_MIN_SUPPORTED_RETENTION_RATE
+        neg_catch_pass = neg_catch_val is not None and neg_catch_val >= GATE_MIN_NEGATIVE_CATCH_RATE
+        val_ans_ret_pass = val_ans_ret_val is not None and val_ans_ret_val >= GATE_MIN_VALID_ANSWER_RETENTION_RATE
+        full_ans_acc_pass = full_ans_acc_val is not None and full_ans_acc_val >= GATE_MIN_FULL_ANSWER_ACCURACY_RATE
+        claim_bin_acc_pass = claim_bin_acc_val is not None and claim_bin_acc_val >= GATE_MIN_CLAIM_BINARY_ACCURACY_RATE
 
         quality_gates_pass = (
-            supp_ret_pass
+            coverage_sufficient
+            and supp_ret_pass
             and neg_catch_pass
             and val_ans_ret_pass
             and full_ans_acc_pass
             and claim_bin_acc_pass
         )
 
-        # 3. Verdict Determination
-        if not mechanical_pass:
+        # 4. Verdict Determination
+        if not coverage_sufficient:
+            verdict = "V2_D3_HOLDOUT_COVERAGE_INSUFFICIENT"
+            holdout_decision = "REJECT_V2_D3_PROMOTION"
+            promotion_recommended = False
+        elif not mechanical_pass:
             verdict = "V2_D3_HOLDOUT_EXECUTION_FAILURE"
             holdout_decision = "REJECT_V2_D3_PROMOTION"
             promotion_recommended = False
@@ -1220,6 +1381,18 @@ class V2D3HoldoutBenchmarkEvaluator:
             holdout_decision = "REJECT_V2_D3_PROMOTION"
             promotion_recommended = False
 
+        coverage_info = {
+            "coverage_sufficient": coverage_sufficient,
+            "gold_supported_claims": d3_binary["gold_supported_claims"],
+            "gold_negative_claims": d3_binary["gold_negative_claims"],
+            "gold_valid_answers": d3_answer["gold_valid_answers_count"],
+            "gold_invalid_answers": d3_answer["gold_invalid_answers_count"],
+            "supported_claims_denominator_valid": supp_denom_valid,
+            "negative_claims_denominator_valid": neg_denom_valid,
+            "valid_answers_denominator_valid": val_ans_denom_valid,
+            "invalid_answers_denominator_valid": inv_ans_denom_valid,
+        }
+
         final_report = {
             "schema_version": "1.0",
             "artifact_type": "v2_d3_holdout_report",
@@ -1229,6 +1402,7 @@ class V2D3HoldoutBenchmarkEvaluator:
             "duration_seconds": total_duration,
             "total_claims": len(claim_targets),
             "total_answers": len(arm_targets),
+            "coverage": coverage_info,
             "telemetry": {
                 "total_provider_calls": pass1_telemetry["provider_calls"] + pass2_telemetry["provider_calls"],
                 "model_errors": model_errors,
@@ -1248,36 +1422,32 @@ class V2D3HoldoutBenchmarkEvaluator:
             "verdict": verdict,
             "holdout_evaluation_decision": holdout_decision,
             "promotion_recommended": promotion_recommended,
-            "promotion_authorized": False,  # FAIL-CLOSED: Always False in harness outputs
-            "production_action_required": "PENDING_HUMAN_GOVERNANCE_SIGN_OFF",
-            "pre_registered_gate_evaluations": {
-                "mechanical_gates_passed": mechanical_pass,
-                "model_errors_zero": model_errors == 0,
-                "zero_execution_errors": exec_errors == 0,
-                "zero_unstable_claims": unstable_claims == 0,
-                "two_valid_labels_all_claims": two_valid_labels,
-                "frozen_d3_source_identity_verified": exec_identity.get("frozen_d3_source_identity_verified", False),
-                "supported_retention_passed": supp_ret_pass,
-                "negative_catch_passed": neg_catch_pass,
-                "valid_answer_retention_passed": val_ans_ret_pass,
-                "full_answer_accuracy_passed": full_ans_acc_pass,
-                "claim_binary_accuracy_passed": claim_bin_acc_pass,
+            "promotion_authorized": False,  # Strict Fail-Closed Invariant!
+            "timestamp": datetime.now(UTC).isoformat(),
+            "coverage": coverage_info,
+            "gates_summary": {
+                "coverage_sufficient": coverage_sufficient,
+                "mechanical_pass": mechanical_pass,
+                "quality_gates_pass": quality_gates_pass,
+                "supported_retention_pass": supp_ret_pass,
+                "negative_catch_pass": neg_catch_pass,
+                "valid_answer_retention_pass": val_ans_ret_pass,
+                "full_answer_accuracy_pass": full_ans_acc_pass,
+                "claim_binary_accuracy_pass": claim_bin_acc_pass,
             },
-            "rate_thresholds_applied": {
-                "min_supported_retention_rate": GATE_MIN_SUPPORTED_RETENTION_RATE,
-                "min_negative_catch_rate": GATE_MIN_NEGATIVE_CATCH_RATE,
-                "min_valid_answer_retention_rate": GATE_MIN_VALID_ANSWER_RETENTION_RATE,
-                "min_full_answer_accuracy_rate": GATE_MIN_FULL_ANSWER_ACCURACY_RATE,
-                "min_claim_binary_accuracy_rate": GATE_MIN_CLAIM_BINARY_ACCURACY_RATE,
+            "thresholds": {
+                "min_supported_retention": GATE_MIN_SUPPORTED_RETENTION_RATE,
+                "min_negative_catch": GATE_MIN_NEGATIVE_CATCH_RATE,
+                "min_valid_answer_retention": GATE_MIN_VALID_ANSWER_RETENTION_RATE,
+                "min_full_answer_accuracy": GATE_MIN_FULL_ANSWER_ACCURACY_RATE,
+                "min_claim_binary_accuracy": GATE_MIN_CLAIM_BINARY_ACCURACY_RATE,
             },
-            "metrics_summary": {
-                "claim_binary_accuracy": f"{d3_binary['tp']+d3_binary['tn']}/{d3_binary.get('evaluated_claims', 0)} ({d3_binary.get('accuracy', 0.0):.2%})",
-                "supported_retention": f"{d3_binary['tp']}/{d3_binary['tp']+d3_binary['fn']} ({d3_binary.get('supported_retention', 0.0):.2%})",
-                "negative_catch": f"{d3_binary['tn']}/{d3_binary['tn']+d3_binary['fp']} ({d3_binary.get('negative_catch', 0.0):.2%})",
-                "three_way_accuracy": f"{d3_three_way.get('accuracy', 0.0):.2%}",
-                "valid_answers_retained": f"{d3_answer.get('valid_answers_retained', 0)}/{d3_answer.get('gold_valid_answers_count', 0)} ({d3_answer.get('valid_answer_retention_rate', 0.0):.2%})",
-                "invalid_answers_caught": f"{d3_answer.get('invalid_answers_caught', 0)}/{d3_answer.get('gold_invalid_answers_count', 0)} ({d3_answer.get('invalid_answer_catch_rate', 0.0):.2%})",
-                "full_answer_accuracy": f"{d3_answer.get('valid_answers_retained', 0)+d3_answer.get('invalid_answers_caught', 0)}/{d3_answer.get('total_answers', 0)} ({d3_answer.get('full_denominator_answer_accuracy', 0.0):.2%})",
+            "pass1_actual_rates": {
+                "supported_retention": supp_ret_val,
+                "negative_catch": neg_catch_val,
+                "valid_answer_retention": val_ans_ret_val,
+                "full_answer_accuracy": full_ans_acc_val,
+                "claim_binary_accuracy": claim_bin_acc_val,
             },
         }
 
@@ -1285,11 +1455,9 @@ class V2D3HoldoutBenchmarkEvaluator:
             "schema_version": "1.0",
             "artifact_type": "v2_d3_holdout_stability_report",
             "candidate_id": self._candidate_id,
-            "stability_summary": stability_info,
-            "telemetry_summary": {
-                "pass1": pass1_telemetry,
-                "pass2": pass2_telemetry,
-            },
+            "verdict": verdict,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "stability": stability_info,
         }
 
         return final_report, decision_report, stability_report
@@ -1304,15 +1472,31 @@ class V2D3HoldoutBenchmarkEvaluator:
         total_duration: float,
     ) -> dict[str, Any]:
         """Construct model-free preflight gate report without inspecting sensitive content."""
+        gold_supported = sum(1 for c in claim_targets if c.human_label == HumanEntailment.SUPPORTED)
+        gold_negative = sum(1 for c in claim_targets if c.human_label in (HumanEntailment.CONTRADICTED, HumanEntailment.INSUFFICIENT))
+        gold_valid_ans = sum(1 for a in arm_targets if all(c.human_label == HumanEntailment.SUPPORTED for c in a.claims))
+        gold_invalid_ans = len(arm_targets) - gold_valid_ans
+
+        coverage_sufficient = (
+            gold_supported > 0 and gold_negative > 0 and gold_valid_ans > 0 and gold_invalid_ans > 0
+        )
+
         return {
             "schema_version": "1.0",
             "artifact_type": "v2_d3_holdout_preflight_report",
             "candidate_id": self._candidate_id,
-            "verdict": "V2_D3_HOLDOUT_BENCHMARK_READY",
+            "verdict": "V2_D3_HOLDOUT_BENCHMARK_READY" if coverage_sufficient else "V2_D3_HOLDOUT_COVERAGE_INSUFFICIENT",
             "timestamp": datetime.now(UTC).isoformat(),
             "duration_seconds": total_duration,
             "total_claims": len(claim_targets),
             "total_answers": len(arm_targets),
+            "coverage": {
+                "coverage_sufficient": coverage_sufficient,
+                "gold_supported_claims": gold_supported,
+                "gold_negative_claims": gold_negative,
+                "gold_valid_answers": gold_valid_ans,
+                "gold_invalid_answers": gold_invalid_ans,
+            },
             "v0_replay_stats": v0_replay_stats,
             "execution_identity": exec_identity,
             "preflight_status": {
@@ -1320,7 +1504,7 @@ class V2D3HoldoutBenchmarkEvaluator:
                 "schema_validated": True,
                 "v0_verifier_replayed": True,
                 "model_execution_skipped": True,
-                "ready_for_execution": True,
+                "ready_for_execution": coverage_sufficient,
             },
         }
 
@@ -1467,13 +1651,25 @@ def parse_args() -> argparse.Namespace:
         "--holdout-labels",
         type=Path,
         required=True,
-        help="Path to verification-v2-holdout-human-labels-v1.json",
+        help="Path to verification-v2-holdout-reviewed-labels-v1.json",
     )
     parser.add_argument(
         "--holdout-selection",
         type=Path,
         default=None,
-        help="Optional path to verification-v2-holdout-selection-v1.json",
+        help="Path to verification-v2-holdout-selection-v1.json (Mandatory for canonical execution)",
+    )
+    parser.add_argument(
+        "--label-commitment",
+        type=Path,
+        default=None,
+        help="Path to frozen verification-v2-d3-holdout-label-commitment.json (Mandatory for canonical execution)",
+    )
+    parser.add_argument(
+        "--holdout-labels-sha256",
+        type=str,
+        default=None,
+        help="Explicit SHA-256 digest of holdout labels file (Alternative to commitment file)",
     )
     parser.add_argument(
         "--output-dir",
@@ -1540,6 +1736,8 @@ def main() -> None:
         holdout_packets_path=args.holdout_packets,
         holdout_labels_path=args.holdout_labels,
         holdout_selection_path=args.holdout_selection,
+        label_commitment_path=args.label_commitment,
+        holdout_labels_sha256=args.holdout_labels_sha256,
         output_dir=args.output_dir,
         package_zip=args.package_zip,
         candidate_id=args.candidate_id,

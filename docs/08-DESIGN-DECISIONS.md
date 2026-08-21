@@ -2919,5 +2919,32 @@ Following the completion and formal closure of development iterations V2-D3.1 an
    - `min_full_answer_accuracy_rate = 0.60` (60.00%)
    - `min_claim_binary_accuracy_rate = 0.70` (70.00%)
 4. **Pre-Registered Mechanical Gates**: Zero model errors, zero execution errors, zero unstable claims between Pass 1 and Pass 2, complete 2-label verification per claim, exact frozen source SHA matches.
-5. **Strict Holdout Blindness**: Fresh holdout dataset (`verification-v2-holdout-selection-v1.json` SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, `verification-v2-holdout-review-packets-v1.zip` SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`) remains sealed and unreviewed. Zero human inspection of holdout questions, claims, evidence, or labels before execution.
+5. **Strict Holdout Blindness**: Fresh holdout dataset (`verification-v2-holdout-selection-v1.json` SHA-256 `08c480f6ffad2e950319f487111ecd0ac549d2f8b10149820ecc84d34ea00a4b`, `verification-v2-holdout-review-packets-v1.zip` SHA-256 `a7a591752f0e9aa376f424217d5d06f7fa90e66fce0d67ed4af78ae048b53be4`) remains sealed and unreviewed prior to Phase H-LABEL authorization.
 6. **Promotion vs Authorization Boundary (Fail-Closed)**: Harness outputs `promotion_recommended: true` only upon satisfying all gates. Harness output `promotion_authorized: false` is an invariant fail-closed security boundary. Enabling the semantic verifier in production requires explicit external human governance sign-off and subsequent production codebase configuration.
+
+---
+
+## D123 — Fresh Holdout Evaluation Lifecycle, Label-Freeze Commitment, and Non-Vacuous Coverage Gates
+
+**Status:** Accepted (Protocol: `docs/31-V2-D3-FROZEN-HOLDOUT-PROTOCOL.md`)
+
+**Context:**
+Following the formal freeze of candidate V2-D3 and closure of the 38-claim development benchmark, the holdout evaluation governance and harness contract was hardened to define a two-phase irreversible lifecycle and non-vacuous gate semantics.
+
+**Decisions & Invariants:**
+1. **Two-Phase Holdout Lifecycle**:
+   - **Phase H-LABEL (Human Gold-Label Freezing)**: Candidate V2-D3, prompt SHA, implementation SHA, and rate thresholds remain frozen. Human reviewers unseal ONLY the 16 primary review packets to assign gold labels (`SUPPORTED`, `CONTRADICTED`, `INSUFFICIENT`). Model predictions MUST NOT exist or be visible during review. Labels are frozen using `scripts/freeze_verification_v2_holdout_labels.py`, producing `verification-v2-holdout-reviewed-labels-v1.json` and content-free commitment `configs/verification-v2-d3-holdout-label-commitment.json`.
+   - **Phase H-EXEC (Canonical Model Execution)**: Executed once on Kaggle GPU ONLY after the label commitment SHA is externally reviewed and frozen. Requires exact SHA match across packets, selection, and labels against the commitment.
+2. **Scientifically Correct Blindness Invariants**:
+   - Before Phase H-LABEL authorization: Zero holdout inspection.
+   - During Phase H-LABEL: Human inspection permitted solely to establish independent gold labels without D3 outputs.
+   - After gold labels are frozen: Zero label edits.
+   - During/After Phase H-EXEC: Zero candidate tuning, zero prompt edits, zero threshold edits, zero label edits, and zero reruns to improve metrics.
+3. **Non-Vacuous Coverage Denominator Gates**:
+   - Promotion eligibility requires: `gold_supported_claims > 0`, `gold_negative_claims > 0`, `gold_valid_answers > 0`, and `gold_invalid_answers > 0`.
+   - If any denominator is zero: `verdict = "V2_D3_HOLDOUT_COVERAGE_INSUFFICIENT"`, `promotion_recommended = False`, `promotion_authorized = False`.
+   - Zero-denominator rates report `null` / `None` (never `1.0`).
+4. **Strict Fail-Closed Label Loading**: Zero fallbacks permitted. Exact packet-label claim set equality `(question_id, arm_id, claim_id)` is enforced before model initialization. Missing, extra, duplicate, or invalid labels fail closed immediately with `DataValidationError`.
+5. **Single Model Loading & Pinned Kaggle Environment**:
+   - Kaggle environment uses pinned `transformers==4.47.1 tokenizers==0.21.4 huggingface-hub==0.27.1 accelerate==1.2.1` and `python -m pip install -q -e . --no-deps`.
+   - Cell H4 verifies tokenizer/access only without retaining a Qwen model object in notebook memory. The model is loaded exclusively by the H5 evaluation subprocess.
