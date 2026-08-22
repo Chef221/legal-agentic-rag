@@ -2509,3 +2509,28 @@ With the successful completion and verification of Phase T4-PROD-B3 (`D100`), Ph
    - No further T4 work is active.
    - Next improvement phase is intentionally deferred.
    - This decision reflects the causal empirical findings on the evaluated UIT DSC 2026 dataset and does not claim graph algorithms are universally inapplicable outside this architecture.
+
+---
+
+## D102 — T5-3A Strict Own-Document Reference Recovery Acceptance and Scope Boundary
+
+**Status:** Accepted
+
+**Context:**
+T5 diagnostics exposed an explicit-document identity false-negative mechanism on Q54485 (`17/2023/QĐ-TTg`). Although initial retrieval returned the correct serving chunk (document `301729`), the serving chunk metadata lacked `document_number` (`hit.metadata["document_number"] is None`). `EvidenceSelector` consequently assigned `document_reference_match = False` and `applicability = REFERENCE_MISMATCH`, prompting `RuleBasedContextGrader` to fail context sufficiency (`missing_aspects = ["document_reference_match"]`), triggering bounded retries, `max_retry_reached`, and an insufficient-evidence response.
+
+The subsequent frozen Dev-200 explicit-document census identified Q158985 (`42/2022/TT-BTC`) as the second and only other member of that explicit-document population. Exact parent/candidate causal A/B validation was then performed on both explicit-document queries.
+
+Offline policy exploration in T5-2A demonstrated that naive lexical weight sweeps and global reranker bypasses did not provide stable improvement across the deterministic FAST30 Tune20/Holdout10 split and must be rejected.
+
+**Decision:**
+1. **Authoritative Metadata Precedence:** If `hit.metadata["document_number"]` is a non-empty string, compare strictly using existing canonical normalization. If it mismatches, return `False` immediately; title fallback is never used to override metadata.
+2. **Malformed Metadata Fails Closed:** If `document_number` is present in metadata but non-string (e.g. `int`, `list`), fail closed (`False`) and do not invoke title fallback.
+3. **Strict Anchored Title Fallback:** Only when `document_number` is absent (`None` or blank/whitespace string), attempt own-document extraction from `document_title`. The normalized title must begin strictly with one of 22 recognized legal-document slug prefixes (e.g. `quyet-dinh`, `thong-tu`, `nghi-dinh`, `luat`, `van-ban-hop-nhat`, etc.), and the own document number must occur immediately after that prefix (allowing an optional `"so"` token).
+4. **Safety Boundaries:** Descriptive prose between prefix and number (e.g. `Huong-dan-thuc-hien-...`, `Quyet-dinh-ve-viec-...`), unrecognized prefixes (`Bao-cao-...`), numbers appearing later in the title (e.g. amended/cited laws `31-2007-QD-TTg`), and chunk body text are strictly rejected (`False`).
+5. **Candidate Authority:** `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543` (Parent rollback baseline: `fa3b902da1041ac9d2b35cbe61a47351bccf10eb`).
+6. **Causal Validation:**
+   - **Q54485 (`17/2023/QĐ-TTg`):** ROUGE improved from 0.068966 to 0.363955 (+0.295), METEOR from 0.005058 to 0.282805 (+0.278), retries reduced from 2 to 0, stop reason transitioned from `max_retry_reached` to `answer_verified`.
+   - **Q158985 (`42/2022/TT-BTC`):** ROUGE improved from 0.070485 to 0.190604 (+0.120), METEOR from 0.011678 to 0.087424 (+0.076), retries reduced from 2 to 1, clean BM25 recovery.
+   - Identical intermediate retrieval hashes prove the improvement is strictly downstream at evidence applicability and context grading.
+7. **Scope Boundary:** T5-3A covers 100% of explicit-document queries in frozen Dev-200 (2/2 questions). It is accepted as a validated targeted candidate; no overall Public-1000 score claims are made prior to full benchmark evaluation.

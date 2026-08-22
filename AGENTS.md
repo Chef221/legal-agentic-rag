@@ -1054,6 +1054,19 @@ Mọi thay đổi milestone phải cập nhật:
 
 `docs/09-IMPLEMENTATION-PLAN.md`
 
+
+Mọi thực nghiệm tối ưu, thay đổi kiến trúc, retrieval, generation, scoring hoặc runtime từ mốc M49.1 takeover onward phải ghi lại vào:
+
+docs/19-EXPERIMENT-LEDGER.md
+
+Quy tắc bắt buộc đối với Experiment Ledger:
+1. docs/19-EXPERIMENT-LEDGER.md là sổ cái thực nghiệm và tối ưu hóa lâu dài mang tính bắt buộc của repository.
+2. Mọi thực nghiệm (cả thành công, thất bại, không kết luận, hoặc bị hủy/invalid do lỗi môi trường/OOM) đều phải được ghi lại theo đúng Standard Entry Schema trước khi phase được xem là hoàn thành.
+3. Mọi công bố metric phải ghi rõ baseline authority (commit SHA / tag), candidate authority (commit SHA), và population chính xác (Dev-200 / subset / Public-1000).
+4. Các giả thuyết bị bác bỏ (rejected hypotheses) phải được lưu giữ đầy đủ để tránh lặp lại công việc dư thừa trong tương lai.
+5. Báo cáo chat của Agent không thay thế cho việc cập nhật docs/19-EXPERIMENT-LEDGER.md.
+6. Không được đánh dấu hoàn thành một phase nếu chưa cập nhật sổ cái thực nghiệm.
+7. Nếu implementation được giữ ở trạng thái uncommitted để chờ external review, ledger entry sẽ được cập nhật ở commit/acceptance gate thay vì falsify kết quả trước khi validation hoàn tất.
 Không để code và docs mâu thuẫn lâu dài.
 
 Không cập nhật docs bằng các tuyên bố không đúng với implementation.

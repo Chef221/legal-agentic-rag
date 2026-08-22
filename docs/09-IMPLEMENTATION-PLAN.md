@@ -2159,3 +2159,29 @@ Mỗi milestone phải:
 The next quality milestone must start from M49.1 as an immutable control and use
 the frozen dev-200 plus audited scorer. Recommended first experiments are
 question-aware extractive trimming and SFT/runtime output-contract alignment.
+
+---
+
+## 55. Milestone T4 — Online Graph Execution Retirement
+
+**Status:** Completed and Closed (Checkpoint commit `87e71eb7661eb9cda1e63f4f0af16ef4613dadfb`, tag `t4-graph-retirement-closed`)
+
+- Replaced online relationship graph routing with narrow `HYBRID_RERANK` (candidate pool k=20).
+- Decoupled graph retriever and tool from serving runtime wiring.
+- Made graph artifact loading optional at startup.
+- Verified 7/7 exact final answer identity and 0.0 ROUGE/METEOR delta across all relationship-routed questions in frozen Dev-200.
+- Fully retired online graph execution while preserving offline schemas and historical compatibility.
+
+## 56. Milestone T5 — Baseline Error Decomposition & Targeted Optimization
+
+**Status:** Active
+
+- **T5-1A (Diagnostic Harness):** Completed and committed at `fa3b902da1041ac9d2b35cbe61a47351bccf10eb`. Provides pre/post rerank candidate tracking, branch telemetry, generator rejection monitoring, and rendered per-question official scoring.
+- **T5-1C (Fast30 Clean Baseline):** Completed deterministic baseline replay on first 30 questions of Dev-200 (`ROUGE-L 0.449561`, `METEOR 0.360600`).
+- **T5-2A (Offline Evidence Policy Investigation):** Investigated lexical sweeps and reranker bypass; rejected naive heuristic tuning in favor of deployable causal signals.
+- **T5-3A (Strict Own-Document Reference Recovery):** ACCEPTED TARGETED CANDIDATE at commit `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`. Causal A/B validation completed on 100% of explicit-document queries in Dev-200 (Q54485 ROUGE +0.295, METEOR +0.278; Q158985 ROUGE +0.120, METEOR +0.076).
+- **Next Phase — T5-H1:** Repair diagnostic runner observer lifecycle when multiple runner instances are created in the same process before further multi-run experiments.
+- **Subsequent Planned Work:**
+  - **T5-4:** Evidence selection / top-1 policy optimization using deployable signals.
+  - Targeted reranker investigation.
+  - Generator contract / fallback efficiency investigation.
