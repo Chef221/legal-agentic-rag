@@ -482,16 +482,15 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ## 13. T5-3C — Accept T5-3A and Establish Permanent Experiment Ledger
 
-- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Status:** ACCEPTED & CLOSED
 - **Date:** 2026-08-22
 - **Objective:** Formally record T5-3A Strict Own-Document Reference Recovery as an accepted targeted candidate and establish a permanent repository-level experiment/change ledger for all post-takeover engineering.
 - **Hypothesis:** A durable chronological ledger and strict governance rules in AGENTS.md will prevent historical drift, undocumented experiments, and unsubstantiated metric claims across future agent turns.
 
 ### Authority
 - **Baseline / Starting Authority:** `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`
-- **Working-Tree Base / Rollback Authority:** `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`
-- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
-- **Candidate Parent Commit:** NOT APPLICABLE UNTIL T5-3C COMMIT EXISTS
+- **Candidate Commit SHA:** `ca00c133b70905dc0bcff8cb469727264b25a995` (Acceptance / Closure Checkpoint)
+- **Candidate Parent Commit:** `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`
 - **Branch:** `t5/baseline-error-decomposition`
 - **Artifact Identities:** NOT APPLICABLE (Documentation/Governance only)
 - **Model / Generator Identities:** NOT APPLICABLE
@@ -527,3 +526,62 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ### Next Step
 - Commit and push the T5-3C documentation/governance checkpoint on `t5/baseline-error-decomposition`, then begin T5-H1 only from that committed checkpoint.
+
+---
+
+## 14. T5-H1 — Repair Diagnostic Observer Lifecycle
+
+- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Date:** 2026-08-22
+- **Objective:** Repair observer installation/restoration ownership so sequential diagnostic runners on one shared runtime cannot leak telemetry contexts.
+- **Hypothesis:** Explicit instrumentation lease ownership with object-identity restoration ensures sequential diagnostic runs on shared runtimes remain isolated without leaking observer wrappers or handlers.
+
+### Authority
+- **Baseline / Starting Authority:** `ca00c133b70905dc0bcff8cb469727264b25a995`
+- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Branch:** `t5/baseline-error-decomposition`
+- **Parent Commit:** `ca00c133b70905dc0bcff8cb469727264b25a995`
+- **Artifact Identities:** NOT APPLICABLE (Measurement tooling only)
+- **Model / Generator Identities:** NOT APPLICABLE
+- **Scorer Identity:** NOT APPLICABLE
+- **Evaluation Population:** NOT APPLICABLE (Tooling regression suite)
+
+### Intended Change vs Actual Change
+- **Intended Production Change:** None (Measurement harness tooling only).
+- **Actual Production Change:** None (`src/` completely unmodified).
+- **Exact Files Modified:**
+  - `scripts/t5_diagnostic_runner.py` (Implemented `DiagnosticInstrumentationLease` and reversible lifecycle management)
+  - `tests/unit/evaluation/test_t5_diagnostic_harness.py` (Added 8 mandatory regression tests)
+  - `docs/19-EXPERIMENT-LEDGER.md` (Backfilled T5-3C checkpoint SHA and added T5-H1 entry)
+  - `docs/09-IMPLEMENTATION-PLAN.md` (Updated Milestone 56 status)
+
+### Validation & Numeric Results
+- **Validation Commands:**
+  - `python -m pytest tests/unit/evaluation/test_t5_diagnostic_harness.py -q` (15 passed)
+  - `python -m pytest -q` (482 passed, 1 skipped)
+  - `python -m compileall scripts/t5_diagnostic_runner.py`
+  - `git diff --check`
+- **Mandatory Lifecycle Invariants Verified:**
+  1. *Exact Object Identity Restoration:* `hybrid_rerank._reranker`, `hybrid._bm25`, and `hybrid._dense` are restored to the exact original instances (`is`) upon `close()`.
+  2. *Sequential Runner Telemetry Isolation:* Runner B on the same runtime records telemetry only to its own context; runner A's context retains its exact rerank, BM25 branch, and dense branch events completely isolated and untouched after runner A closes.
+  3. *No Nested Wrappers:* Observer nesting is strictly prevented across sequential runner lifecycles.
+  4. *Logger Lifecycle:* Logging handlers are cleanly attached on init and detached on `close()`.
+  5. *Idempotent Close:* Calling `close()` multiple times is safe and maintains original object identities.
+  6. *Context Manager Exception Safety:* Exceptions raised inside `with` blocks trigger full cleanup in `__exit__`.
+  7. *Overlapping Runners Fail Closed With Zero Mutation:* Attempting concurrent runners on the same runtime raises `BackendInitializationError` while leaving exact runtime observer identities (`is`), lease state, and logger handlers completely unchanged.
+  8. *Minimal Mock Compatibility:* Services without full `FixedRetriever` internals remain fully compatible.
+
+### Invalid / Discarded Runs
+- NOT APPLICABLE (Deterministic unit test suite).
+
+### Decision & Rationale
+- **Decision:** ACCEPTED
+- **Rationale:** External review verified exact runtime-object restoration, sequential rerank/BM25/dense telemetry isolation, zero-mutation overlapping-runner rejection, logger cleanup, idempotent and exception-safe lifecycle behavior, and zero production `src/**` changes.
+
+### Production Impact & Known Risks
+- **Production Impact:** Zero serving or runtime behavior changes.
+- **Known Limitations:** Single-session concurrency on a single `ServingService` runtime is unsupported by design (existing runner must be closed before instantiating a new runner).
+- **Rollback Authority:** `ca00c133b70905dc0bcff8cb469727264b25a995`.
+
+### Next Step
+- Commit and push the accepted T5-H1 measurement-harness checkpoint on `t5/baseline-error-decomposition`. Begin T5-4 only from that committed checkpoint after remote verification.

@@ -38,6 +38,7 @@ from legal_agentic_rag.competition.uit_dsc_2026.loader import (
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
+    BackendInitializationError,
     DataValidationError,
 )
 from legal_agentic_rag.retrieval.fixed import FixedRetriever, _RetrievalBranch
@@ -371,6 +372,10 @@ class DiagnosticRerankerObserver(Reranker):
         self._max_candidates = max_candidates
 
     @property
+    def inner(self) -> Reranker:
+        return self._inner
+
+    @property
     def provider_name(self) -> str:
         return self._inner.provider_name
 
@@ -432,6 +437,10 @@ class DiagnosticBranchRetrieverObserver:
         self._inner = inner
         self._strategy = strategy
         self._context = context
+
+    @property
+    def inner(self) -> _RetrievalBranch:
+        return self._inner
 
     @property
     def source_artifact_identity(self) -> tuple[str, str, str]:
@@ -588,48 +597,180 @@ def compute_per_question_scores(
         ) from error
 
 
+class DiagnosticInstrumentationLease:
+    """Explicit ownership and reversible lifecycle manager for runtime instrumentation."""
+
+    def __init__(
+        self,
+        service: ServingService,
+        context: ActiveDiagnosticContext,
+    ) -> None:
+        self._service = service
+        self._context = context
+        self._closed: bool = False
+        self._log_handler: GeneratorRejectionLogHandler | None = None
+        self._hybrid_rerank: RerankingRetriever | None = None
+        self._original_reranker: Any = None
+        self._hybrid: Any = None
+        self._original_bm25: Any = None
+        self._original_dense: Any = None
+
+        # 1. Concurrency / Overlap check on service
+        active_lease = getattr(service, "_active_diagnostic_lease", None)
+        if active_lease is not None and not active_lease.is_closed:
+            raise BackendInitializationError(
+                "Active diagnostic instrumentation session already exists on this runtime; "
+                "concurrent or overlapping diagnostic runners on the same runtime are unsupported "
+                "and the existing runner must be closed first."
+            )
+
+        # 2. Inspect runtime components
+        runtime = getattr(service, "_runtime", None)
+        retriever = getattr(runtime, "_retriever", None)
+
+        # Fail closed if any component is already wrapped by an unmanaged/surviving observer
+        if isinstance(retriever, FixedRetriever):
+            hybrid_rerank = getattr(retriever, "_hybrid_rerank", None)
+            if isinstance(hybrid_rerank, RerankingRetriever):
+                if isinstance(hybrid_rerank._reranker, DiagnosticRerankerObserver):
+                    raise BackendInitializationError(
+                        "Reranker is already wrapped with DiagnosticRerankerObserver; "
+                        "previous runner must be closed before installing new instrumentation."
+                    )
+            hybrid = getattr(retriever, "_hybrid", None)
+            if hybrid is not None:
+                if hasattr(hybrid, "_bm25") and isinstance(
+                    hybrid._bm25, DiagnosticBranchRetrieverObserver
+                ):
+                    raise BackendInitializationError(
+                        "BM25 branch is already wrapped with DiagnosticBranchRetrieverObserver; "
+                        "previous runner must be closed before installing new instrumentation."
+                    )
+                if hasattr(hybrid, "_dense") and isinstance(
+                    hybrid._dense, DiagnosticBranchRetrieverObserver
+                ):
+                    raise BackendInitializationError(
+                        "Dense branch is already wrapped with DiagnosticBranchRetrieverObserver; "
+                        "previous runner must be closed before installing new instrumentation."
+                    )
+
+        # 3. Exception-safe installation
+        try:
+            if isinstance(retriever, FixedRetriever):
+                hybrid_rerank = getattr(retriever, "_hybrid_rerank", None)
+                if isinstance(hybrid_rerank, RerankingRetriever):
+                    self._hybrid_rerank = hybrid_rerank
+                    self._original_reranker = hybrid_rerank._reranker
+                    reranker_cfg = getattr(hybrid_rerank, "_config", None)
+                    rel_k = (
+                        getattr(reranker_cfg, "relationship_candidate_k", None)
+                        if reranker_cfg
+                        else None
+                    )
+                    max_k = (
+                        getattr(reranker_cfg, "max_candidates", None)
+                        if reranker_cfg
+                        else None
+                    )
+                    hybrid_rerank._reranker = DiagnosticRerankerObserver(
+                        self._original_reranker,
+                        context,
+                        relationship_candidate_k=rel_k,
+                        max_candidates=max_k,
+                    )
+
+                hybrid = getattr(retriever, "_hybrid", None)
+                if hybrid is not None:
+                    self._hybrid = hybrid
+                    if hasattr(hybrid, "_bm25"):
+                        self._original_bm25 = hybrid._bm25
+                        hybrid._bm25 = DiagnosticBranchRetrieverObserver(
+                            self._original_bm25, RetrievalStrategy.BM25, context
+                        )
+                    if hasattr(hybrid, "_dense"):
+                        self._original_dense = hybrid._dense
+                        hybrid._dense = DiagnosticBranchRetrieverObserver(
+                            self._original_dense, RetrievalStrategy.DENSE, context
+                        )
+
+            # Install logging handler
+            self._log_handler = GeneratorRejectionLogHandler(context)
+            gen_logger = logging.getLogger(
+                "legal_agentic_rag.generation.model_generator"
+            )
+            gen_logger.addHandler(self._log_handler)
+
+            # Record active lease on service
+            setattr(service, "_active_diagnostic_lease", self)
+        except Exception:
+            self.close()
+            raise
+
+    @property
+    def is_closed(self) -> bool:
+        return self._closed
+
+    @property
+    def context(self) -> ActiveDiagnosticContext:
+        return self._context
+
+    @property
+    def log_handler(self) -> GeneratorRejectionLogHandler | None:
+        return self._log_handler
+
+    @property
+    def original_reranker(self) -> Any:
+        return self._original_reranker
+
+    @property
+    def original_bm25(self) -> Any:
+        return self._original_bm25
+
+    @property
+    def original_dense(self) -> Any:
+        return self._original_dense
+
+    def close(self) -> None:
+        """Idempotently and safely restore all original object identities and logging."""
+        if self._closed:
+            return
+        self._closed = True
+
+        # 1. Restore reranker
+        if self._hybrid_rerank is not None and self._original_reranker is not None:
+            self._hybrid_rerank._reranker = self._original_reranker
+            self._original_reranker = None
+            self._hybrid_rerank = None
+
+        # 2. Restore branch retrievers
+        if self._hybrid is not None:
+            if self._original_bm25 is not None:
+                self._hybrid._bm25 = self._original_bm25
+                self._original_bm25 = None
+            if self._original_dense is not None:
+                self._hybrid._dense = self._original_dense
+                self._original_dense = None
+            self._hybrid = None
+
+        # 3. Detach logging handler
+        if self._log_handler is not None:
+            gen_logger = logging.getLogger(
+                "legal_agentic_rag.generation.model_generator"
+            )
+            gen_logger.removeHandler(self._log_handler)
+            self._log_handler = None
+
+        # 4. Clear active lease on service if it belongs to this lease
+        if getattr(self._service, "_active_diagnostic_lease", None) is self:
+            delattr(self._service, "_active_diagnostic_lease")
+
+
 def instrument_service_for_diagnostics(
     service: ServingService,
     context: ActiveDiagnosticContext,
-) -> GeneratorRejectionLogHandler:
-    """Attach transparent diagnostic observers to the runtime without mutating contracts."""
-    runtime = service._runtime
-    retriever = getattr(runtime, "_retriever", None)
-    if isinstance(retriever, FixedRetriever):
-        hybrid_rerank = getattr(retriever, "_hybrid_rerank", None)
-        if isinstance(hybrid_rerank, RerankingRetriever):
-            inner_reranker = hybrid_rerank._reranker
-            if not isinstance(inner_reranker, DiagnosticRerankerObserver):
-                reranker_cfg = getattr(hybrid_rerank, "_config", None)
-                rel_k = getattr(reranker_cfg, "relationship_candidate_k", None) if reranker_cfg else None
-                max_k = getattr(reranker_cfg, "max_candidates", None) if reranker_cfg else None
-                hybrid_rerank._reranker = DiagnosticRerankerObserver(
-                    inner_reranker,
-                    context,
-                    relationship_candidate_k=rel_k,
-                    max_candidates=max_k,
-                )
-        hybrid = getattr(retriever, "_hybrid", None)
-        if hybrid is not None:
-            if hasattr(hybrid, "_bm25") and not isinstance(
-                hybrid._bm25, DiagnosticBranchRetrieverObserver
-            ):
-                hybrid._bm25 = DiagnosticBranchRetrieverObserver(
-                    hybrid._bm25, RetrievalStrategy.BM25, context
-                )
-            if hasattr(hybrid, "_dense") and not isinstance(
-                hybrid._dense, DiagnosticBranchRetrieverObserver
-            ):
-                hybrid._dense = DiagnosticBranchRetrieverObserver(
-                    hybrid._dense, RetrievalStrategy.DENSE, context
-                )
-
-    log_handler = GeneratorRejectionLogHandler(context)
-    gen_logger = logging.getLogger(
-        "legal_agentic_rag.generation.model_generator"
-    )
-    gen_logger.addHandler(log_handler)
-    return log_handler
+) -> DiagnosticInstrumentationLease:
+    """Attach transparent diagnostic observers to the runtime with explicit lease ownership."""
+    return DiagnosticInstrumentationLease(service, context)
 
 
 class T5Dev200DiagnosticRunner:
@@ -652,15 +793,18 @@ class T5Dev200DiagnosticRunner:
         self._loader = loader or UitDsc2026DataLoader()
         self._clock = clock or (lambda: datetime.now(UTC))
         self._context = ActiveDiagnosticContext()
-        self._log_handler: GeneratorRejectionLogHandler | None = instrument_service_for_diagnostics(
+        self._lease: DiagnosticInstrumentationLease | None = instrument_service_for_diagnostics(
             self._service, self._context
+        )
+        self._log_handler: GeneratorRejectionLogHandler | None = (
+            self._lease.log_handler if self._lease else None
         )
 
     def close(self) -> None:
-        """Detach logging handler from global logger."""
-        if self._log_handler is not None:
-            gen_logger = logging.getLogger("legal_agentic_rag.generation.model_generator")
-            gen_logger.removeHandler(self._log_handler)
+        """Release instrumentation lease and restore original runtime components."""
+        if self._lease is not None:
+            self._lease.close()
+            self._lease = None
             self._log_handler = None
 
     def __enter__(self) -> "T5Dev200DiagnosticRunner":

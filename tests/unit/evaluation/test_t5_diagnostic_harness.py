@@ -23,9 +23,10 @@ from legal_agentic_rag.configuration.online import (
 from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.exceptions import (
     ArtifactCompatibilityError,
+    BackendInitializationError,
     DataValidationError,
 )
-from legal_agentic_rag.retrieval.fixed import HybridRetriever
+from legal_agentic_rag.retrieval.fixed import FixedRetriever, HybridRetriever
 from legal_agentic_rag.retrieval.rerank import RerankingRetriever
 from legal_agentic_rag.schemas import (
     AgentRunResult,
@@ -53,6 +54,7 @@ from scripts.t5_diagnostic_runner import (
     T5_DIAGNOSTIC_SCHEMA_VERSION,
     ActiveDiagnosticContext,
     DiagnosticBranchRetrieverObserver,
+    DiagnosticInstrumentationLease,
     DiagnosticRerankerObserver,
     GeneratorRejectionLogHandler,
     T5Dev200DiagnosticRunner,
@@ -708,3 +710,425 @@ def test_t5_results_jsonl_trailing_valid_record_without_newline_normalized(tmp_p
     assert records[0].question_id == "q-01"
     # File is normalized to end with newline
     assert results_file.read_bytes().endswith(b"\n")
+
+
+def _make_mock_service_with_fixed_retriever() -> tuple[ServingService, _ConformantDummyReranker, MagicMock, MagicMock]:
+    mock_service = MagicMock(spec=ServingService)
+    mock_runtime = MagicMock()
+    mock_service._runtime = mock_runtime
+
+    mock_bm25 = MagicMock()
+    mock_bm25.source_artifact_identity = ("legal-chunks", "1.0.0", "bm25-hash")
+    mock_dense = MagicMock()
+    mock_dense.source_artifact_identity = ("legal-chunks", "1.0.0", "dense-hash")
+
+    def make_branch_resp(q: RetrievalQuery, strat: RetrievalStrategy) -> RetrievalResponse:
+        return RetrievalResponse(
+            query=q,
+            strategy=strat,
+            hits=[_make_dummy_hit(f"hit-{strat.value}-{q.query_id}", 1, strategy=strat)],
+            latency_ms=2.0,
+        )
+
+    mock_bm25.search.side_effect = lambda q: make_branch_resp(q, RetrievalStrategy.BM25)
+    mock_dense.search.side_effect = lambda q: make_branch_resp(q, RetrievalStrategy.DENSE)
+
+    mock_reranker = _ConformantDummyReranker()
+    reranker_cfg = RerankerConfig(max_candidates=40, relationship_candidate_k=20)
+
+    fixed_retriever = FixedRetriever(
+        bm25_retriever=mock_bm25,
+        dense_retriever=mock_dense,
+        config=RetrievalConfig(),
+        reranker=mock_reranker,
+        reranker_config=reranker_cfg,
+    )
+    mock_runtime._retriever = fixed_retriever
+    return mock_service, mock_reranker, mock_bm25, mock_dense
+
+
+def test_t5_observer_lifecycle_case1_exact_restoration_after_close():
+    """Case 1: Assert exact component restoration by object identity after runner close."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+
+    runner = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5}),
+    )
+
+    # Observers installed
+    assert isinstance(fixed._hybrid_rerank._reranker, DiagnosticRerankerObserver)
+    assert isinstance(fixed._hybrid._bm25, DiagnosticBranchRetrieverObserver)
+    assert isinstance(fixed._hybrid._dense, DiagnosticBranchRetrieverObserver)
+
+    runner.close()
+
+    # Exact original identities restored
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+    assert not isinstance(fixed._hybrid_rerank._reranker, DiagnosticRerankerObserver)
+    assert not isinstance(fixed._hybrid._bm25, DiagnosticBranchRetrieverObserver)
+    assert not isinstance(fixed._hybrid._dense, DiagnosticBranchRetrieverObserver)
+
+
+def test_t5_observer_lifecycle_case2_sequential_runner_isolation_on_same_runtime():
+    """Case 2: Assert sequential runners on the same runtime do not leak rerank, BM25, or dense telemetry across contexts."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+
+    # =========================================================================
+    # Runner A Execution
+    # =========================================================================
+    runner_a = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+
+    query_a = RetrievalQuery(
+        query_id="q-a",
+        original_question="Câu hỏi A",
+        normalized_question="câu hỏi a",
+        top_k=5,
+        candidate_k=20,
+    )
+
+    # 1. Invoke BM25 branch activity
+    fixed._hybrid._bm25.search(query_a)
+    assert len(runner_a._context.branch_events) == 1
+    assert runner_a._context.branch_events[0].strategy == RetrievalStrategy.BM25
+    assert runner_a._context.branch_events[0].variant_text == "câu hỏi a"
+
+    # 2. Invoke Dense branch activity
+    fixed._hybrid._dense.search(query_a)
+    assert len(runner_a._context.branch_events) == 2
+    assert runner_a._context.branch_events[1].strategy == RetrievalStrategy.DENSE
+    assert runner_a._context.branch_events[1].variant_text == "câu hỏi a"
+
+    # 3. Invoke Rerank activity
+    cand_hits_a = [_make_dummy_hit(f"cand-a-{i}", i + 1) for i in range(10)]
+    fixed._hybrid.search = MagicMock(return_value=RetrievalResponse(
+        query=query_a,
+        strategy=RetrievalStrategy.HYBRID,
+        hits=cand_hits_a,
+        latency_ms=5.0,
+    ))
+    fixed._hybrid_rerank.search(query_a)
+    assert len(runner_a._context.rerank_events) == 1
+    assert runner_a._context.rerank_events[0].query_id == "q-a"
+
+    # Snapshot context A counts and event objects
+    context_a_rerank_snapshot = list(runner_a._context.rerank_events)
+    context_a_branch_snapshot = list(runner_a._context.branch_events)
+    assert len(context_a_rerank_snapshot) == 1
+    assert len(context_a_branch_snapshot) == 2
+
+    runner_a.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+
+    # =========================================================================
+    # Runner B Execution on the SAME runtime/service
+    # =========================================================================
+    runner_b = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+
+    query_b = RetrievalQuery(
+        query_id="q-b",
+        original_question="Câu hỏi B",
+        normalized_question="câu hỏi b",
+        top_k=5,
+        candidate_k=20,
+    )
+
+    # 1. Invoke BM25 branch activity for B
+    fixed._hybrid._bm25.search(query_b)
+    assert len(runner_b._context.branch_events) == 1
+    assert runner_b._context.branch_events[0].strategy == RetrievalStrategy.BM25
+    assert runner_b._context.branch_events[0].variant_text == "câu hỏi b"
+
+    # 2. Invoke Dense branch activity for B
+    fixed._hybrid._dense.search(query_b)
+    assert len(runner_b._context.branch_events) == 2
+    assert runner_b._context.branch_events[1].strategy == RetrievalStrategy.DENSE
+    assert runner_b._context.branch_events[1].variant_text == "câu hỏi b"
+
+    # 3. Invoke Rerank activity for B
+    cand_hits_b = [_make_dummy_hit(f"cand-b-{i}", i + 1) for i in range(10)]
+    fixed._hybrid.search = MagicMock(return_value=RetrievalResponse(
+        query=query_b,
+        strategy=RetrievalStrategy.HYBRID,
+        hits=cand_hits_b,
+        latency_ms=5.0,
+    ))
+    fixed._hybrid_rerank.search(query_b)
+
+    # Assert runner B contains only B telemetry
+    assert len(runner_b._context.rerank_events) == 1
+    assert runner_b._context.rerank_events[0].query_id == "q-b"
+    assert len(runner_b._context.branch_events) == 2
+    assert [e.variant_text for e in runner_b._context.branch_events] == ["câu hỏi b", "câu hỏi b"]
+
+    # Assert runner A context is completely unchanged and isolated
+    assert runner_a._context.rerank_events == context_a_rerank_snapshot
+    assert runner_a._context.branch_events == context_a_branch_snapshot
+    assert len(runner_a._context.rerank_events) == 1
+    assert runner_a._context.rerank_events[0].query_id == "q-a"
+    assert len(runner_a._context.branch_events) == 2
+    assert [e.variant_text for e in runner_a._context.branch_events] == ["câu hỏi a", "câu hỏi a"]
+
+    # Assert no B query appears in context A, and no A query appears in context B
+    assert not any(e.query_id == "q-b" for e in runner_a._context.rerank_events)
+    assert not any(e.variant_text == "câu hỏi b" for e in runner_a._context.branch_events)
+    assert not any(e.query_id == "q-a" for e in runner_b._context.rerank_events)
+    assert not any(e.variant_text == "câu hỏi a" for e in runner_b._context.branch_events)
+
+    runner_b.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+
+
+def test_t5_observer_lifecycle_case3_no_nested_wrappers():
+    """Case 3: Observers must never nest DiagnosticRerankerObserver inside DiagnosticRerankerObserver."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+
+    with T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    ) as runner_a:
+        obs_a = fixed._hybrid_rerank._reranker
+        assert isinstance(obs_a, DiagnosticRerankerObserver)
+        assert obs_a.inner is orig_reranker
+        assert not isinstance(obs_a.inner, DiagnosticRerankerObserver)
+
+    with T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    ) as runner_b:
+        obs_b = fixed._hybrid_rerank._reranker
+        assert isinstance(obs_b, DiagnosticRerankerObserver)
+        assert obs_b.inner is orig_reranker
+        assert not isinstance(obs_b.inner, DiagnosticRerankerObserver)
+
+        bm25_obs = fixed._hybrid._bm25
+        assert isinstance(bm25_obs, DiagnosticBranchRetrieverObserver)
+        assert bm25_obs.inner is orig_bm25
+        assert not isinstance(bm25_obs.inner, DiagnosticBranchRetrieverObserver)
+
+        dense_obs = fixed._hybrid._dense
+        assert isinstance(dense_obs, DiagnosticBranchRetrieverObserver)
+        assert dense_obs.inner is orig_dense
+        assert not isinstance(dense_obs.inner, DiagnosticBranchRetrieverObserver)
+
+
+def test_t5_observer_lifecycle_case4_logger_lifecycle():
+    """Case 4: Generator rejection logging handler is cleanly attached and detached per runner."""
+    mock_service, _, _, _ = _make_mock_service_with_fixed_retriever()
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+    gen_logger = logging.getLogger("legal_agentic_rag.generation.model_generator")
+
+    initial_handlers = list(gen_logger.handlers)
+
+    runner_a = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+    assert len(gen_logger.handlers) == len(initial_handlers) + 1
+    assert runner_a._log_handler in gen_logger.handlers
+
+    runner_a.close()
+    assert len(gen_logger.handlers) == len(initial_handlers)
+    assert runner_a._log_handler is None
+
+    runner_b = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+    assert len(gen_logger.handlers) == len(initial_handlers) + 1
+    assert runner_b._log_handler in gen_logger.handlers
+
+    runner_b.close()
+    assert len(gen_logger.handlers) == len(initial_handlers)
+
+
+def test_t5_observer_lifecycle_case5_idempotent_close():
+    """Case 5: Multiple calls to close() are idempotent, safe, and do not raise exceptions."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+
+    runner = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+    runner.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+
+    # Second and third close calls are idempotent no-ops
+    runner.close()
+    runner.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+
+
+def test_t5_observer_lifecycle_case6_context_manager_exception_cleanup():
+    """Case 6: Exceptions raised inside context manager trigger clean __exit__ restoration."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+
+    with pytest.raises(RuntimeError, match="simulated-inference-failure"):
+        with T5Dev200DiagnosticRunner(
+            mock_service,
+            application_config_hash=VALID_CONFIG_HASH,
+            execution_identity=identity,
+            official_scoring_module=scorer,
+        ):
+            assert isinstance(fixed._hybrid_rerank._reranker, DiagnosticRerankerObserver)
+            raise RuntimeError("simulated-inference-failure")
+
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+    assert getattr(mock_service, "_active_diagnostic_lease", None) is None
+
+
+def test_t5_observer_lifecycle_case7_overlapping_runners_fail_closed():
+    """Case 7: Attempting concurrent/overlapping runners on the same runtime fails closed with zero mutation to runtime or logger state."""
+    mock_service, orig_reranker, orig_bm25, orig_dense = _make_mock_service_with_fixed_retriever()
+    fixed = mock_service._runtime._retriever
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+    gen_logger = logging.getLogger("legal_agentic_rag.generation.model_generator")
+
+    runner_a = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+
+    # Capture exact state and object identities while runner A is active
+    lease_before = getattr(mock_service, "_active_diagnostic_lease", None)
+    assert lease_before is not None
+    reranker_obs_before = fixed._hybrid_rerank._reranker
+    bm25_obs_before = fixed._hybrid._bm25
+    dense_obs_before = fixed._hybrid._dense
+    handlers_before = list(gen_logger.handlers)
+    assert runner_a._log_handler in handlers_before
+
+    # Without closing runner_a, runner_b must fail closed before mutating runtime or logger state
+    with pytest.raises(BackendInitializationError, match="Active diagnostic instrumentation session already exists"):
+        T5Dev200DiagnosticRunner(
+            mock_service,
+            application_config_hash=VALID_CONFIG_HASH,
+            execution_identity=identity,
+            official_scoring_module=scorer,
+        )
+
+    # Assert zero mutation occurred during failed runner B instantiation
+    assert getattr(mock_service, "_active_diagnostic_lease", None) is lease_before
+    assert fixed._hybrid_rerank._reranker is reranker_obs_before
+    assert fixed._hybrid._bm25 is bm25_obs_before
+    assert fixed._hybrid._dense is dense_obs_before
+    assert gen_logger.handlers == handlers_before
+    assert len(gen_logger.handlers) == len(handlers_before)
+
+    # Runner A remains active and functional
+    assert isinstance(fixed._hybrid_rerank._reranker, DiagnosticRerankerObserver)
+
+    # After runner A closes, verify exact original identities are restored
+    runner_a.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+    assert getattr(mock_service, "_active_diagnostic_lease", None) is None
+
+    # Now Runner B can be constructed and functions cleanly
+    runner_b = T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    )
+    assert isinstance(fixed._hybrid_rerank._reranker, DiagnosticRerankerObserver)
+    runner_b.close()
+    assert fixed._hybrid_rerank._reranker is orig_reranker
+    assert fixed._hybrid._bm25 is orig_bm25
+    assert fixed._hybrid._dense is orig_dense
+
+
+def test_t5_observer_lifecycle_case8_non_instrumentable_mock_compatibility():
+    """Case 8: Minimal/mock service without FixedRetriever remains compatible and cleanly closes."""
+    mock_service = MagicMock(spec=ServingService)
+    mock_service._runtime = MagicMock()
+    mock_service._runtime._retriever = None
+    identity = T5ExecutionIdentity(
+        measurement_harness_source_sha=VALID_HARNESS_SHA,
+        dev200_ordered_ids_sha256="d" * 64,
+    )
+    scorer = MagicMock(eval_qa=lambda p, t: {"rouge": 0.5, "meteor": 0.5})
+
+    with T5Dev200DiagnosticRunner(
+        mock_service,
+        application_config_hash=VALID_CONFIG_HASH,
+        execution_identity=identity,
+        official_scoring_module=scorer,
+    ) as runner:
+        assert runner._lease is not None
+        assert runner._lease.is_closed is False
+
+    assert runner._lease is None
+    assert getattr(mock_service, "_active_diagnostic_lease", None) is None
