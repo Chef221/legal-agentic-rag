@@ -2182,9 +2182,7 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-3A (Strict Own-Document Reference Recovery):** ACCEPTED TARGETED CANDIDATE at commit `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`. Causal A/B validation completed on 100% of explicit-document queries in Dev-200 (Q54485 ROUGE +0.295, METEOR +0.278; Q158985 ROUGE +0.120, METEOR +0.076).
 - **T5-3C (Experiment Ledger & Governance):** Completed and committed at `ca00c133b70905dc0bcff8cb469727264b25a995` (Documentation/Governance checkpoint).
 - **T5-H1 (Diagnostic Observer Lifecycle Repair):** ACCEPTED and committed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. External review verified exact observer restoration, sequential telemetry isolation, zero-mutation overlap rejection, and zero production `src/**` changes.
-- **T5-4A (Evidence Selection Opportunity Census):** ACCEPTED — NO_SELECTION_POLICY_JUSTIFIED (EvidenceSelector remains unchanged; external review passed).
+- **T5-4A (Evidence Selection Opportunity Census):** ACCEPTED — NO_SELECTION_POLICY_JUSTIFIED at `2b17c8ecbaeb818f30efd014f59febfcd28f00c7`. EvidenceSelector remains unchanged.
 - **Subsequent Planned Work:**
-  - Generator contract / fallback efficiency investigation.
-  - Targeted reranker investigation.
   - Targeted reranker investigation.
   - Generator contract / fallback efficiency investigation.
