@@ -604,8 +604,7 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 - **Telemetry Scope:** HISTORICAL T4 FAST30 BASELINE TELEMETRY (t5-1c-fast30-clean1-evidence.zip, SHA-256: be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f).
 - **Execution Identity:**
   - production_baseline_source_sha: 87e71eb7661eb9cda1e63f4f0af16ef4613dadfb (Pre-T5-3A baseline)
-  - measurement_harness_source_sha:
-a3b902da1041ac9d2b35cbe61a47351bccf10eb
+  - `measurement_harness_source_sha`: `fa3b902da1041ac9d2b35cbe61a47351bccf10eb`
   - application_config_hash: ca1f0aa45a22df7aa9293e42df94473c059b4480b8c03d6ef942c21e9f3da261
   - official_scorer_sha256: 4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891
   - ordered_question_ids_sha256: 11fcb465f9194cbaeee5d6fe5ed127da38e1bb66969654a4cdf984c25b3c8417
