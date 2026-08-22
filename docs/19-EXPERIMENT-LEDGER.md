@@ -585,3 +585,96 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ### Next Step
 - T5-H1 implementation is accepted and closed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. After this documentation-closure checkpoint is committed and remote-verified, begin T5-4 from that new checkpoint.
+
+
+---
+
+## 15. T5-4A — Evidence Selection Opportunity Census and Counterfactual Top-1 Policy Analysis
+
+- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Date:** 2026-08-22
+- **Objective:** Determine whether meaningful quality improvement remains available specifically at the evidence selection / top-1 stage using only deployable serving-time signals.
+- **Hypothesis:** Systematic census of conservative causal failure layers, actual selected Top-1 evidence reconciliation with unique-match validation, and pre/post-rerank telemetry analysis tracking candidate removal will establish whether deployable signals can reliably promote oracle-better candidates without heuristic regressions.
+
+### Authority & Artifact Scope
+- **Baseline / Starting Authority:** 985bf4bb03a588880413c57fd09deb74b87a8294
+- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Branch:** 	5/baseline-error-decomposition
+- **Parent Commit:** 985bf4bb03a588880413c57fd09deb74b87a8294
+- **Telemetry Scope:** HISTORICAL T4 FAST30 BASELINE TELEMETRY (	5-1c-fast30-clean1-evidence.zip, SHA-256: e2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f).
+- **Execution Identity:**
+  - production_baseline_source_sha: 87e71eb7661eb9cda1e63f4f0af16ef4613dadfb (Pre-T5-3A baseline)
+  - measurement_harness_source_sha:
+a3b902da1041ac9d2b35cbe61a47351bccf10eb
+  - pplication_config_hash: ca1f0aa45a22df7aa9293e42df94473c059b4480b8c03d6ef942c21e9f3da261
+  - official_scorer_sha256: 4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891
+  - ordered_question_ids_sha256: 11fcb465f9194cbaeee5d6fe5ed127da38e1bb66969654a4cdf984c25b3c8417
+- **Evaluation Population:** FAST30 (Tune20: first 20 QIDs, Holdout10: last 10 QIDs).
+
+### Intended Change vs Actual Change
+- **Intended Production Change:** None (Diagnostic analysis and tooling only).
+- **Actual Production Change:** None (src/ completely unmodified; EvidenceSelector remains unchanged).
+- **Exact Files Modified:**
+  - scripts/t5_evidence_policy_analysis.py (Created census, unique-reconciliation fail-closed validation, candidate-removal rerank telemetry analysis, and Tune-only policy discovery tooling)
+  - 	ests/unit/evaluation/test_t5_evidence_policy_analysis.py (Created 19 unit tests covering all causal failure layers, reconciliation fail-closed rules, and partition gates)
+  - docs/19-EXPERIMENT-LEDGER.md (Finalized accepted T5-4A census entry)
+  - docs/09-IMPLEMENTATION-PLAN.md (Updated Milestone 56 status to accepted)
+
+### Methodology & Telemetry Auditing
+- **Top-1 Resolution & Unique Reconciliation:** ACTUAL selected_evidence[0] is extracted and uniquely reconciled with 	erminal_retrieval_hits via chunk_id and source_rank (with fail-closed validation: un-reconciled or duplicate records become nalysis_valid = False and AMBIGUOUS).
+  - Unique Reconciliation Valid: 30 / 30 (100.0%).
+  - Reconciliation Invalid: 0 / 30 (0.0%).
+  - selected_evidence[0] == terminal_retrieval_hits[0]: 30 / 30 (100.0%) in historical baseline.
+- **Rerank Telemetry Analysis (Tracking Candidate Removal):**
+  - Uniquely Mapped Rerank Events: 29 / 30 (all 20 Tune20, 9 Holdout10 where post_rerank_hits == terminal_retrieval_hits).
+  - Ambiguous Rerank Events: 1 / 30 (Q54485, where final execution path used strategy: bm25 directly without terminal reranking).
+  - Confirmed RERANK_LOSS: 2 / 30 (Q134499, Q60281 in Holdout10, where an oracle-useful candidate with  \ge 0.40$ was dropped post-rerank with $ gap $\ge 0.08$).
+  - Tune20 Confirmed RERANK_LOSS: 0 / 20 (0.0%).
+- **Context & Diversity Budget Warning Analysis:**
+  - Records with Budget/Diversity Warnings: 13 / 30 (89271, 102061, 94975, 56533, 89881, 140337, 36411, 46497, 150817, 21011, 134499, 122809, 138771).
+  - Confirmed CONTEXT_BUDGET_LOSS: 0 (persisted telemetry logs aggregate omission count but does not identify individual candidate IDs).
+  - CONTEXT_BUDGET_CAUSALITY_NOT_ASSESSABLE_FROM_ARTIFACT: 13 / 30.
+
+### Conservative Causal Failure-Layer Census Across FAST30 (n=30)
+- **NO_CLEAR_CAUSAL_OPPORTUNITY:** 6 / 30 (20.0%)
+  - *Tune20 (5):* 39207, 31523, 17179, 89881, 58651
+  - *Holdout10 (1):* 66625
+- **GENERATION_OR_DOWNSTREAM_MISS:** 7 / 30 (23.3%)
+  - *Tune20 (6):* 116553, 83501, 56533, 140337, 36411, 150817
+  - *Holdout10 (1):* 52453
+- **SELECTION_OPPORTUNITY:** 12 / 30 (40.0%)
+  - *Tune20 (8):* 89271, 113579, 102061, 94975, 46497, 150207, 21011, 84363
+  - *Holdout10 (4):* 129571, 122809, 138771, 16851
+- **CONFIRMED_SELECTION_MISS:** 1 / 30 (3.3%)
+  - *Holdout10 (1):* 54485 (Historical baseline document false-negative, imported from prior accepted T5-3A authority; not proven by FAST30 oracle overlap alone).
+- **RERANK_LOSS:** 2 / 30 (6.7%)
+  - *Holdout10 (2):* 134499, 60281
+- **AMBIGUOUS / RETRIEVAL_OR_RERANK_AMBIGUOUS:** 2 / 30 (6.7%)
+  - *Tune20 (1):* 102303
+  - *Holdout10 (1):* 3359
+- **CONTEXT_BUDGET_LOSS:** 0 / 30 (0.0% confirmed)
+
+### Historical Controls Evidence Scope
+- **Q54485:** Present in FAST30 (Holdout10). In historical baseline 87e71eb, Q54485 suffered a confirmed selection miss due to document slug mismatch. This failure mode was causally resolved and accepted in candidate T5-3A (1ffa5d).
+- **Q158985:** Absent from FAST30 (part of the larger Dev-200 census); its T5-3A recovery stands on prior accepted T5-3A authority.
+
+### Invalid / Discarded Runs
+- **T5-4A Exploratory Holdout-Peeking Run:**
+  - During initial exploratory parameter analysis, the simplified lexical-weight sweep ( \in [0.0, 5.0]$) was evaluated on both Tune20 and Holdout10.
+  - This violated single-use holdout discipline.
+  - All T5-4A Holdout10 policy-comparison results are DISCARDED as validation evidence.
+  - Holdout records are retained strictly for descriptive historical census, not for candidate selection or generalization claims.
+  - Candidate policy discovery is restricted strictly to Tune20.
+  - **NO GENERALIZATION CLAIM is made from T5-4A.**
+
+### Decision & Rationale
+- **Decision:** NO_SELECTION_POLICY_JUSTIFIED
+- **Rationale:** No candidate policy survived Tune20 discovery without unacceptable regressions. Holdout10 was contaminated during exploratory work and provides no generalization evidence. No production EvidenceSelector change is justified. The only valid, causally proven selection policy is T5-3A (Strict Own-Document Reference Recovery), which is already accepted and committed. EvidenceSelector remains unmutated; further optimizations should focus on downstream generator output contract alignment and targeted reranker investigation.
+
+### Production Impact & Known Risks
+- **Production Impact:** Zero serving or runtime behavior changes (EvidenceSelector remains unchanged).
+- **Known Limitations:** Oracle overlap metrics are diagnostic proxies only and are never exposed as candidate features.
+- **Rollback Authority:** 985bf4bb03a588880413c57fd09deb74b87a8294.
+
+### Next Step
+- Commit and push T5-4A analysis checkpoint, then begin downstream investigation only from the remote-verified checkpoint.
