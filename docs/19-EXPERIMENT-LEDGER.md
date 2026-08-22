@@ -936,10 +936,12 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 - **Decision:** **`NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED`**
 - **Follow-up / Next Milestone:** Execute T5-6B controlled generator measurement under the preregistered Design B protocol upon external review acceptance.
 
-## 18. T5-6B-PREP - Design-B Measurement Runner and Telemetry Implementation (Fix 5.1: Official Scorer Authority and Hardened Authority Closure)
-- **Status:** TOOLING COMPLETE - PENDING FINAL EXTERNAL REVIEW (NO INFERENCE RUN)
+## 18. T5-6B-PREP - Design-B Measurement Runner and Telemetry Implementation (ACCEPTED & CLOSED)
+- **Status:** ACCEPTED & CLOSED (NO INFERENCE RUN)
+- **Implementation Commit SHA:** `30999bc89ca16e68c1f957268b6c9f9c85cedb82`
+- **External Review:** PASSED
 - **Objective:** Construct, harden, and unit-test a deterministic, frozen-input measurement harness and telemetry framework for executing the preregistered T5-6B Design-B controlled output-contract experiment across the three candidate arms (control: plain_text_markers, compact: compact_example, json_schema: json_schema) without loading weights or executing model inference during the prep phase.
-- **Fix 5 / 5.1 Hardening Accomplishments:**
+- **Accepted Authority & Hardening Accomplishments:**
   1. **Exact Official Scoring Entrypoint Execution:** In `score_tune20_answers()`, macro ROUGE-L and METEOR metrics are computed by directly calling the verified official entrypoint `eval_qa(y_pred, y_true)` inside `scoring.py` from the pinned scorer archive (`OFFICIAL_SCORER_ARCHIVE_SHA256`). Payloads strictly match `{qid: {"answer": pred}}` and `{qid: ref}` for all 20 Tune20 QIDs. Returned official macro values are the ONLY metrics participating in candidate advancement. Per-question scores are evaluated through the exact same official entrypoint on single-QID dicts.
   2. **Exact Prediction and Reference QID Set Validation:** Required `set(predicted_answers.keys()) == set(CANONICAL_TUNE20_ORDERED_QIDS)` and `set(reference_answers.keys()) == set(CANONICAL_TUNE20_ORDERED_QIDS)`. Missing, extra, or mismatched QIDs fail closed immediately with `DataValidationError`.
   3. **Unit Test Scorer Isolation:** Removed machine-specific paths and skip decorators from committed unit tests. All committed tests execute against a synthetic `eval_qa` fixture verifying entrypoint delegation, payload structure, sentinel returns, and QID set boundaries.
@@ -954,10 +956,15 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
   12. **Model Tree SHA Algorithm Authority:** Restored exact historical model-tree SHA-256 algorithm from `notebooks/m491_kaggle_candidate_dev.py` at commit `10681c8` (sorted `rglob("*")`, 8-byte big-endian length prefix, raw UTF-8 relative path, raw 32-byte file SHA).
   13. **Resume Arm-Order Fail-Closed Gates:** Enforced strict execution arm ordering (`control` -> `compact` -> `json_schema`) on resume; later arms with completed QIDs when earlier arms are incomplete fail closed.
   14. **Non-Blocking Execution Exclusivity:** Enforced `_RUNNER_LOCK.acquire(blocking=False)` and `_LEASE_LOCK.acquire(blocking=False)` to reject overlapping runner or logger leases immediately without deadlocking.
-  15. **Test Collection Evidence & Zero Regression:** Base authority `5a19d18` test collection confirmed at 558 tests. Fix 5.1 test collection is 633 tests (558 base + 75 measurement tests: 632 passed, 1 skipped). Zero tests deleted or regressed.
-- **Verification Evidence:**
-  - Generation preflight: `python scripts/t5_generator_contract_measurement.py --archive C:/Users/Nguyen/Downloads/t5-1c-fast30-clean1-evidence.zip --preflight-only` -> `preflight_status: SUCCESS` (20 Tune20 records validated, 169 evidence items; `scorer_gate = NOT_APPLICABLE_TO_GENERATION_PHASE`).
-  - Separate PREP scorer-authority validation: PASS (`eval_qa` verified on 8 golden vectors with exact archive & member SHA-256 matches).
+  15. **Test Collection Evidence & Zero Regression:** Base authority `5a19d18` test collection confirmed at 558 tests. Accepted test collection is 633 tests (558 base + 75 measurement tests: 632 passed, 1 skipped). Zero tests deleted or regressed.
+- **Accepted Verification Evidence:**
+  - Official Scorer Archive SHA-256: `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891` (PASSED).
+  - Official scoring.py SHA-256: `f04843fbfad26d41356506d8e49692a7c8a0ed1b9f065a3a8472fa6398a5aa95` (PASSED).
+  - Official Entrypoint: `eval_qa` (8 real golden vectors validated with full parity).
+  - Real FAST30 preflight check: `python scripts/t5_generator_contract_measurement.py --archive C:/Users/Nguyen/Downloads/t5-1c-fast30-clean1-evidence.zip --preflight-only` -> `preflight_status: SUCCESS` (20 Tune20 records validated, 169 evidence items; zero model/provider/inference).
   - T5-6B Measurement Suite: `pytest tests/unit/evaluation/test_t5_generator_contract_measurement.py` -> 75 / 75 passed.
   - Focused Evaluation Suites: `pytest tests/unit/evaluation/test_t5_generator_fallback_analysis.py tests/unit/evaluation/test_t5_reranker_forensics.py tests/unit/evaluation/test_t5_evidence_policy_analysis.py tests/unit/evaluation/test_t5_generator_contract_measurement.py` -> 150 / 150 passed.
   - Full Repo Test Suite: `pytest` -> 632 passed, 1 skipped (0 failures).
+- **Next Step:**
+  After this documentation-closure checkpoint is committed, pushed, and remote-verified, the closure commit SHA becomes the authoritative T5-6B `measurement_source_sha`.
+  T5-6B real generation MUST NOT begin until an externally reviewed exact execution command is produced from that authority SHA.
