@@ -2183,6 +2183,6 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-3C (Experiment Ledger & Governance):** Completed and committed at `ca00c133b70905dc0bcff8cb469727264b25a995` (Documentation/Governance checkpoint).
 - **T5-H1 (Diagnostic Observer Lifecycle Repair):** ACCEPTED and committed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. External review verified exact observer restoration, sequential telemetry isolation, zero-mutation overlap rejection, and zero production `src/**` changes.
 - **T5-4A (Evidence Selection Opportunity Census):** ACCEPTED — NO_SELECTION_POLICY_JUSTIFIED at `2b17c8ecbaeb818f30efd014f59febfcd28f00c7`. EvidenceSelector remains unchanged.
+- **T5-5A (Targeted Reranker Causal Investigation):** ACCEPTED — NO_RERANK_POLICY_JUSTIFIED (Production reranker remains unchanged; next planned investigation: Generator Contract / Fallback Efficiency).
 - **Subsequent Planned Work:**
-  - Targeted reranker investigation.
   - Generator contract / fallback efficiency investigation.

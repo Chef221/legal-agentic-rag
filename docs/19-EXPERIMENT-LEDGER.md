@@ -680,3 +680,131 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ### Next Step
 - T5-4A is ACCEPTED & CLOSED at 2b17c8ecbaeb818f30efd014f59febfcd28f00c7. Downstream investigation will proceed only from the remote-verified checkpoint.
+
+## 16. T5-5A — Targeted Reranker Causal Investigation
+
+- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Date:** 2026-08-22
+- **Objective:** Investigate historical FAST30 reranker cases flagged by oracle/reference-overlap diagnostics (Q134499, Q60281), determine whether the flags correspond to genuine semantic reranker concerns or proxy false positives, and evaluate whether any clean Tune20 evidence justifies a deployable intervention.
+- **Hypothesis:** Reconstructing exact pre/post rerank events, score margins, input representations, and query representations for historical forensic seed cases will establish whether cross-encoder candidate omissions stem from a fixable deployable failure mode or model preference limitations that cannot be addressed without fine-tuning.
+
+### Authority & Artifact Scope
+- **Starting / Rollback Authority:** `024e6b5e7481d7dc3e1a4878e158f5f32c0f3080`
+- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Branch:** `t5/baseline-error-decomposition`
+- **Parent Commit:** `024e6b5e7481d7dc3e1a4878e158f5f32c0f3080`
+- **Telemetry Scope:** HISTORICAL T4 FAST30 BASELINE TELEMETRY (`t5-1c-fast30-clean1-evidence.zip`, SHA-256: `be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f`).
+- **Execution Identity:**
+  - `production_baseline_source_sha`: `87e71eb7661eb9cda1e63f4f0af16ef4613dadfb`
+  - `measurement_harness_source_sha`: `fa3b902da1041ac9d2b35cbe61a47351bccf10eb`
+  - `application_config_hash`: `ca1f0aa45a22df7aa9293e42df94473c059b4480b8c03d6ef942c21e9f3da261`
+  - `official_scorer_sha256`: `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+  - `ordered_question_ids_sha256`: `11fcb465f9194cbaeee5d6fe5ed127da38e1bb66969654a4cdf984c25b3c8417`
+- **Evaluation Population:** FAST30 (Tune20: first 20 QIDs, Holdout10: last 10 QIDs).
+
+### Intended Change vs Actual Change
+- **Intended Production Change:** None (Forensic investigation only).
+- **Actual Production Change:** None (`src/**` completely unmodified; `CrossEncoderReranker` and `RerankingRetriever` remain unchanged).
+- **Exact Files Created / Modified:**
+  - `scripts/t5_reranker_forensics.py` (Created reranker forensic reconstruction, score space separation, cutoff analysis, and Tune-only policy gate tooling with byte-level authority binding)
+  - `tests/unit/evaluation/test_t5_reranker_forensics.py` (Created unit tests covering score separation, cutoff bounds, authority-bound annotations, and partition gates)
+  - `docs/19-EXPERIMENT-LEDGER.md` (Added Entry 16 investigation report)
+  - `docs/09-IMPLEMENTATION-PLAN.md` (Updated Milestone 56 planned work status)
+
+### Current Reranker Contract vs Historical Execution
+- **Current Default Configuration (`RerankerConfig`):**
+  - `model_name`: `cross-encoder/mmarco-mMiniLMv2-L12-H384-v1`
+  - `model_revision`: `1427fd652930e4ba29e8149678df786c240d8825`
+  - `batch_size`: 8
+  - `max_length`: 512
+  - `max_candidates`: 100
+  - `relationship_candidate_k`: None
+  - `input_mode`: `legal_context`
+  - `prompt_name`: None, `instruction`: None
+  - `device`: cpu, `torch_dtype`: float32
+- **Historical FAST30 Candidate Pool:** Seed cases evaluated an actual pre-rerank candidate pool of 40 candidates (rather than 100).
+- **Query Text:** `query.rewritten_question or query.normalized_question`.
+- **Candidate Text:** `build_legal_rerank_text(hit)` prepending unified legal metadata headers and structural hierarchy followed by `Nội dung:` and chunk text.
+- **Scoring Semantics & Tie-Breaking:** Raw unbounded cross-encoder logits sorted deterministically by (1) descending score, (2) original candidate `RetrievalHit.rank`, (3) `chunk_id`.
+
+### Score Space Separation & Measurement Limitations
+- **Strict Score Separation:** Pre-rerank candidate scores belong to the hybrid RRF retrieval space; post-rerank scores belong to cross-encoder logit space. Tooling strictly enforces this boundary and never computes arithmetic differences between distinct score spaces.
+- **Dropped Candidate Logits:** Cross-encoder scores for candidates truncated by top-k were not persisted into historical telemetry. For dropped candidates, exact cross-encoder scores and exact dropped-to-cutoff margins are NOT RECOVERED FROM CURRENT ARTIFACT. The deterministic relationship is recorded as the bounded invariant: dropped score <= cutoff score (due to score/rank/chunk-id tie-breaking), recorded as AT_OR_BELOW_CUTOFF_EXACT_VALUE_NOT_PERSISTED.
+- **Authority Binding:** Semantic forensic annotations are bound to the SHA-256 computed directly from actual historical ZIP bytes, plus split/QID/chunk/proxy identity.
+
+### Forensic Case 1 — Q134499
+- **Question:** Cấp Phiếu lý lịch tư pháp cho người nước ngoài được pháp luật quy định ra sao?
+- **Classification:** SEMANTICALLY_PLAUSIBLE_RERANK_LOSS (Forensic seed candidate; not a validated production claim).
+- **Candidate Pool:** 40 pre-rerank candidates.
+- **Dropped Candidate:** `chunk_6dbd79b888078e5047434fe0`
+  - *Document ID:* `301774` (`Luat-ly-lich-tu-phap-2009-28-2009-QH12-90615`)
+  - *Structure:* Điều 45 (Thủ tục yêu cầu cấp Phiếu lý lịch tư pháp số 1)
+  - *Source Ranks:* Pre-rank #6, BM25 rank 40, Dense rank 8, RRF score 0.0161
+  - *Diagnostic Reference Overlap:* Reference F1 = 0.835
+  - *Outcome:* Dropped outside top 10 post-rerank hits. Current-event score not persisted; deterministic rank outcome implies score <= 4.9453, subject to score/rank/chunk-id tie-breaking.
+- **Post-Rerank Retained Hits:**
+  - *Post #1 (Selected Top-1):* `chunk_7f2df393108cd40cc4646f1d` (doc `301774`, Điều 44: Thẩm quyền cấp Phiếu, score 5.9609, F1 = 0.578)
+  - *Post #5 (Best Retained Post):* `chunk_6c08d873b47adaa5f940adbe` (doc `301774`, Điều 46: Thủ tục cấp Phiếu số 2, score 5.0859, F1 = 0.643)
+  - *Cutoff (Post #10):* `chunk_41937c0ba97b2165490c50e2` (score 4.9453)
+- **Score Margin Summary:** Top-1 to Cutoff Margin = +1.0156 (5.9609 - 4.9453). Exact dropped-to-cutoff margin is unrecovered from artifact.
+- **Causal Mechanism:** Điều 44 received a higher retained reranker score and contains an explicit foreigner/jurisdiction phrase, while the dropped Điều 45 chunk is procedure-focused. This ranking pattern is consistent with model preference for the explicit jurisdiction wording. The causal contribution of that wording is not established.
+- **Query Representation Evidence:** Persisted query_analysis: intent = general, document_numbers = [], article_numbers = [], clause_numbers = [], point_numbers = []. normalized_question and rewritten_question are not persisted in T5QuestionDiagnosticRecord telemetry (record.get(...) returns None). Telemetry limitation: QUERY_REPRESENTATION_CAUSALITY_NOT_ASSESSABLE_FROM_ARTIFACT.
+- **Offline Input Rendering:** build_legal_rerank_text(hit) reconstruction succeeded for Điều 45 (1338 chars, Nội dung index 139) and Điều 44 (1171 chars, Nội dung index 143). Key passages and structural metadata are present early in the rendered text. Limitation: STRUCTURAL_TRUNCATION_RISK_NOT_ASSESSABLE_OFFLINE.
+
+### Forensic Case 2 — Q60281
+- **Question:** Mức hưởng bảo hiểm y tế hiện nay của người tham gia bảo hiểm y tế như thế nào?
+- **Classification:** ORACLE_PROXY_FALSE_POSITIVE (Forensic assessment; NOT a verified reranker quality loss).
+- **Candidate Pool:** 40 pre-rerank candidates.
+- **Dropped Candidate with High Oracle F1:** `chunk_c8d1589d4db4ce08c92e67cb`
+  - *Document ID:* `155934` (`Quyet-dinh-824-QD-BYT-2023-bo-sung-danh-muc-ma-quan-ly-chi-phi-kham-chua-benh-bao-hiem-y-te-554944`)
+  - *Structure:* Phụ lục 2, Điều 6
+  - *Source Ranks:* Pre-rank #16, BM25 rank 7, Dense rank None, RRF score 0.0149
+  - *Diagnostic Reference Overlap:* Reference F1 = 0.630
+  - *Outcome:* Dropped outside top 10 post-rerank hits. Current-event score not persisted; deterministic rank outcome implies score <= 4.90625, subject to score/rank/chunk-id tie-breaking.
+- **Post-Rerank Retained Hits:**
+  - *Post #1 (Selected Top-1):* `chunk_0a863645e2e3da97e40ac2ce` (doc `211473`, Điều 6, score 6.28125, F1 = 0.226)
+  - *Post #2:* `chunk_649e1c065f4d1e22055627eb` (doc `243812`, Điều 22, score 5.8906, F1 = 0.483)
+  - *Post #3 (Best Retained Post):* `chunk_175acd29e59d9a4697ffdc0b` (doc `227964`, Điều 12, score 5.6875, F1 = 0.543)
+  - *Cutoff (Post #10):* `chunk_a8df7352a7be6e709a341e97` (score 4.90625)
+- **Score Margin Summary:** Top-1 to Cutoff Margin = +1.3750 (6.28125 - 4.90625). Exact dropped-to-cutoff margin is unrecovered from artifact.
+- **Causal Mechanism:** Forensic review judges the high-F1 billing-table candidate to be an oracle-overlap false positive and the retained general legal sources to be more directly relevant to the substantive query.
+- **Query Representation Evidence:** Persisted query_analysis: intent = general, document_numbers = [], article_numbers = [], clause_numbers = [], point_numbers = []. normalized_question and rewritten_question are not persisted in telemetry. QUERY_REPRESENTATION_CAUSALITY_NOT_ASSESSABLE_FROM_ARTIFACT.
+- **Offline Input Rendering:** build_legal_rerank_text(hit) reconstruction succeeded for Doc 155934 Điều 6 (1586 chars, Nội dung index 181) and Doc 211473 Điều 6 (354 chars, Nội dung index 173). Key passages are present. Limitation: STRUCTURAL_TRUNCATION_RISK_NOT_ASSESSABLE_OFFLINE.
+
+### FAST30 Descriptive Rerank Census (n=30)
+- **Uniquely Mapped Rerank Events:** 29 / 30 (96.7%).
+- **Ambiguous Events:** 1 / 30 (`Q54485`, BM25 strategy route).
+- **Oracle Best-Pre Candidate Survives Post-Rerank:** 21 / 29 (72.4%).
+- **Oracle Best-Pre Candidate Dropped:** 8 / 29 (27.6%).
+  - *Tune20 Dropped Cases (5):* `Q113579` (gap +0.050), `Q150817` (gap +0.027), `Q150207` (gap +0.038), `Q84363` (gap +0.078), `Q102303` (gap +0.075). (All 5 have F1 gap < 0.08).
+  - *Holdout10 Dropped Cases (3):* `Q134499` (gap +0.192), `Q60281` (gap +0.087), `Q129571` (gap +0.024).
+- **Oracle Proxy Drops Across FAST30:** 2 / 29 (6.9%) — `Q134499`, `Q60281`.
+- **Semantically Plausible Losses:** 1 / 29 (3.4%) — `Q134499` (in contaminated Holdout10).
+- **Oracle Proxy False Positives:** 1 / 29 (3.4%) — `Q60281`.
+
+### Tune20 Policy Discovery Findings
+- **Confirmed Tune20 Oracle Proxy Drops:** **0 / 20 (0.0%)**.
+- **Semantically Plausible Tune20 Rerank Losses:** **0 / 20 (0.0%)**.
+- **Discovery Result:** No clean training signal or causal evidence exists in Tune20 to justify a serving-time reranking heuristic or cutoff override.
+
+### Counterfactual Candidate Rules Considered & Rejected
+1. *Rule 1 — Near-Cutoff Preservation via Dual-Branch Agreement:*
+   - Preserve pre-rerank candidates ranked in top 10 of both BM25 and Dense if rerank score is within epsilon of cutoff.
+   - *Rejection Reason:* Tune20 has 0 oracle-proxy drops and 0 semantically plausible rerank-loss annotations under the current forensic taxonomy; injecting near-cutoff candidates risks displacing higher-quality reranked candidates on clean queries.
+2. *Rule 2 — Structural Legal-Reference Match Retention:*
+   - Retain candidates matching explicit legal citation numbers from query understanding.
+   - *Rejection Reason:* Q134499 and Q60281 were general queries with empty legal references; this rule would not have fired on either forensic seed and would add dead serving complexity.
+3. *Rule 3 — Global RRF / Cross-Encoder Score Blending:*
+   - Blend normalized cross-encoder logits with RRF retrieval rank scores.
+   - *Rejection Reason:* Not pursued. T5-2A already showed adjacent global reranker-bypass and naive rank/lexical heuristics were unstable; no causal evidence justifies introducing a new global score-blending policy in T5-5A.
+
+### Decision & Rationale
+- **Decision:** NO_RERANK_POLICY_JUSTIFIED
+- **Rationale:** No clean Tune20 evidence supports a deployable reranker intervention. Historical Holdout10 forensic seeds are contaminated and cannot validate a policy. Q60281 additionally demonstrates that reference-overlap oracle labels can produce semantic false positives. Production reranker behavior remains unchanged. Further error decomposition will investigate downstream generator output contract alignment and extractive fallback efficiency.
+
+### Production Impact & Known Risks
+- **Production Impact:** Zero serving or runtime behavior changes (`CrossEncoderReranker` and `RerankingRetriever` remain unchanged; `src/**` untouched).
+- **Rollback Authority:** `024e6b5e7481d7dc3e1a4878e158f5f32c0f3080`.
+
+### Next Step
+- Proceed to Milestone 57 (Generator Contract / Fallback Efficiency Investigation).
