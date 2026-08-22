@@ -531,14 +531,14 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ## 14. T5-H1 — Repair Diagnostic Observer Lifecycle
 
-- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Status:** ACCEPTED & CLOSED
 - **Date:** 2026-08-22
 - **Objective:** Repair observer installation/restoration ownership so sequential diagnostic runners on one shared runtime cannot leak telemetry contexts.
 - **Hypothesis:** Explicit instrumentation lease ownership with object-identity restoration ensures sequential diagnostic runs on shared runtimes remain isolated without leaking observer wrappers or handlers.
 
 ### Authority
 - **Baseline / Starting Authority:** `ca00c133b70905dc0bcff8cb469727264b25a995`
-- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Implementation / Acceptance Commit SHA:** `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`
 - **Branch:** `t5/baseline-error-decomposition`
 - **Parent Commit:** `ca00c133b70905dc0bcff8cb469727264b25a995`
 - **Artifact Identities:** NOT APPLICABLE (Measurement tooling only)
@@ -584,4 +584,4 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 - **Rollback Authority:** `ca00c133b70905dc0bcff8cb469727264b25a995`.
 
 ### Next Step
-- Commit and push the accepted T5-H1 measurement-harness checkpoint on `t5/baseline-error-decomposition`. Begin T5-4 only from that committed checkpoint after remote verification.
+- T5-H1 implementation is accepted and closed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. After this documentation-closure checkpoint is committed and remote-verified, begin T5-4 from that new checkpoint.

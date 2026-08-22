@@ -2181,7 +2181,7 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-2A (Offline Evidence Policy Investigation):** Investigated lexical sweeps and reranker bypass; rejected naive heuristic tuning in favor of deployable causal signals.
 - **T5-3A (Strict Own-Document Reference Recovery):** ACCEPTED TARGETED CANDIDATE at commit `b1ffa5d59cf8d7506176a8a1ecfa35c034fa8543`. Causal A/B validation completed on 100% of explicit-document queries in Dev-200 (Q54485 ROUGE +0.295, METEOR +0.278; Q158985 ROUGE +0.120, METEOR +0.076).
 - **T5-3C (Experiment Ledger & Governance):** Completed and committed at `ca00c133b70905dc0bcff8cb469727264b25a995` (Documentation/Governance checkpoint).
-- **T5-H1 (Diagnostic Observer Lifecycle Repair):** Implemented explicit `DiagnosticInstrumentationLease` to ensure exact object-identity restoration and prevent telemetry contamination across sequential runner executions on shared runtimes (Pending external review).
+- **T5-H1 (Diagnostic Observer Lifecycle Repair):** ACCEPTED and committed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. External review verified exact observer restoration, sequential telemetry isolation, zero-mutation overlap rejection, and zero production `src/**` changes.
 - **Subsequent Planned Work:**
   - **T5-4:** Evidence selection / top-1 policy optimization using deployable signals.
   - Targeted reranker investigation.
