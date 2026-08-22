@@ -690,7 +690,7 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ### Authority & Artifact Scope
 - **Starting / Rollback Authority:** `024e6b5e7481d7dc3e1a4878e158f5f32c0f3080`
-- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Analysis / Acceptance Commit SHA:** `e810bfadf0c3a7e80f0d70d43e84e3258c842c63`
 - **Branch:** `t5/baseline-error-decomposition`
 - **Parent Commit:** `024e6b5e7481d7dc3e1a4878e158f5f32c0f3080`
 - **Telemetry Scope:** HISTORICAL T4 FAST30 BASELINE TELEMETRY (`t5-1c-fast30-clean1-evidence.zip`, SHA-256: `be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f`).
@@ -808,3 +808,130 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 
 ### Next Step
 - Proceed to Milestone 57 (Generator Contract / Fallback Efficiency Investigation).
+
+## 17. T5-6A — Generator Contract and Fallback Efficiency Investigation
+
+- **Status:** ACCEPTED — EXTERNAL REVIEW PASSED
+- **Date:** 2026-08-22
+- **Objective:** Investigate whether historical generator contract failures (56 draft rejections across 28/30 questions in FAST30) stem from output schema rejection vs underlying model incapacity, verify whether extractive fallback identities match selected evidence exactly, audit token efficiency, and preregister a controlled output contract measurement (T5-6B) on Tune20 under Design B.
+- **Hypothesis:** Historical M49.1 generator fallback is dominated by prompt/schema contract rejection (`plain_text_markers` unparseable without citation/evidence markers) rather than model failure; a schema-aligned output contract will reduce draft rejections, eliminate wasteful retries, and recover genuine model-generated answers without degrading official retrieval quality.
+
+### Authority & Artifact Scope
+- **Starting / Rollback Authority:** `e810bfadf0c3a7e80f0d70d43e84e3258c842c63`
+- **Candidate Commit SHA:** PENDING / UNASSIGNED WHILE WORKING TREE IS UNCOMMITTED
+- **Branch:** `t5/baseline-error-decomposition`
+- **Parent Commit:** `e810bfadf0c3a7e80f0d70d43e84e3258c842c63`
+- **Historical FAST30 Telemetry Scope:** `t5-1c-fast30-clean1-evidence.zip` (SHA-256: `be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f`).
+- **Tripartite Configuration Authority Distinction:**
+  1. **Historical FAST30 Execution Identity (Persisted):**
+     - `production_baseline_source_sha`: `87e71eb7661eb9cda1e63f4f0af16ef4613dadfb`
+     - `measurement_harness_source_sha`: `fa3b902da1041ac9d2b35cbe61a47351bccf10eb`
+     - `application_config_hash`: `ca1f0aa45a22df7aa9293e42df94473c059b4480b8c03d6ef942c21e9f3da261`
+     - `m49_generator_tree_sha256`: `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b`
+     - `m45_archive_sha256`: `7e78ad60ff2982592a9471eb8704fce44042add0496268fade3f32db1823ea7a`
+     - `official_scorer_sha256`: `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+  2. **M49.1 Repository Base Config Authority:**
+     - Verified documented settings: `float16`, `image_text_to_text`, 8192 input, 1536 output, `repetition_penalty=1.08`, `no_repeat_ngram_size=8`, `salvage_rendering="standalone"`, `ClaimVerificationConfig(require_inline_citations=False, min_lexical=0.2, max_claims=60)`.
+  3. **Exact Historical Resolved Full ApplicationConfig:**
+     - **`FAST30_EXECUTION_CONFIG_HASH_NOT_REPRODUCED`** (Accepted limitation: Expected `ca1f0aa45a22df7aa9293e42df94473c059b4480b8c03d6ef942c21e9f3da261`, Reconstructed `a62ba27e2ff5d02987bd68d0611226fed71f8b6275443a0764d692605b80431b`).
+- **Population Separation & Quarantined Partitions:**
+  - `T5_6B_TUNE20_ORDERED_QIDS_SHA256`: `9cb88a00c2bcf9fbc0f24411de2f427d6a30f5da0f57feaaafb629f9fcd60b28`
+  - `T5_6B_FROZEN_GENERATOR_INPUT_SHA256`: `2fefbb03125f9927edf67c8bc8c165bdd856e1dd2eef0c737aefc7387a2cbbf2`
+  - Holdout10 is contaminated and quarantined; zero evaluation permitted in T5-6B.
+- **Model / Generator Authority:**
+  - `TRAINING_MANIFEST_MODEL_REVISION`: Base `15852e8c16360a2fea060d615a32b45270f8a8fc` (upstream pretrained Qwen revision)
+  - `TRAINING_MANIFEST_GENERATOR_TREE_SHA256`: `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b`
+  - `RESOLVED_GENERATION_CONFIG_MODEL_REVISION`: `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b` (explicitly bound by `m491_kaggle_candidate_dev.py` via `generation["model_revision"] = manifest["merged_model_sha256"]`).
+  - `EXPECTED_M49_GENERATOR_TREE_SHA256`: `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b`
+  - `TOKENIZER_AUTHORITY_COVERED_BY_MODEL_TREE_SHA256`: Tokenizer config and vocabulary are packaged within the immutable merged tree at `/kaggle/working/m49-generator-merged`.
+  - `PREREGISTERED_PRODUCTION_GENERATOR_BLOB_SHA`: `1543eac766c0cf24ccb7904d8bfa2b802547e3c5` (verified byte-identical between `87e71eb7661eb9cda1e63f4f0af16ef4613dadfb` and `e810bfadf0c3a7e80f0d70d43e84e3258c842c63`).
+
+### Complete Descriptive Forensic Census (FAST30 Population, n=30)
+1. **Fallback & Generation Outcomes:**
+   - 28 / 30 questions experienced `generator_model_error_fallback` directly associated with `structured_output_schema` rejection events.
+   - 1 / 30 questions (`Q83501`) succeeded via `supported_claim_salvage_applied` (ROUGE-L 0.6326, METEOR 0.4367).
+   - 1 / 30 questions (`Q54485`) terminated with `insufficient_evidence=true` (ROUGE-L 0.0690, METEOR 0.0051).
+   - 0 / 30 questions completed end-to-end unassisted semantic synthesis without warning flags.
+2. **Draft Rejection Census:**
+   - Exactly 56 structured draft rejection events recorded across the 28 fallback questions (28 attempt 1 rejections, 28 attempt 2 rejections).
+   - All 56 rejections exhibited error type `structured_output_schema`.
+3. **Exact Fallback Evidence Identity Verification:**
+   - 28 / 28 fallback questions verified as `EXACT_IDENTITY_MATCH` with N=1, identical to top-selected evidence `[E1]`.
+   - Length ratio of fallback answers against reference answers: mean 1.868 +/- 1.623 (range [0.260, 6.786]).
+4. **Historical Descriptive Reference Metrics (Descriptive Reference Only):**
+   - FAST30 (n=30): ROUGE-L = 0.44956125747562414, METEOR = 0.36059965374134695
+   - Tune20 (n=20): ROUGE-L = 0.4831331248436325, METEOR = 0.4046940181246421
+   - Holdout10 (n=10): ROUGE-L = 0.3824175227396073, METEOR = 0.2724109249747567
+
+### Root Cause Diagnosis & Evidence Boundary
+- **PROVEN:**
+  - 28 / 30 questions reached `generator_model_error_fallback` associated with `structured_output_schema` rejection.
+  - 56 completed generation drafts reached parsing and were rejected across 28 questions (2 attempts per question).
+  - Historical prompt contract was `prompt_schema_mode="plain_text_markers"`.
+  - Raw rejected completion text was not persisted in historical telemetry.
+- **PLAUSIBLE HYPOTHESIS:**
+  - The model's natural output format may have been mismatched with the `[E#]` evidence-marker contract.
+- **NOT PROVEN:**
+  - That all 56 rejected outputs were marker-free prose.
+  - The exact malformed shape or token sequence of rejected drafts.
+  - That an alternative output contract will necessarily eliminate rejections without quality degradation.
+- **Role of T5-6B:** T5-6B exists as a controlled experiment to discriminate this hypothesis on frozen generator inputs.
+
+### T5-6B Preregistered Experimental Specification (Design B — Same-Run Controlled Output-Contract Measurement)
+1. **Shared Base Configuration Authority (M49.1-Repository-Derived T5-6B Control Config):**
+   - **GenerationConfig:**
+     - `backend`: "transformers"
+     - `model_name`: "/kaggle/working/m49-generator-merged"
+     - `model_revision`: "e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b"
+     - `device`: "cuda"
+     - `torch_dtype`: "float16"
+     - `model_loader`: "image_text_to_text"
+     - `local_files_only`: True
+     - `max_input_tokens`: 8192
+     - `temperature`: 0.0
+     - `max_output_tokens`: 1536
+     - `repetition_penalty`: 1.08
+     - `no_repeat_ngram_size`: 8
+     - `max_structured_output_retries`: 1
+     - `max_model_error_retries`: 1
+     - `model_failure_policy`: "top_evidence"
+     - `max_grounding_repair_retries`: 1
+     - `grounding_failure_policy`: "supported_claims_or_top_evidence"
+     - `extractive_fallback_max_evidence`: 1
+     - `salvage_rendering`: "standalone"
+     - `answer_style`: "competition_reference"
+   - **ClaimVerificationConfig:**
+     - `enabled`: True
+     - `require_inline_citations`: False
+     - `minimum_lexical_support`: 0.2
+     - `minimum_claim_tokens`: 2
+     - `require_numeric_match`: True
+     - `require_negation_match`: True
+     - `max_claims`: 60
+2. **Output Contract Candidates (Differing ONLY in `prompt_schema_mode`):**
+   - `CONTROL`: `prompt_schema_mode="plain_text_markers"` (`T5_6B_CONTROL_GENERATION_CONFIG_SHA256`: `657ee87bdeac212857e9ec199c9fe34d6f7975ff5078c2371e1e6c2dba8738a7`)
+   - `CANDIDATE_COMPACT`: `prompt_schema_mode="compact_example"` (`T5_6B_COMPACT_GENERATION_CONFIG_SHA256`: `810142a8ebacca5331ec13f1777be7edb6d4357b61a1c155d36751049b91bab2`)
+   - `CANDIDATE_JSON`: `prompt_schema_mode="json_schema"` (`T5_6B_JSON_GENERATION_CONFIG_SHA256`: `8c930f08131b9cc9e07f1427d21b1d5e96c38431ca2d65f1e080abf04989596f`)
+   - `CLAIM_CONFIG`: `T5_6B_CLAIM_VERIFICATION_CONFIG_SHA256`: `fcb8cd2e65b74407be42a312f80624bb2be996e1a79d6a9228758d0893f23988`
+3. **Execution Invariants & Control Authority (Design B):**
+   - **Environment Gate:** Runner must verify single GPU `cuda` with `float16` capability. Zero runtime substitution permitted.
+   - **Frozen Input Gate:** Runner verifies `T5_6B_FROZEN_GENERATOR_INPUT_SHA256` (`2fefbb03125f9927edf67c8bc8c165bdd856e1dd2eef0c737aefc7387a2cbbf2`) before calling the model.
+   - **Same-Run Control Authority:** Same-run `plain_text_markers` executed under the exact base config is the authoritative comparator for all candidate metrics. If control execution fails infrastructure or authority gates, emit `T5_6B_CONTROL_EXECUTION_FAILED` and STOP.
+4. **Candidate Advancement Gate (6 Cumulative Conditions vs Same-Run Control):**
+   1. Parser Acceptance Rate >= 80.0% on Tune20
+   2. Official Tune20 METEOR >= Same-Run `plain_text_markers` Control METEOR
+   3. Official Tune20 ROUGE-L >= Same-Run `plain_text_markers` Control ROUGE-L
+   4. Citation identity validity == 100.0% for all non-abstaining responses
+   5. Contract-rejection fallback count <= Same-Run Control fallback count
+   6. Insufficient-evidence count <= Same-Run Control count
+5. **Tie-Break Precedence:**
+   - 1. Highest Official METEOR -> 2. Highest Official ROUGE-L -> 3. Highest Parser Acceptance -> 4. Lexicographical Name.
+6. **Per-Call Telemetry Schema (`t5_generator_call_telemetry_v1`):**
+   - `question_id`, `candidate_contract`, `call_stage`, `call_index`, `provider_attempt_index`, `provider_call_success`, `provider_error_type`, `raw_completion_text`, `parse_result`, `rejection_error_type`, `structured_output_attempt`, `parsed_cited_evidence_ids`, `grounding_verification_pass`, `grounding_claim_count`, `grounding_supported_claim_count`, `final_generator_path`, `fallback_reason`, `input_token_count`, `output_token_count`.
+7. **Manifest Schema (`t5_generator_measurement_manifest_v1`):**
+   - `candidate_contract`, `repository_base_sha`, `measurement_source_sha`, `production_generator_blob_sha`, `model_artifact_sha256`, `generation_config_sha256`, `claim_verification_config_sha256`, `frozen_generator_input_sha256`, `tune20_ordered_qids_sha256`, `official_scorer_sha256`, `raw_completion_artifact_sha256`, `record_count`, all metric outputs.
+
+### Findings & Decision
+- **Finding:** Historical FAST30 baseline fallback is 93.3% contract-driven (`structured_output_schema` rejection).
+- **Decision:** **`NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED`**
+- **Follow-up / Next Milestone:** Execute T5-6B controlled generator measurement under the preregistered Design B protocol upon external review acceptance.

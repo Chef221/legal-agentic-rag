@@ -2184,5 +2184,6 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-H1 (Diagnostic Observer Lifecycle Repair):** ACCEPTED and committed at `4c4b40472c14ea75fa95ea3a129f1077ac40fc33`. External review verified exact observer restoration, sequential telemetry isolation, zero-mutation overlap rejection, and zero production `src/**` changes.
 - **T5-4A (Evidence Selection Opportunity Census):** ACCEPTED — NO_SELECTION_POLICY_JUSTIFIED at `2b17c8ecbaeb818f30efd014f59febfcd28f00c7`. EvidenceSelector remains unchanged.
 - **T5-5A (Targeted Reranker Causal Investigation):** ACCEPTED — NO_RERANK_POLICY_JUSTIFIED (Production reranker remains unchanged; next planned investigation: Generator Contract / Fallback Efficiency).
+- **T5-6A (Generator Contract / Fallback Efficiency Investigation):** ACCEPTED — NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED (Design B preregistered same-run controlled measurement; production generator remains unchanged; T5-6B not yet run).
 - **Subsequent Planned Work:**
   - Generator contract / fallback efficiency investigation.
