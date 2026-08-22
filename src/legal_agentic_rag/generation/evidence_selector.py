@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import unicodedata
 
 from legal_agentic_rag.configuration.online import (
     EvidenceSelectionConfig,
@@ -13,6 +14,49 @@ from legal_agentic_rag.schemas.answering import EvidenceApplicability
 from legal_agentic_rag.schemas.retrieval import RetrievalHit, RetrievalQuery
 
 _TOKEN_PATTERN = re.compile(r"\w+", flags=re.UNICODE)
+
+_RECOGNIZED_SLUG_PREFIXES: tuple[str, ...] = tuple(
+    sorted(
+        [
+            "thong-tu-lien-tich",
+            "nghi-quyet-lien-tich",
+            "nghi-dinh-sua-doi-nghi-dinh",
+            "thong-tu-sua-doi-thong-tu",
+            "van-ban-hop-nhat",
+            "bo-luat",
+            "luat",
+            "nghi-dinh",
+            "thong-tu",
+            "nghi-quyet",
+            "quyet-dinh",
+            "phap-lenh",
+            "cong-van",
+            "chi-thi",
+            "thong-bao",
+            "huong-dan",
+            "ke-hoach",
+            "cong-dien",
+            "quy-dinh",
+            "quy-che",
+            "dieu-le",
+            "lenh",
+        ],
+        key=lambda item: -len(item),
+    )
+)
+
+
+def _remove_diacritics(text: str) -> str:
+    """Strip Vietnamese diacritics while mapping đ/Đ to d/D."""
+    text = text.replace("đ", "d").replace("Đ", "D")
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+
+
+def _tokenize_legal_id(text: str) -> list[str]:
+    """Tokenize legal document identifier or title into alphanumeric segments."""
+    clean = _remove_diacritics(text).casefold()
+    return [t for t in re.split(r"[^a-z0-9]+", clean) if t]
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,11 +91,12 @@ class EvidenceSelector:
         """Return deterministic candidates ordered by applicability signals."""
         query_terms = self._terms(query.normalized_question)
         analysis = query.query_analysis
+        raw_document_numbers = (
+            analysis.document_numbers if analysis is not None else []
+        )
         document_references = {
             self._normalize_reference(value)
-            for value in (
-                analysis.document_numbers if analysis is not None else []
-            )
+            for value in raw_document_numbers
         }
         article_references = {
             self._normalize_reference(value)
@@ -64,6 +109,7 @@ class EvidenceSelector:
                 hit,
                 query_terms=query_terms,
                 document_references=document_references,
+                raw_document_references=raw_document_numbers,
                 article_references=article_references,
             )
             for hit in hits
@@ -93,16 +139,26 @@ class EvidenceSelector:
         *,
         query_terms: set[str],
         document_references: set[str],
+        raw_document_references: list[str],
         article_references: set[str],
     ) -> ScoredEvidenceCandidate:
-        document_number = self._text(hit.metadata.get("document_number"))
+        raw_doc_num = hit.metadata.get("document_number")
+        if raw_doc_num is not None and not isinstance(raw_doc_num, str):
+            # Rule C: Malformed present non-string metadata -> fail closed (False if references exist, else None)
+            document_match = False if document_references else None
+        else:
+            document_number = self._text(raw_doc_num)
+            document_title = self._text(hit.metadata.get("document_title"))
+            document_match = self._reference_match(
+                document_number,
+                document_references,
+                raw_document_references=raw_document_references,
+                document_title=document_title,
+            )
+
         structure = hit.metadata.get("structure")
         hierarchy = structure if isinstance(structure, dict) else {}
         article_number = self._text(hierarchy.get("article_number"))
-        document_match = self._reference_match(
-            document_number,
-            document_references,
-        )
         article_match = self._reference_match(
             article_number,
             article_references,
@@ -165,16 +221,91 @@ class EvidenceSelector:
             and status.casefold() in self._inactive_statuses
         )
 
-    @staticmethod
+    @classmethod
     def _reference_match(
+        cls,
         value: str | None,
         references: set[str],
+        *,
+        raw_document_references: list[str] | None = None,
+        document_title: str | None = None,
     ) -> bool | None:
         if not references:
             return None
-        if value is None:
+        # Rule A: If metadata document_number is present as a non-empty string,
+        # compare strictly using existing canonical normalization.
+        if value is not None:
+            return cls._normalize_reference(value) in references
+
+        # Rule B: Only if metadata document_number is absent (None),
+        # attempt strict own-document-number recovery from document_title.
+        if document_title is not None:
+            raw_refs = raw_document_references or list(references)
+            return any(
+                cls._match_own_document_title(document_title, ref)
+                for ref in raw_refs
+            )
+
+        return False
+
+    @classmethod
+    def _match_own_document_title(
+        cls,
+        title: str,
+        query_doc_ref: str,
+    ) -> bool:
+        """Strictly match query document reference against the leading own identity of title.
+
+        Requires the title to start with a recognized legal document slug prefix, followed
+        immediately by the own document number (with an optional 'so' token).
+        """
+        if not title.strip() or not query_doc_ref.strip():
             return False
-        return EvidenceSelector._normalize_reference(value) in references
+        ref_tokens = _tokenize_legal_id(query_doc_ref)
+        if not ref_tokens:
+            return False
+        title_tokens = _tokenize_legal_id(title)
+        if not title_tokens:
+            return False
+
+        # Match longest recognized slug prefix at the beginning of the title
+        matched_prefix_token_count: int | None = None
+        for prefix in _RECOGNIZED_SLUG_PREFIXES:
+            p_tokens = prefix.split("-")
+            if len(title_tokens) >= len(p_tokens) and title_tokens[: len(p_tokens)] == p_tokens:
+                matched_prefix_token_count = len(p_tokens)
+                break
+
+        if matched_prefix_token_count is None:
+            return False
+
+        remainder_tokens = title_tokens[matched_prefix_token_count:]
+
+        # Allow optional 'so' immediately after the prefix
+        if remainder_tokens and remainder_tokens[0] == "so":
+            remainder_tokens = remainder_tokens[1:]
+
+        # Remainder must begin IMMEDIATELY with the query reference tokens
+        if len(remainder_tokens) < len(ref_tokens):
+            return False
+
+        slice_tokens = remainder_tokens[: len(ref_tokens)]
+
+        # First token is the number: compare integer value if both are numeric (e.g. '01' == '1')
+        ref_num = ref_tokens[0]
+        title_num = slice_tokens[0]
+        if ref_num.isdigit() and title_num.isdigit():
+            if int(ref_num) != int(title_num):
+                return False
+        elif ref_num != title_num:
+            return False
+
+        # Compare all remaining tokens (year, organ/type codes) exactly
+        for r_tok, t_tok in zip(ref_tokens[1:], slice_tokens[1:]):
+            if r_tok != t_tok:
+                return False
+
+        return True
 
     @staticmethod
     def _lexical_overlap(
