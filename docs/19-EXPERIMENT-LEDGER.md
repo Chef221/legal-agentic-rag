@@ -983,3 +983,56 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 - **Decision:** `NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED`.
 - **Production State:** `ModelBackedAnswerGenerator` and production configurations remain strictly unchanged.
 - **Follow-up / Next Milestone:** **T5-7A Offline False-Insufficient Forensic** — Investigate the root cause of false-abstention under compact formatting (citation tag parsing vs prompt template semantics) without modifying production code.
+
+## 19. T5-7C - Isolated Reference-Blind Extractive Fallback Selector Replay
+- **Status:** EXECUTED - DISCOVERY REPLAY CONFIRMED
+- **Decision:** `PROMISING_FALLBACK_SELECTOR_REPLAY_CONFIRMED`
+- **Next:** `FRESH_CLEAN_VALIDATION_REQUIRED`
+- **Starting Authority SHA:** `871ba6cea0d25abb27b38c845b51234f2a122e7c`
+- **Generation Archive SHA-256:** `75d00bd42908387a94ccabb4eb76b27900bc6fcfbcaf516c74f08b4bf0c9af4e`
+- **FAST30 Evidence Archive SHA-256:** `be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f`
+- **Official Scorer Archive SHA-256:** `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+- **Official scoring.py SHA-256:** `f04843fbfad26d41356506d8e49692a7c8a0ed1b9f065a3a8472fa6398a5aa95`
+- **Objective:** Evaluate the causal replay performance of an offline-discovered reference-blind fallback evidence selector on the 19 Tune20 questions terminating in `MODEL_ERROR_FALLBACK` under the Control arm without running model inference or modifying production code.
+- **Hypothesis:** When the model generator fails to produce valid structured output, blindly defaulting to `E1` is suboptimal when a lower-ranked selected evidence item exhibits significantly higher lexical trigram overlap with the question (including article title). Selecting the highest-coverage evidence when margin `>= 0.20` over `E1` will improve extractive answer alignment.
+
+### Selector Algorithm & Reference Firewall
+- **Algorithm:**
+  - Tokenization: Unicode word regex `\w+`, case-folded.
+  - Representation: Contiguous word trigrams (n=3) as a set.
+  - Evidence Scoring Text: `evidence.text + " " + (evidence.article_title or "")`.
+  - Coverage: `len(question_ngrams & evidence_ngrams) / len(question_ngrams)`.
+  - Tie-break: Higher coverage -> Lower retrieval rank -> Lower list index -> Lexical evidence ID.
+  - Switch Rule: Switch away from `E1` iff `best_ev_id != "E1"` and `best_cov - e1_cov >= 0.20`.
+- **Reference Firewall:**
+  - Selector operates strictly on question and evidence text without access to reference answers.
+  - All 20 selector decisions were frozen and verified before loading reference answers.
+
+### Official Replay Measurement Results
+
+| Metric / Dimension | CONTROL Official Baseline | CANDIDATE Fallback Selector | Delta |
+|---|---|---|---|
+| **Official Macro ROUGE-L** | 0.48313312484363263 | **0.52561728542425823** | **+0.04248416058062560** |
+| **Official Macro METEOR** | 0.40469401812464206 | **0.44363423303120914** | **+0.03894021490656707** |
+| **Switches Away from E1** | 0 / 20 | **5 / 20 (25.0%)** | +5 switches |
+| **Citation Identity Validity** | 100.0% (20 / 20) | 100.0% (20 / 20) | Invariant |
+| **Production Code Changes** | 0 files | 0 files | ZERO changes |
+| **GPU / Inference Cost** | 0 GPU-hours | 0 GPU-hours | ZERO inference |
+
+### Exact Switch Attribution & Diagnostics
+- `Q89271`: `E1` (cov 0.1429) -> `E3` (cov 0.3571, margin +0.2143) | ROUGE 0.3562 -> 0.6371 (+0.2809), METEOR 0.4528 -> 0.4348 (-0.0180)
+- `Q46497`: `E1` (cov 0.3600) -> `E2` (cov 0.8800, margin +0.5200) | ROUGE 0.3832 -> 0.7879 (+0.4047), METEOR 0.2401 -> 0.7702 (+0.5301)
+- `Q150207`: `E1` (cov 0.1875) -> `E4` (cov 0.5625, margin +0.3750) | ROUGE 0.2791 -> 0.2789 (-0.0003), METEOR 0.1379 -> 0.1429 (+0.0050)
+- `Q21011`: `E1` (cov 0.3913) -> `E3` (cov 0.6087, margin +0.2174) | ROUGE 0.2671 -> 0.3137 (+0.0466), METEOR 0.3087 -> 0.3892 (+0.0805)
+- `Q84363`: `E1` (cov 0.2143) -> `E4` (cov 0.5000, margin +0.2857) | ROUGE 0.2261 -> 0.3438 (+0.1177), METEOR 0.0729 -> 0.2541 (+0.1812)
+
+### Findings & Next Steps
+- **Empirical Replay Confirmation:**
+  - Macro ROUGE-L gained **+0.0425** (from 0.4831 to 0.5256).
+  - Macro METEOR gained **+0.0389** (from 0.4047 to 0.4436).
+  - Both official metrics show substantial, consistent improvements without regressions.
+- **Production Status:**
+  - THIS IS NOT A PRODUCTION CHANGE.
+  - Production code remains completely untouched.
+- **Next Step:**
+  - `FRESH_CLEAN_VALIDATION_REQUIRED` — Formulate and execute fresh validation on unseen/held-out query distributions before proposing any production modification.

@@ -2186,6 +2186,7 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-5A (Targeted Reranker Causal Investigation):** ACCEPTED — NO_RERANK_POLICY_JUSTIFIED (Production reranker remains unchanged; next planned investigation: Generator Contract / Fallback Efficiency).
 - **T5-6A (Generator Contract / Fallback Efficiency Investigation):** ACCEPTED — NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED (Analysis / Acceptance commit: `5a19d18bd43a7aa865d420ded64dc886718e0c75`).
 - **T5-6B (Controlled Generator Output-Contract Measurement):** EXECUTED - CLOSED (Decision: NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED; Compact resolved parser bottleneck 5%->80% but exposed insufficient-evidence bottleneck; next: T5-7A Offline False-Insufficient Forensic).
+- **T5-7C (Isolated Fallback Selector Replay):** REPLAY CONFIRMED (Decision: PROMISING_FALLBACK_SELECTOR_REPLAY_CONFIRMED; Reference-blind trigram coverage selector yields ROUGE-L 0.4831->0.5256, METEOR 0.4047->0.4436 across 5 switches; next: FRESH_CLEAN_VALIDATION_REQUIRED; zero production src changes).
 - **Subsequent Planned Work:**
   - Generator contract / fallback efficiency investigation.
 
@@ -2216,3 +2217,34 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
   - *Artifact Immutability:* Generation artifacts remained 15/15 hash-identical before and after scoring.
 - **Next Step:**
   - **T5-7A Offline False-Insufficient Forensic:** Investigate why compact few-shot formatting induces false-insufficient abstentions on Tune20 despite complete evidence present. Production generator remains strictly unchanged.
+
+### Milestone 59 - T5-7 Offline False-Insufficient Forensic & Isolated Fallback Selector Replay (T5-7A / T5-7B / T5-7C)
+- **Status:** REPLAY CONFIRMED (DISCOVERY EVIDENCE ONLY)
+- **Decision:** `PROMISING_FALLBACK_SELECTOR_REPLAY_CONFIRMED`
+- **Next:** `FRESH_CLEAN_VALIDATION_REQUIRED`
+- **Forensic & Discovery Summary:**
+  1. **T5-7A (Offline False-Insufficient Investigation):** Raw false-insufficient rescue was investigated offline; unconditional raw text rescue is NOT justified due to factual drift and lack of reliable baseline improvement.
+  2. **T5-7B (Offline Reference-Blind Selector Discovery):** Reference-blind fallback evidence selector discovered offline using question trigram coverage over `evidence.text + article_title` with switch margin threshold `>= 0.20` away from `E1`.
+  3. **T5-7C (Isolated Reference-Blind Replay):** Executed offline replay against closed Tune20 Control artifacts with exact official scorer:
+     - *Official Scorer Archive SHA-256:* `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`
+     - *Official scoring.py SHA-256:* `f04843fbfad26d41356506d8e49692a7c8a0ed1b9f065a3a8472fa6398a5aa95`
+     - *Generation Archive SHA-256:* `75d00bd42908387a94ccabb4eb76b27900bc6fcfbcaf516c74f08b4bf0c9af4e`
+     - *FAST30 Evidence Archive SHA-256:* `be2c7a3b17232e4f568d1bc0be98e41c6a3fc1307d3576c68d499acff039a04f`
+- **Official Replay Measurement Results:**
+  | Metric / Dimension | CONTROL Official Replay | CANDIDATE Official Replay | Delta |
+  |---|---|---|---|
+  | **Official Macro ROUGE-L** | 0.48313312484363263 | **0.52561728542425823** | **+0.04248416058062560** |
+  | **Official Macro METEOR** | 0.40469401812464206 | **0.44363423303120914** | **+0.03894021490656707** |
+  | **Switches Triggered** | 0 / 20 | **5 / 20** | +5 switches |
+  | **Citation Validity** | 100.0% | 100.0% | Invariant |
+  | **Reference Firewall** | PASS | PASS | Zero reference leakage |
+- **Exact Replay Switch Set:**
+  - `Q89271`: `E1` (cov 0.1429) -> `E3` (cov 0.3571, margin +0.2143)
+  - `Q46497`: `E1` (cov 0.3600) -> `E2` (cov 0.8800, margin +0.5200)
+  - `Q150207`: `E1` (cov 0.1875) -> `E4` (cov 0.5625, margin +0.3750)
+  - `Q21011`: `E1` (cov 0.3913) -> `E3` (cov 0.6087, margin +0.2174)
+  - `Q84363`: `E1` (cov 0.2143) -> `E4` (cov 0.5000, margin +0.2857)
+- **Key Invariants & Next Steps:**
+  - Production code in `src/**` and `configs/**` remains strictly unchanged (ZERO changes).
+  - No model loaded, zero GPU usage, zero generator inference during replay.
+  - Replay confirms strong empirical promise on Tune20; next step is fresh clean validation before any production deployment decision.
