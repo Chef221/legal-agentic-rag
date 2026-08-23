@@ -936,35 +936,50 @@ From `docs/18-M491-PUBLIC-RESULT.md`:
 - **Decision:** **`NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED`**
 - **Follow-up / Next Milestone:** Execute T5-6B controlled generator measurement under the preregistered Design B protocol upon external review acceptance.
 
-## 18. T5-6B-PREP - Design-B Measurement Runner and Telemetry Implementation (ACCEPTED & CLOSED)
-- **Status:** ACCEPTED & CLOSED (NO INFERENCE RUN)
-- **Implementation Commit SHA:** `30999bc89ca16e68c1f957268b6c9f9c85cedb82`
-- **External Review:** PASSED
-- **Objective:** Construct, harden, and unit-test a deterministic, frozen-input measurement harness and telemetry framework for executing the preregistered T5-6B Design-B controlled output-contract experiment across the three candidate arms (control: plain_text_markers, compact: compact_example, json_schema: json_schema) without loading weights or executing model inference during the prep phase.
-- **Accepted Authority & Hardening Accomplishments:**
-  1. **Exact Official Scoring Entrypoint Execution:** In `score_tune20_answers()`, macro ROUGE-L and METEOR metrics are computed by directly calling the verified official entrypoint `eval_qa(y_pred, y_true)` inside `scoring.py` from the pinned scorer archive (`OFFICIAL_SCORER_ARCHIVE_SHA256`). Payloads strictly match `{qid: {"answer": pred}}` and `{qid: ref}` for all 20 Tune20 QIDs. Returned official macro values are the ONLY metrics participating in candidate advancement. Per-question scores are evaluated through the exact same official entrypoint on single-QID dicts.
-  2. **Exact Prediction and Reference QID Set Validation:** Required `set(predicted_answers.keys()) == set(CANONICAL_TUNE20_ORDERED_QIDS)` and `set(reference_answers.keys()) == set(CANONICAL_TUNE20_ORDERED_QIDS)`. Missing, extra, or mismatched QIDs fail closed immediately with `DataValidationError`.
-  3. **Unit Test Scorer Isolation:** Removed machine-specific paths and skip decorators from committed unit tests. All committed tests execute against a synthetic `eval_qa` fixture verifying entrypoint delegation, payload structure, sentinel returns, and QID set boundaries.
-  4. **Transparent Token Provider Architecture:** Removed `complete()` override entirely from `ObservableTransformersChatProvider`. Installed `_GenerateProxy` inside `_load_runtime()`, preserving exact `complete` method identity from `TransformersChatProvider`. Output object identity and exception handling preserved with pre-call input token recording.
-  5. **Production Prompt Sentinels Restored:** Pinned exact Vietnamese production sentinel substrings from `ModelBackedAnswerGenerator._correction_prompt` (`STRUCTURED_RETRY_SENTINEL = "OUTPUT TRƯỚC KHÔNG HỢP LỆ. Hãy tạo lại từ đầu."`, `GROUNDING_REPAIR_SENTINEL = "BẢN NHÁP TRƯỚC KHÔNG QUA KIỂM TRA GROUNDING:"`). `classify_prompt_call_stage` raises `DataValidationError` (ambiguous) if both sentinels are present simultaneously.
-  6. **Deterministic Logical Call / Provider Attempt State Machine:** State machine in `MeasurementProviderObserver.complete()` tracks prompt key `(system_prompt_sha256, user_prompt_sha256, call_stage)`. Repeated prompt (e.g. ModelError retry) preserves `call_index` and increments `provider_attempt_index`. New prompt or stage increments `call_index` and resets `provider_attempt_index = 1`.
-  7. **Logger Rejection Context Binding:** `ModelGeneratorRejectionObserver` binds rejections to `(question_id, candidate_contract, logical_call_index)`. Provider observer calls `set_active_logical_call` before each provider execution, ensuring rejections during draft parsing are attributed to the correct logical call rather than retry attempt index.
-  8. **Deterministic Query Reconstruction:** `reconstruct_query` applies exact `ServingService.create_query` normalization (whitespace stripping, NFC Unicode normalization of collapsed whitespace) and sets `query_id = f"t5-6b:{question_id}"`.
-  9. **Exact Parser Acceptance Definition:** `parser_accepted` defined as `any(c.parse_result == "ACCEPTED" for c in calls if c.provider_call_success)`. Initial rejection followed by successful structured retry is correctly counted as parser accepted.
-  10. **Preregistered Contract Rejection Metrics:** `had_contract_rejection` checks `rejection_error_type == "structured_output_schema"`. `contract_rejection_fallback_count` counts questions ending in `MODEL_ERROR_FALLBACK` with `had_contract_rejection == True`. `total_structured_output_rejections` counts schema rejection calls strictly.
-  11. **Strict Citation Identity Validation:** `evaluate_citation_identity_validity` validates that every citation's `evidence_id` exists in supplied evidence, `chunk_id` matches the evidence item's `chunk_id`, no duplicate `(evidence_id, chunk_id)` pairs exist, and no `[E#]` markers in answer text reference unknown evidence IDs.
-  12. **Model Tree SHA Algorithm Authority:** Restored exact historical model-tree SHA-256 algorithm from `notebooks/m491_kaggle_candidate_dev.py` at commit `10681c8` (sorted `rglob("*")`, 8-byte big-endian length prefix, raw UTF-8 relative path, raw 32-byte file SHA).
-  13. **Resume Arm-Order Fail-Closed Gates:** Enforced strict execution arm ordering (`control` -> `compact` -> `json_schema`) on resume; later arms with completed QIDs when earlier arms are incomplete fail closed.
-  14. **Non-Blocking Execution Exclusivity:** Enforced `_RUNNER_LOCK.acquire(blocking=False)` and `_LEASE_LOCK.acquire(blocking=False)` to reject overlapping runner or logger leases immediately without deadlocking.
-  15. **Test Collection Evidence & Zero Regression:** Base authority `5a19d18` test collection confirmed at 558 tests. Accepted test collection is 633 tests (558 base + 75 measurement tests: 632 passed, 1 skipped). Zero tests deleted or regressed.
-- **Accepted Verification Evidence:**
-  - Official Scorer Archive SHA-256: `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891` (PASSED).
-  - Official scoring.py SHA-256: `f04843fbfad26d41356506d8e49692a7c8a0ed1b9f065a3a8472fa6398a5aa95` (PASSED).
-  - Official Entrypoint: `eval_qa` (8 real golden vectors validated with full parity).
-  - Real FAST30 preflight check: `python scripts/t5_generator_contract_measurement.py --archive C:/Users/Nguyen/Downloads/t5-1c-fast30-clean1-evidence.zip --preflight-only` -> `preflight_status: SUCCESS` (20 Tune20 records validated, 169 evidence items; zero model/provider/inference).
-  - T5-6B Measurement Suite: `pytest tests/unit/evaluation/test_t5_generator_contract_measurement.py` -> 75 / 75 passed.
-  - Focused Evaluation Suites: `pytest tests/unit/evaluation/test_t5_generator_fallback_analysis.py tests/unit/evaluation/test_t5_reranker_forensics.py tests/unit/evaluation/test_t5_evidence_policy_analysis.py tests/unit/evaluation/test_t5_generator_contract_measurement.py` -> 150 / 150 passed.
-  - Full Repo Test Suite: `pytest` -> 632 passed, 1 skipped (0 failures).
-- **Next Step:**
-  After this documentation-closure checkpoint is committed, pushed, and remote-verified, the closure commit SHA becomes the authoritative T5-6B `measurement_source_sha`.
-  T5-6B real generation MUST NOT begin until an externally reviewed exact execution command is produced from that authority SHA.
+## 18. T5-6B - Controlled Generator Output-Contract Measurement (Design B)
+- **Status:** EXECUTED - CLOSED
+- **Decision:** `NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED`
+- **Execution Authority / Measurement Source SHA:** `bfbf371237356996d583d3e7bbd448f93b2bcc9b`
+- **Closed Generation Archive SHA-256:** `75d00bd42908387a94ccabb4eb76b27900bc6fcfbcaf516c74f08b4bf0c9af4e`
+- **Official Scoring Result JSON SHA-256:** `5a24a53e24a28b7898be7dacdb2c5598139e72b9a5a893ed4f31b07fe61a62cd`
+- **Official Scoring Archive SHA-256:** `ddd1aebb9d7c346d8639bc5426ee5fea4939ab42a0ed970638d4263a1c7a737d`
+- **Objective:** Measure the causal impact of generator prompt output contracts (`plain_text_markers` Control vs `compact_example` vs `json_schema`) on Tune20 (20 frozen questions from Fast30, Holdout10 strictly quarantined) using one shared M49 merged model runtime under the preregistered Design B protocol.
+- **Hypothesis:** Output format complexity drives the historical 93.3% draft rejection rate in `plain_text_markers`; simpler output schemas will increase parser acceptance without degrading official competition scores (ROUGE-L / METEOR).
+
+### Official Measurement Results
+
+| Metric / Dimension | CONTROL (`plain_text_markers`) | COMPACT (`compact_example`) | JSON_SCHEMA (`json_schema`) | Gate Standard |
+|---|---|---|---|---|
+| **Official Macro ROUGE-L** | **0.48313312484363263** | 0.27679015884638764 | 0.412548213797946 | >= Control |
+| **Official Macro METEOR** | **0.40469401812464206** | 0.17787278483578856 | 0.3345827853262616 | >= Control |
+| **Parser Acceptance Rate** | 5.0% (1 / 20) | **80.0% (16 / 20)** | 55.0% (11 / 20) | >= 80.0% |
+| **Citation Identity Validity** | 100.0% (20 / 20) | 100.0% (20 / 20) | 100.0% (20 / 20) | == 100.0% |
+| **Contract Rejection Fallbacks** | 19 / 20 | **4 / 20** | 9 / 20 | <= Control |
+| **Insufficient Evidence Responses** | **0 / 20** | 10 / 20 | 3 / 20 | <= Control |
+| **Total Structured Rejections** | 38 | **10** | 21 | Telemetry |
+| **Total Provider Calls** | 40 | **30** | 39 | Telemetry |
+| **Advancement Gate Status** | **BASELINE AUTHORITY** | **REJECTED** (Score & Insuff failure) | **REJECTED** (Score & Parser failure) | Cumulative |
+
+### Baseline Reproduction
+- Control arm official ROUGE-L (`0.48313312484363263`) exactly reproduces the historical Tune20 baseline authority (`0.4831331248436325`) with an absolute delta of `1.1102230246251565e-16`.
+
+### Forensic Interpretation & Causal Analysis
+1. **Format/Schema Bottleneck Confirmed:**
+   - Moving from `plain_text_markers` to `compact_example` dramatically reduced output format rejections:
+     - Parser acceptance increased from 5.0% (1/20) to **80.0% (16/20)**.
+     - Structured output schema rejections dropped from 38 to **10**.
+     - Final `MODEL_ERROR_FALLBACK` terminations dropped from 19 to **4**.
+   - This proves the original hypothesis that `plain_text_markers` format is overly fragile for the M49 2B generator.
+2. **Secondary Semantic Bottleneck Discovered:**
+   - While `compact_example` successfully allowed drafts to parse, it triggered an unexpected catastrophic rise in false-abstentions:
+     - 10 / 20 questions yielded `insufficient_evidence = true` (compared to 0 / 20 in Control).
+     - Because empty answers receive 0.0 scores, macro ROUGE-L dropped to 0.2768 and METEOR to 0.1779.
+   - `json_schema` exhibited intermediate behavior (55% parser acceptance, 3 insufficient, ROUGE-L 0.4125, METEOR 0.3346), failing the 80% parser acceptance threshold.
+3. **Artifact Integrity:**
+   - All 15 generation artifact files across the 3 arms remained 15/15 hash-identical before and after official reference scoring.
+
+### Decision & Governance
+- **Winner:** None.
+- **Decision:** `NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED`.
+- **Production State:** `ModelBackedAnswerGenerator` and production configurations remain strictly unchanged.
+- **Follow-up / Next Milestone:** **T5-7A Offline False-Insufficient Forensic** — Investigate the root cause of false-abstention under compact formatting (citation tag parsing vs prompt template semantics) without modifying production code.

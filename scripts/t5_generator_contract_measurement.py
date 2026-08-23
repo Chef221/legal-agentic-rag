@@ -39,6 +39,9 @@ _REPO_SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_REPO_SRC) not in sys.path:
     sys.path.insert(0, str(_REPO_SRC))
 
+from legal_agentic_rag.competition.uit_dsc_2026.answer_rendering import (
+    render_competition_answer,
+)
 from legal_agentic_rag.configuration.hashing import canonical_sha256
 from legal_agentic_rag.configuration.online import (
     ClaimVerificationConfig,
@@ -2220,7 +2223,8 @@ class T5GeneratorContractMeasurementRunner:
             ]
 
             preds = {
-                r.question_id: r.response.answer for r in q_results
+                r.question_id: render_competition_answer(r.response)
+                for r in q_results
             }
 
             mean_rouge, mean_meteor, per_q_scores, verified_scorer_sha = (

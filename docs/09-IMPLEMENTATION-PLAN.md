@@ -2185,24 +2185,34 @@ question-aware extractive trimming and SFT/runtime output-contract alignment.
 - **T5-4A (Evidence Selection Opportunity Census):** ACCEPTED — NO_SELECTION_POLICY_JUSTIFIED at `2b17c8ecbaeb818f30efd014f59febfcd28f00c7`. EvidenceSelector remains unchanged.
 - **T5-5A (Targeted Reranker Causal Investigation):** ACCEPTED — NO_RERANK_POLICY_JUSTIFIED (Production reranker remains unchanged; next planned investigation: Generator Contract / Fallback Efficiency).
 - **T5-6A (Generator Contract / Fallback Efficiency Investigation):** ACCEPTED — NEW_CONTROLLED_GENERATOR_MEASUREMENT_REQUIRED (Analysis / Acceptance commit: `5a19d18bd43a7aa865d420ded64dc886718e0c75`).
-- **T5-6B (Controlled Generator Output-Contract Measurement):** PREP ACCEPTED & CLOSED (Implementation Commit `30999bc89ca16e68c1f957268b6c9f9c85cedb82`; zero inference run; awaiting execution command review).
+- **T5-6B (Controlled Generator Output-Contract Measurement):** EXECUTED - CLOSED (Decision: NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED; Compact resolved parser bottleneck 5%->80% but exposed insufficient-evidence bottleneck; next: T5-7A Offline False-Insufficient Forensic).
 - **Subsequent Planned Work:**
   - Generator contract / fallback efficiency investigation.
 
-### Milestone 58 - T5-6B-PREP Design-B Measurement Runner and Telemetry (ACCEPTED & CLOSED)
-- **Status:** ACCEPTED & CLOSED (NO INFERENCE RUN)
-- **Implementation Commit SHA:** `30999bc89ca16e68c1f957268b6c9f9c85cedb82`
-- **External Review:** PASSED
-- **Scope:** Controlled Design-B output-contract measurement harness and telemetry framework for candidate arms (control: plain_text_markers, compact: compact_example, json_schema: json_schema).
-- **Accepted Authority & Review Evidence:**
-  1. *Official Scorer Archive SHA-256:* Pinned and verified `4fac914203d325445a666c0c566530c962ba95b843e1988e4f37057c47447891`.
-  2. *Official scoring.py Member SHA-256:* Pinned and verified `f04843fbfad26d41356506d8e49692a7c8a0ed1b9f065a3a8472fa6398a5aa95`.
-  3. *Official Entrypoint Execution:* Dynamic execution via verified `eval_qa(y_pred, y_true)` entrypoint; 8 real golden vectors validated with full parity.
-  4. *Real FAST30 Generation Preflight:* 20 Tune20 records, 169 evidence items validated; zero model load, zero provider instantiation, zero inference run (`scorer_gate: NOT_APPLICABLE_TO_GENERATION_PHASE`).
-  5. *Measurement Test Suite:* 75 / 75 unit tests passed (`tests/unit/evaluation/test_t5_generator_contract_measurement.py`).
-  6. *Focused T5 Evaluation Suites:* 150 / 150 tests passed across all 4 T5 diagnostic, forensic, evidence-policy, and measurement suites.
-  7. *Full Repository Test Suite:* 632 passed, 1 skipped (0 failures, 633 tests collected, zero regressions).
-  8. *Repository Hygiene:* Zero `src/**` changes, zero `configs/**` changes, zero `notebooks/**` changes, zero C0 control characters, clean `git diff --check`.
+### Milestone 58 - T5-6B Controlled Output-Contract Measurement (Design B)
+- **Status:** EXECUTED - CLOSED
+- **Decision:** `NO_GENERATOR_CONTRACT_CANDIDATE_JUSTIFIED`
+- **Execution Authority / Source SHA:** `bfbf371237356996d583d3e7bbd448f93b2bcc9b`
+- **Closed Generation Archive SHA-256:** `75d00bd42908387a94ccabb4eb76b27900bc6fcfbcaf516c74f08b4bf0c9af4e`
+- **Official Scoring Result JSON SHA-256:** `5a24a53e24a28b7898be7dacdb2c5598139e72b9a5a893ed4f31b07fe61a62cd`
+- **Official Scoring Archive SHA-256:** `ddd1aebb9d7c346d8639bc5426ee5fea4939ab42a0ed970638d4263a1c7a737d`
+- **Official Tune20 Results Summary:**
+  | Metric / Dimension | CONTROL (`plain_text_markers`) | COMPACT (`compact_example`) | JSON_SCHEMA (`json_schema`) |
+  |---|---|---|---|
+  | **Official ROUGE-L** | **0.48313312484363263** | 0.27679015884638764 | 0.412548213797946 |
+  | **Official METEOR** | **0.40469401812464206** | 0.17787278483578856 | 0.3345827853262616 |
+  | **Parser Acceptance Rate** | 5.0% (1 / 20) | **80.0% (16 / 20)** | 55.0% (11 / 20) |
+  | **Citation Identity Validity** | 100.0% (20 / 20) | 100.0% (20 / 20) | 100.0% (20 / 20) |
+  | **Contract Rejection Fallback Count** | 19 / 20 | **4 / 20** | 9 / 20 |
+  | **Insufficient Evidence Count** | **0 / 20** | 10 / 20 | 3 / 20 |
+  | **Structured Rejection Events** | 38 | **10** | 21 |
+  | **Provider Calls** | 40 | **30** | 39 |
+- **Historical Baseline Reproduction:**
+  - Control official ROUGE-L (`0.48313312484363263`) matches historical Tune20 authority (`0.4831331248436325`) within floating-point epsilon (absolute delta: `1.1102230246251565e-16`).
+- **Preregistered Gate Evaluation & Key Findings:**
+  - *Cumulative Advancement Gate:* Neither candidate arm satisfies the 6-part gate over Control.
+  - *Format Hypothesis Partially Confirmed:* Compact format successfully resolved the format/schema bottleneck (parser acceptance improved from 5% to 80%, structured rejections reduced from 38 to 10, contract fallback count reduced from 19 to 4).
+  - *Secondary Semantic Bottleneck Exposed:* Resolving format rejection exposed severe false-abstention / citation semantic failure under compact few-shot conditioning: 10 / 20 questions incorrectly abstained (`insufficient_evidence = true`), causing macro ROUGE-L to plummet to 0.2768 and METEOR to 0.1779.
+  - *Artifact Immutability:* Generation artifacts remained 15/15 hash-identical before and after scoring.
 - **Next Step:**
-  After this documentation-closure checkpoint is committed, pushed, and remote-verified, the closure commit SHA becomes the authoritative T5-6B `measurement_source_sha`.
-  T5-6B real generation MUST NOT begin until an externally reviewed exact execution command is produced from that authority SHA.
+  - **T5-7A Offline False-Insufficient Forensic:** Investigate why compact few-shot formatting induces false-insufficient abstentions on Tune20 despite complete evidence present. Production generator remains strictly unchanged.

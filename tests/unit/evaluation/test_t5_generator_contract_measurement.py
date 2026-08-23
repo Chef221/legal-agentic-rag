@@ -511,6 +511,132 @@ def test_09h_score_tune20_per_question_scores_populated(tmp_path: Path, monkeypa
         assert 0.0 <= per_q[qid]["meteor"] <= 1.0
 
 
+def test_09i_score_closed_generation_sends_competition_rendered_answers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """score_closed_generation must send render_competition_answer(r.response) to official eval_qa.
+
+    Verifies that citation tags like [E1] are stripped by the competition renderer before
+    the official eval_qa entrypoint evaluates ROUGE-L and METEOR.
+    """
+    rendering_check_scorer = """
+def eval_qa(y_pred, y_true):
+    for qid, val in y_pred.items():
+        ans = val["answer"]
+        assert "[E1]" not in ans, f"Unrendered citation tag [E1] leaked into scorer for {qid}: {ans}"
+        assert "Nội dung pháp lý." in ans, f"Rendered text missing in {qid}: {ans}"
+    return {'rouge': 0.85, 'meteor': 0.75}
+"""
+    scorer_zip = tmp_path / "rendering_scorer.zip"
+    make_synthetic_scorer_zip(scorer_zip, monkeypatch, eval_qa_override=rendering_check_scorer)
+
+    out_dir = tmp_path / "closed_gen_out"
+    out_dir.mkdir()
+
+    # Build valid closed generation artifacts for all 3 arms
+    gen_artifact_hashes: dict[str, str] = {}
+    bundle_hashes: dict[str, str] = {}
+
+    for arm_name in ("control", "compact", "json_schema"):
+        arm_dir = out_dir / arm_name
+        arm_dir.mkdir()
+
+        q_results = []
+        resp_records = []
+        for qid in CANONICAL_TUNE20_ORDERED_QIDS:
+            resp = make_answer_response(
+                answer="Nội dung pháp lý [E1].",
+                citations=[Citation(evidence_id="E1", chunk_id="c1", document_id="d1")],
+            )
+            q_res = QuestionMeasurementResult(
+                question_id=qid,
+                candidate_contract=ARM_CONTRACT_MAP[arm_name],
+                response=resp,
+                final_generator_path="SEMANTIC_SYNTHESIS",
+                citation_identity_valid=True,
+                parser_accepted=True,
+                had_contract_rejection=False,
+                calls=[],
+                grounding_calls=[],
+            )
+            q_results.append(q_res)
+            resp_records.append({"question_id": qid, "answer": resp.answer})
+
+        (arm_dir / "responses.jsonl").write_text(
+            "\n".join(json.dumps(r) for r in resp_records) + "\n", encoding="utf-8"
+        )
+        (arm_dir / "question_results.jsonl").write_text(
+            "\n".join(r.model_dump_json() for r in q_results) + "\n", encoding="utf-8"
+        )
+        (arm_dir / "call_telemetry.jsonl").write_text("", encoding="utf-8")
+        (arm_dir / "raw_completions.jsonl").write_text("", encoding="utf-8")
+        (arm_dir / "grounding_telemetry.jsonl").write_text("", encoding="utf-8")
+
+        arm_bundle_hash = sha256()
+        for fname in ("responses.jsonl", "question_results.jsonl", "call_telemetry.jsonl", "raw_completions.jsonl", "grounding_telemetry.jsonl"):
+            rel_file = f"{arm_name}/{fname}"
+            f_hash = compute_file_sha256(arm_dir / fname)
+            gen_artifact_hashes[rel_file] = f_hash
+            arm_bundle_hash.update(f_hash.encode("ascii"))
+        bundle_hashes[arm_name] = arm_bundle_hash.hexdigest()
+
+    env_fp = T56BRuntimeEnvironmentFingerprint(
+        python_version=sys.version,
+        torch_version="2.0.0",
+        transformers_version="4.30.0",
+        cuda_available=False,
+        cuda_runtime_version=None,
+        gpu_count=0,
+        gpu_name=None,
+        device="cpu",
+        torch_dtype="float16",
+        model_loader="image_text_to_text",
+        model_path="/kaggle/working/m49-generator-merged",
+        model_tree_sha256=scm.EXPECTED_M49_GENERATOR_TREE_SHA256,
+        production_generator_blob_sha=scm.verify_production_generator_blob(Path(".")),
+        measurement_source_sha="bfbf371237356996d583d3e7bbd448f93b2bcc9b",
+    )
+    gen_manifest = T56BGenerationManifest(
+        schema_version="t5_generator_generation_manifest_v1",
+        created_at="2026-08-23T00:00:00Z",
+        measurement_source_sha="bfbf371237356996d583d3e7bbd448f93b2bcc9b",
+        production_generator_blob_sha=scm.verify_production_generator_blob(Path(".")),
+        model_artifact_tree_sha256=scm.EXPECTED_M49_GENERATOR_TREE_SHA256,
+        resolved_model_path="/kaggle/working/m49-generator-merged",
+        runtime_environment_sha256="dummy_env_sha",
+        runtime_environment=env_fp,
+        control_generation_config_sha256="ctrl_sha",
+        compact_generation_config_sha256="compact_sha",
+        json_generation_config_sha256="json_sha",
+        claim_verification_config_sha256="claim_sha",
+        frozen_generator_input_sha256="frozen_sha",
+        tune20_ordered_qids_sha256="tune20_sha",
+        execution_order=["control", "compact", "json_schema"],
+        record_count=20,
+        generation_closed_at="2026-08-23T00:00:00Z",
+        generation_artifact_hashes=gen_artifact_hashes,
+    )
+    (out_dir / "generation_manifest.json").write_text(
+        gen_manifest.model_dump_json(indent=2), encoding="utf-8"
+    )
+
+    runner = T5GeneratorContractMeasurementRunner(
+        repo_root=Path("."),
+        archive_path=tmp_path / "dummy.zip",
+        output_dir=out_dir,
+    )
+    refs = {qid: f"Tham chiếu luật cho {qid}." for qid in CANONICAL_TUNE20_ORDERED_QIDS}
+
+    meas_manifest = runner.score_closed_generation(
+        reference_answers=refs,
+        scorer_path=scorer_zip,
+    )
+    assert meas_manifest.schema_version == "t5_generator_measurement_manifest_v1"
+    for arm in ("control", "compact", "json_schema"):
+        assert meas_manifest.arm_summaries[arm].rouge_l == pytest.approx(0.85)
+        assert meas_manifest.arm_summaries[arm].meteor == pytest.approx(0.75)
+
+
 # ==========================================
 # 4. DEEP RESUME MULTI-ARTIFACT CORRUPTION TESTS
 # ==========================================
