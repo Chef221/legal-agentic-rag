@@ -352,3 +352,37 @@ Following external strategic review of Phase A.3 artifacts:
 - Normalized integer-like scalar candidate indices using `operator.index()` in standard library, supporting `np.int64` while strictly rejecting floats (`23.0`), strings (`"23"`), booleans (`True`/`False`), and container types.
 - Expanded test coverage to 467 passing tests.
 - Rebuilt immutable execution package `m491_jina35_production_gate_v2.zip`.
+
+
+---
+
+## 18. Phase A.5 — Real Gate-A Attempt #2 Forensic Analysis & Raw Query Preservation
+
+### Real Gate A Attempt #2 Operational Summary
+- **Execution Package:** `m491_jina35_production_gate_v2.zip` (`c5396c25f7aff4b132c8b0d577845bff1a439dee5d0a1868b63c5298284d9f32`)
+- **Execution Code Authority:** `1d1c117e150adc2d9df0715064e74c2ce479d143`
+- **Results:**
+  - `total_qids`: 100/100 completed
+  - `top1_exact`: 100/100 (100.0%)
+  - `top10_ordered_exact`: 96/100 (96.0%)
+  - `full_k_ordered_exact`: 94/100 (94.0%)
+  - `missing_count`: 0, `extra_count`: 0, `malformed_count`: 0
+  - `max_abs_score_diff`: 0.016408156603574753 (exceeded 0.001 tolerance)
+  - `status`: Valid Gate-A FAIL; Gate B not run.
+- **Evidence Artifact SHA:** `91e2918873b4ed87a558d2140c9384476e83f7e630cc7b4f43c8a9fedddd6059`
+- **Affected Mismatch QIDs:** 163025, 135335, 86345, 36533, 87363, 123107.
+
+### Forensic Investigation & Root Cause Proof
+1. **Direct Native Repeatability:** Executing direct `model.rerank()` 3x on all 6 mismatch QIDs using raw strings yielded `max_native_repeat_diff = 0.0` and 100% exact full-K parity with frozen Clean100 V4 (`max_score_diff = 0.0`). Forensic JSON SHA: `148aab866c813c2ca5a75cab05c5a4576b366bf7388e8953725387764d80b039`.
+2. **Input Byte Auditing:** Audit proved candidate document serialization was 100% byte-identical between wrapper and direct native. However, raw questions for the 6 mismatch QIDs contained trailing whitespace (e.g. `'... là tài sản chung hay riêng? '`), which was stripped by `RetrievalQuery.normalized_question`. Audit JSON SHA: `156ddc31affee04710e78c0b067fcbf730920db6214952d439a0a7e5c78b0fab`.
+3. **Jina v3.5 Architecture Mechanism:** Pinned `modeling.py` (SHA: `ec6612461b4307eb3bab089e6916c00881b7e6b2e8edfbd56a9ace4560244837`) forms native blocks and computes query embeddings/weights per block; altering query bytes changes query embeddings and shifts all 40 scores.
+4. **Classification:**
+   - `CLEAN100 JINA QUALITY`: UNCHANGED / VALID
+   - `MODEL NONDETERMINISM`: NO
+   - `JINA MODEL/CACHE DRIFT`: NO
+   - `DOCUMENT SERIALIZATION DRIFT`: NO
+   - `PRODUCTION WRAPPER QUERY DRIFT`: YES
+
+### Phase A.5 Production Resolution
+- Changed `JinaNativeReranker` query fallback semantics to `query.rewritten_question or query.original_question` without stripping or mutation, exactly matching the validated Clean100 V4 baseline.
+- Retained `CrossEncoderReranker` baseline semantics (`query.rewritten_question or query.normalized_question`).

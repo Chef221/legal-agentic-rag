@@ -248,3 +248,49 @@ def test_reranker_classifies_loading_and_prediction_failures() -> None:
         CrossEncoderReranker(model_loader=lambda config: _FailingModel()).rerank(
             _query(top_k=1, candidate_k=1), [_hit("one", 1)]
         )
+
+
+def test_cross_encoder_preserves_baseline_normalized_question_behavior_test_d() -> None:
+    """TEST D: CrossEncoder retains baseline behavior using normalized_question when no rewrite."""
+    from unittest.mock import MagicMock
+    from legal_agentic_rag.configuration.online import RerankerConfig
+    from legal_agentic_rag.reranking.cross_encoder import CrossEncoderReranker
+    from legal_agentic_rag.schemas.retrieval import RetrievalHit, RetrievalQuery, RetrievalTrace
+
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [0.85]
+
+    cfg = RerankerConfig(
+        backend="sentence_transformers_cross_encoder",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = CrossEncoderReranker(cfg, model_loader=lambda c: mock_model)
+
+    raw_q = "Raw question with space? "
+    norm_q = "Raw question with space?"
+    query = RetrievalQuery(
+        query_id="q1",
+        original_question=raw_q,
+        normalized_question=norm_q,
+        rewritten_question=None,
+        top_k=1,
+        candidate_k=1,
+    )
+    hit = RetrievalHit(
+        chunk_id="chk1",
+        document_id="doc1",
+        text="Van ban phap luat",
+        score=0.5,
+        rank=1,
+        strategy=RetrievalStrategy.BM25,
+        retrieval_trace=RetrievalTrace(bm25_rank=1, bm25_score=0.5),
+    )
+
+    reranker.rerank(query, [hit])
+
+    assert mock_model.predict.called
+    pairs = mock_model.predict.call_args[0][0]
+    # CrossEncoder uses query.rewritten_question or query.normalized_question
+    assert pairs[0][0] == norm_q
+    assert pairs[0][0] != raw_q

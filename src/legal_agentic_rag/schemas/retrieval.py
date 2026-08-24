@@ -240,11 +240,19 @@ class RetrievalQuery(BaseModel):
     query_variants: list[QueryVariant] = Field(default_factory=list)
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
-    @field_validator("query_id", "original_question", "normalized_question")
+    @field_validator("query_id", "normalized_question")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
         """Reject queries without identity or usable text."""
         return _non_empty(value)
+
+    @field_validator("original_question")
+    @classmethod
+    def validate_original_question(cls, value: str) -> str:
+        """Reject empty original question while preserving exact raw bytes."""
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("original_question must not be empty")
+        return value
 
     @field_validator("rewritten_question", mode="before")
     @classmethod

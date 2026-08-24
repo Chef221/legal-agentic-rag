@@ -105,7 +105,7 @@ class JinaNativeReranker:
                 strategy=RetrievalStrategy.RERANK,
                 warnings=["no_rerank_candidates"],
             )
-        question = query.rewritten_question or query.normalized_question
+        question = query.rewritten_question or query.original_question
         serialized_documents = [build_legal_rerank_text(hit) for hit in values]
 
         model = self._ensure_model()

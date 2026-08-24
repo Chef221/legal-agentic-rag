@@ -497,3 +497,102 @@ def test_jina_native_non_integral_index_rejection() -> None:
         ]
         with pytest.raises(ModelError, match="Invalid non-integer candidate index|Invalid boolean candidate index"):
             reranker._parse_native_results(raw_items, expected_count=2)
+
+
+def test_jina_native_preserves_raw_original_question_bytes_test_a() -> None:
+    """TEST A: Jina Native backend uses exact raw original_question bytes with trailing whitespace when no rewrite."""
+    mock_model = MagicMock()
+    mock_model.rerank.return_value = [
+        {"index": 0, "relevance_score": 0.9},
+    ]
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = JinaNativeReranker(cfg, model_loader=lambda c: mock_model)
+
+    raw_q = "Vàng được cho trong ngày cưới là tài sản chung hay riêng? "
+    norm_q = "Vàng được cho trong ngày cưới là tài sản chung hay riêng?"
+    query = RetrievalQuery(
+        query_id="q163025",
+        original_question=raw_q,
+        normalized_question=norm_q,
+        rewritten_question=None,
+        top_k=1,
+        candidate_k=1,
+    )
+    candidates = [_make_dummy_hit("chunk_1", rank=1, score=0.5)]
+
+    reranker.rerank(query, candidates)
+
+    assert mock_model.rerank.called
+    call_kwargs = mock_model.rerank.call_args[1]
+    assert call_kwargs["query"] == raw_q
+    assert call_kwargs["query"] != norm_q
+    assert call_kwargs["query"].endswith(" ")
+
+
+def test_jina_native_rewritten_question_precedence_test_b() -> None:
+    """TEST B: Rewritten question takes precedence over original question when present."""
+    mock_model = MagicMock()
+    mock_model.rerank.return_value = [
+        {"index": 0, "relevance_score": 0.9},
+    ]
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = JinaNativeReranker(cfg, model_loader=lambda c: mock_model)
+
+    query = RetrievalQuery(
+        query_id="q1",
+        original_question="Original question? ",
+        normalized_question="Original question?",
+        rewritten_question="Rewritten search query",
+        top_k=1,
+        candidate_k=1,
+    )
+    candidates = [_make_dummy_hit("chunk_1", rank=1, score=0.5)]
+
+    reranker.rerank(query, candidates)
+
+    assert mock_model.rerank.called
+    call_kwargs = mock_model.rerank.call_args[1]
+    assert call_kwargs["query"] == "Rewritten search query"
+
+
+def test_jina_native_leading_trailing_whitespace_preservation_test_c() -> None:
+    """TEST C: Leading and trailing whitespace are both preserved without strip or mutation."""
+    mock_model = MagicMock()
+    mock_model.rerank.return_value = [
+        {"index": 0, "relevance_score": 0.9},
+    ]
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = JinaNativeReranker(cfg, model_loader=lambda c: mock_model)
+
+    raw_q = "  Leading and trailing whitespace question?   "
+    query = RetrievalQuery(
+        query_id="q2",
+        original_question=raw_q,
+        normalized_question="Leading and trailing whitespace question?",
+        rewritten_question=None,
+        top_k=1,
+        candidate_k=1,
+    )
+    candidates = [_make_dummy_hit("chunk_1", rank=1, score=0.5)]
+
+    reranker.rerank(query, candidates)
+
+    assert mock_model.rerank.called
+    call_kwargs = mock_model.rerank.call_args[1]
+    assert call_kwargs["query"] == raw_q
+    assert call_kwargs["query"] == "  Leading and trailing whitespace question?   "

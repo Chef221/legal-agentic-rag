@@ -304,3 +304,89 @@ def test_background_heartbeat_formatting() -> None:
     assert hb.processed == 5
     assert hb.total == 10
     assert hb.current_qid == "Q0001"
+
+
+def test_gate_a_preserves_raw_question_whitespace(tmp_path: Path) -> None:
+    """Test that Gate A passes raw pool question containing trailing whitespace to Jina Native."""
+    from scripts.m491_jina35_mechanical_validation import run_gate_a_parity
+
+    raw_question_with_space = "Câu hỏi pháp luật có khoảng trắng ở cuối? "
+
+    q_pool = [{
+        "question_id": f"Q{i:04d}",
+        "question": raw_question_with_space if i == 0 else f"Câu hỏi {i}?",
+        "candidate_hits": [
+            {
+                "chunk_id": f"chunk_{i}_{c}",
+                "document_id": f"doc_{i}_{c}",
+                "text": f"Nội dung điều khoản {c}",
+                "score": float(1.0 - c * 0.02),
+                "rank": c + 1,
+                "strategy": "bm25", "retrieval_trace": {"bm25_rank": c + 1, "bm25_score": float(1.0 - c * 0.02)},
+            }
+            for c in range(40)
+        ],
+    } for i in range(100)]
+
+    jina_reranked = []
+    for i in range(100):
+        cands = q_pool[i]["candidate_hits"]
+        jina_reranked.append({
+            "question_id": f"Q{i:04d}",
+            "reranked_hits": [
+                {
+                    "chunk_id": c["chunk_id"],
+                    "document_id": c["document_id"],
+                    "text": c["text"],
+                    "score": float(0.95 - idx * 0.01),
+                    "rank": idx + 1,
+                    "strategy": "rerank", "retrieval_trace": {"reranker_score": float(0.95 - idx * 0.01)},
+                }
+                for idx, c in enumerate(cands)
+            ],
+        })
+
+    authority_dir = tmp_path / "authority"
+    authority_dir.mkdir()
+
+    pools_file = authority_dir / "clean100_shared_candidate_pools.jsonl"
+    with open(pools_file, "w", encoding="utf-8") as f:
+        for r in q_pool:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    reranked_file = authority_dir / "clean100_jina_reranked.jsonl"
+    with open(reranked_file, "w", encoding="utf-8") as f:
+        for r in jina_reranked:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+    manifest_file = authority_dir / "clean100_phase1_manifest.json"
+    manifest_file.write_text(json.dumps({"version": "1.0"}, indent=2), encoding="utf-8")
+
+    def _mock_sha(path: Path) -> str:
+        name = path.name
+        if "pools" in name:
+            return "45a9bd9716f14c7a5a72c54bd82f5ee17a822caa56a26a6a3998f8234e899bb0"
+        if "jina" in name:
+            return "eaafc39d9e3a5e5b11949d5546fea1b7b4da058cf56d99d463a1b2e642e337c9"
+        return "2f733ac8a2d1d5ca94c8f18844226865f598b21f4a109959daf9bef4ea3992c3"
+
+    recorded_queries = []
+
+    class _MockJinaModel:
+        def rerank(self, query: str, documents: list[str], top_n: int | None = None, return_embeddings: bool = False) -> list[dict[str, Any]]:
+            recorded_queries.append(query)
+            return [{"index": i, "relevance_score": float(0.95 - i * 0.01)} for i in range(len(documents))]
+
+    with patch("scripts.m491_jina35_mechanical_validation.compute_file_sha256", side_effect=_mock_sha):
+        with patch("legal_agentic_rag.reranking.jina_native.JinaNativeReranker._ensure_model", return_value=_MockJinaModel()):
+            res = run_gate_a_parity(
+                authority_dir=authority_dir,
+                output_dir=tmp_path / "out_a",
+                device="cpu",
+                max_gate_a_qids=1,
+            )
+
+    assert len(recorded_queries) == 1
+    # Verify that query sent to model.rerank() preserves the exact raw question with trailing whitespace
+    assert recorded_queries[0] == raw_question_with_space
+    assert recorded_queries[0].endswith(" ")

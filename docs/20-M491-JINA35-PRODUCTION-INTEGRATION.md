@@ -277,3 +277,20 @@ Next Action:
 - **V2 Bundle Name:** `m491_jina35_production_gate_v2.zip` (Kaggle transport: `m491_jina35_production_gate_v2.zip.bin`)
 - **Clean100 Authorities Status:** UNCHANGED (Exact byte-for-byte identity preserved)
 - **Gate A Criteria & Tolerance:** UNCHANGED (Full K=40 sequence match, top-10 sequence match, top-1 match, max absolute score difference $\le 10^{-3}$)
+
+
+---
+
+## 20. Phase A.5 Attempt #2 Forensic & V3 Authority Ledger
+
+- **Incident:** REAL GATE A ATTEMPT #2 MECHANICAL PARITY FAILURE
+- **Failure Classification:** PRODUCTION WRAPPER QUERY NORMALIZATION DRIFT
+- **Root Cause:** Wrapper selected `query.normalized_question` (which stripped trailing whitespace on 6 QIDs), whereas validated Clean100 V4 baseline passed raw question bytes to Jina.
+- **Forensic Artifacts:**
+  - Failure Evidence ZIP SHA: `91e2918873b4ed87a558d2140c9384476e83f7e630cc7b4f43c8a9fedddd6059`
+  - Direct Native Forensic JSON SHA: `148aab866c813c2ca5a75cab05c5a4576b366bf7388e8953725387764d80b039`
+  - Input Divergence Audit JSON SHA: `156ddc31affee04710e78c0b067fcbf730920db6214952d439a0a7e5c78b0fab`
+  - Pinned Jina Modeling SHA: `ec6612461b4307eb3bab089e6916c00881b7e6b2e8edfbd56a9ace4560244837`
+- **Resolution:** Updated `JinaNativeReranker` to preserve `query.original_question` without `strip()`.
+- **V3 Execution Code Authority:** `M491_JINA35_EXECUTION_CODE_AUTHORITY_V3`
+- **V3 Bundle:** `m491_jina35_production_gate_v3.zip` (`m491_jina35_production_gate_v3.zip.bin`)
