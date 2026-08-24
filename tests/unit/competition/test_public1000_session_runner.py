@@ -495,3 +495,82 @@ def test_public1000_submission_packaging_refused_on_incomplete_checkpoint(
 
     with pytest.raises(DataValidationError, match="Cannot package submission: incomplete checkpoint"):
         runner.package_final_submission(tmp_path / "sub_refused")
+
+
+def test_public1000_fails_on_previous_checkpoint_sha_mismatch(
+    base_config: ApplicationConfig, ten_questions_file: Path, tmp_path: Path
+) -> None:
+    """Requirement: Tampering previous_checkpoint_sha256 in chained manifest fails closed."""
+    # Session 1: Process 3 questions
+    work_dir_1 = tmp_path / "chain_sess1_tamper"
+    runner_1 = Public1000SessionRunner(
+        app_config=base_config,
+        working_dir=work_dir_1,
+        questions_path=ten_questions_file,
+        session_id="session_1",
+    )
+    runner_1.runtime = _build_dummy_runtime()
+    res_1 = runner_1.run_session(max_questions_in_session=3)
+    zip_1 = work_dir_1 / CHECKPOINT_LATEST_ZIP_FILENAME
+    sha_1 = compute_file_sha256(zip_1)
+
+    # Session 2: Resumes from zip_1 and emits chained checkpoint zip_2
+    work_dir_2 = tmp_path / "chain_sess2_tamper"
+    runner_2 = Public1000SessionRunner(
+        app_config=base_config,
+        working_dir=work_dir_2,
+        questions_path=ten_questions_file,
+        session_id="session_2",
+    )
+    runner_2.runtime = _build_dummy_runtime()
+    res_2 = runner_2.run_session(checkpoint_archive_path=zip_1, max_questions_in_session=4)
+    manifest_2_file = work_dir_2 / CHECKPOINT_MANIFEST_FILENAME
+    manifest_2 = json.loads(manifest_2_file.read_text(encoding="utf-8"))
+    assert manifest_2["previous_checkpoint_sha256"] == sha_1
+
+    # Tamper ONLY previous_checkpoint_sha256 in manifest_2
+    manifest_2["previous_checkpoint_sha256"] = "tampered_fake_previous_sha_00000000"
+    manifest_2_file.write_text(json.dumps(manifest_2, indent=2), encoding="utf-8")
+
+    # Session 3 / restore attempting to validate against expected sha_1 MUST fail closed
+    work_dir_3 = tmp_path / "chain_sess3_tamper"
+    runner_3 = Public1000SessionRunner(
+        app_config=base_config,
+        working_dir=work_dir_2,  # point to tampered working dir
+        questions_path=ten_questions_file,
+        session_id="session_3",
+    )
+    with pytest.raises(ArtifactCompatibilityError, match="Checkpoint previous_checkpoint_sha256 mismatch"):
+        runner_3.restore_and_validate_checkpoint(expected_previous_checkpoint_sha256=sha_1)
+
+
+def test_public1000_submission_packaging_allowed_on_exact_complete_set(
+    base_config: ApplicationConfig, ten_questions_file: Path, tmp_path: Path
+) -> None:
+    """Requirement: Complete exact expected QID set allows submission packaging."""
+    work_dir = tmp_path / "work_exact_complete"
+    runner = Public1000SessionRunner(
+        app_config=base_config,
+        working_dir=work_dir,
+        questions_path=ten_questions_file,
+    )
+    runner.runtime = _build_dummy_runtime()
+
+    # Process all 10 questions
+    res = runner.run_session()
+    assert res["status"] == "ALL_QUESTIONS_COMPLETED"
+    assert res["completed_count"] == 10
+
+    # Package submission
+    out_dir = tmp_path / "sub_allowed_pkg"
+    sub_zip = runner.package_final_submission(out_dir)
+    assert sub_zip.exists()
+    with zipfile.ZipFile(sub_zip, "r") as zf:
+        namelist = zf.namelist()
+        assert namelist == ["submission.json"]
+        data = json.loads(zf.read("submission.json").decode("utf-8"))
+        assert len(data) == 10
+        assert set(data.keys()) == {f"q{i:03d}" for i in range(1, 11)}
+        for qid, entry in data.items():
+            assert "answer" in entry
+            assert entry["answer"] == f"Answer for {qid}"

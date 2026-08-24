@@ -105,6 +105,7 @@ class Public1000SessionRunner:
         self.journal_path = self.working_dir / CHECKPOINT_JOURNAL_FILENAME
         self.audit_path = self.working_dir / CHECKPOINT_AUDIT_FILENAME
         self.latest_zip_path = self.working_dir / CHECKPOINT_LATEST_ZIP_FILENAME
+        self.previous_checkpoint_sha256: str | None = None
 
         self.questions: list[tuple[str, str]] = self._load_questions(self.questions_path)
         self.canonical_qids = [q[0] for q in self.questions]
@@ -169,10 +170,15 @@ class Public1000SessionRunner:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
             self._fsync_file(f)
 
-    def restore_and_validate_checkpoint(self, checkpoint_archive_path: Path | None = None) -> list[dict[str, Any]]:
+    def restore_and_validate_checkpoint(
+        self,
+        checkpoint_archive_path: Path | None = None,
+        expected_previous_checkpoint_sha256: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Restore previous checkpoint if present and strictly validate authority bindings."""
         if checkpoint_archive_path is not None and checkpoint_archive_path.exists():
             _LOGGER.info(f"Restoring checkpoint from archive: {checkpoint_archive_path}")
+            self.previous_checkpoint_sha256 = compute_file_sha256(checkpoint_archive_path)
             self.working_dir.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(checkpoint_archive_path, "r") as zf:
                 for info in zf.infolist():
@@ -208,6 +214,12 @@ class Public1000SessionRunner:
 
         if manifest.get("runtime_dependencies") and manifest.get("runtime_dependencies") != FROZEN_AUTHORITY_BINDINGS["runtime_dependencies"]:
             raise ArtifactCompatibilityError("Checkpoint runtime_dependencies mismatch")
+
+        if expected_previous_checkpoint_sha256 is not None:
+            if manifest.get("previous_checkpoint_sha256") != expected_previous_checkpoint_sha256:
+                raise ArtifactCompatibilityError(
+                    f"Checkpoint previous_checkpoint_sha256 mismatch: {manifest.get('previous_checkpoint_sha256')} != {expected_previous_checkpoint_sha256}"
+                )
 
         # Verify results.jsonl SHA
         actual_results_sha = compute_file_sha256(self.results_path)
@@ -278,11 +290,15 @@ class Public1000SessionRunner:
     def run_session(
         self,
         checkpoint_archive_path: Path | None = None,
+        expected_previous_checkpoint_sha256: str | None = None,
         max_questions_in_session: int | None = None,
     ) -> dict[str, Any]:
         """Execute Public-1000 questions within the session wall-clock budget with per-question durability."""
         self.working_dir.mkdir(parents=True, exist_ok=True)
-        existing_records = self.restore_and_validate_checkpoint(checkpoint_archive_path)
+        existing_records = self.restore_and_validate_checkpoint(
+            checkpoint_archive_path=checkpoint_archive_path,
+            expected_previous_checkpoint_sha256=expected_previous_checkpoint_sha256,
+        )
         completed_qids = {str(r["question_id"]) for r in existing_records}
 
         pending_items = [(qid, q_text) for qid, q_text in self.questions if qid not in completed_qids]
@@ -439,6 +455,7 @@ class Public1000SessionRunner:
                     "insufficient_evidence_qids": insufficient_ev_qids,
                     "results_jsonl_sha256": results_sha,
                     "session_id": self.session_id,
+                    "previous_checkpoint_sha256": self.previous_checkpoint_sha256,
                     "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 }
                 self._write_json_atomic(self.manifest_path, manifest_payload)
@@ -476,6 +493,7 @@ class Public1000SessionRunner:
             "completed_qid_set_hash": completed_set_hash,
             "results_jsonl_sha256": results_sha,
             "manifest_sha256": manifest_sha,
+            "previous_checkpoint_sha256": self.previous_checkpoint_sha256,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         }
         self._write_json_atomic(self.audit_path, audit_payload)
