@@ -1,19 +1,21 @@
-"""Strict Dual-T4 Public-1000 multi-session orchestration layer.
+"""Strict Dual-T4 Public-1000 multi-process orchestration layer.
 
-Implements replicated inference parallelism across 2 physical GPUs (CUDA_VISIBLE_DEVICES=0 and 1)
-with deterministic canonical partitioning (canonical_index_mod_2_v1), per-worker durable fsync checkpoints,
-crash-safe cross-worker synchronization, live progress telemetry, and fail-closed resume validation.
+Implements true OS-process replicated inference parallelism across 2 physical GPUs
+(CUDA_VISIBLE_DEVICES=0 and 1) with deterministic canonical partitioning (canonical_index_mod_2_v1),
+per-worker durable fsync checkpoints, race-safe live progress telemetry, and fail-closed resume validation.
 """
 
 from __future__ import annotations
 
 import datetime
-import hashlib
+import importlib
 import json
 import logging
+import multiprocessing as mp
 import os
 from pathlib import Path
 import subprocess
+import sys
 import threading
 import time
 from typing import Any, Callable, Sequence
@@ -44,24 +46,11 @@ PARTITION_STRATEGY_V1 = "canonical_index_mod_2_v1"
 
 
 def get_dual_gpu_telemetry() -> dict[str, dict[str, Any]]:
-    """Query live telemetry for GPU 0 and GPU 1."""
+    """Query live telemetry for GPU 0 and GPU 1 without creating a CUDA context."""
     stats = {
         "gpu_0": {"util_pct": "N/A", "vram_used_mb": 0.0, "vram_total_mb": 0.0, "vram_peak_mb": 0.0},
         "gpu_1": {"util_pct": "N/A", "vram_used_mb": 0.0, "vram_total_mb": 0.0, "vram_peak_mb": 0.0},
     }
-    try:
-        import torch
-        if torch.cuda.is_available():
-            dev_count = torch.cuda.device_count()
-            for dev_idx in range(min(2, dev_count)):
-                key = f"gpu_{dev_idx}"
-                stats[key]["vram_used_mb"] = torch.cuda.memory_allocated(dev_idx) / (1024 * 1024)
-                stats[key]["vram_peak_mb"] = torch.cuda.max_memory_allocated(dev_idx) / (1024 * 1024)
-                props = torch.cuda.get_device_properties(dev_idx)
-                stats[key]["vram_total_mb"] = props.total_memory / (1024 * 1024)
-    except Exception:
-        pass
-
     try:
         res = subprocess.run(
             ["nvidia-smi", "--query-gpu=index,utilization.gpu,memory.used,memory.total", "--format=csv,noheader,nounits"],
@@ -78,17 +67,131 @@ def get_dual_gpu_telemetry() -> dict[str, dict[str, Any]]:
                     key = f"gpu_{idx_str}"
                     if key in stats:
                         stats[key]["util_pct"] = f"{parts[1]}%"
-                        if stats[key]["vram_total_mb"] == 0.0:
-                            stats[key]["vram_used_mb"] = float(parts[2])
-                            stats[key]["vram_total_mb"] = float(parts[3])
+                        stats[key]["vram_used_mb"] = float(parts[2])
+                        stats[key]["vram_total_mb"] = float(parts[3])
     except Exception:
         pass
 
     return stats
 
 
+def _count_durable_records_safe(results_path: Path) -> int:
+    """Read durable JSONL lines safely without crashing during in-progress file appends."""
+    if not results_path.exists():
+        return 0
+    count = 0
+    try:
+        with results_path.open("r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                clean_line = line.strip()
+                if clean_line:
+                    try:
+                        rec = json.loads(clean_line)
+                        if "question_id" in rec:
+                            count += 1
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return count
+
+
+def _worker_process_entrypoint(
+    worker_id: int,
+    worker_dir_str: str,
+    qfile_str: str,
+    config_dict: dict[str, Any],
+    session_budget_seconds: float,
+    session_id: str,
+    device_str: str,
+    max_questions: int | None,
+    checkpoint_archive_str: str | None,
+    custom_builder_target: tuple[str, str] | None,
+    repo_root_str: str | None,
+    result_queue: Any,
+) -> None:
+    """True OS-process worker entrypoint.
+
+    Sets CUDA_VISIBLE_DEVICES as the very first line before importing/initializing PyTorch.
+    """
+    # 1. Strict process-level CUDA isolation
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(device_str)
+
+    # Ensure repository root is in child sys.path
+    if repo_root_str and repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+
+    pid = os.getpid()
+    _LOGGER.info(f"[WORKER {worker_id} START] PID={pid}, CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}")
+
+    try:
+        worker_dir = Path(worker_dir_str)
+        qfile_path = Path(qfile_str)
+        app_cfg = ApplicationConfig.model_validate(config_dict)
+
+        # 2. Determine runtime builder
+        if custom_builder_target is not None:
+            mod_name, fn_name = custom_builder_target
+            mod = importlib.import_module(mod_name)
+            builder_fn = getattr(mod, fn_name)
+            runtime_builder = builder_fn(worker_id)
+        else:
+            def runtime_builder():
+                from legal_agentic_rag.runtime.online import OnlineRuntimeFactory
+                # Because of CUDA_VISIBLE_DEVICES isolation, local GPU is always cuda:0
+                dev = "cuda:0" if ("cuda" in app_cfg.generation.device.lower() or "cuda" in app_cfg.embedding.device.lower()) else "cpu"
+                factory = OnlineRuntimeFactory.from_config(app_cfg, device=dev)
+                return factory.build()
+
+        runner = Public1000SessionRunner(
+            app_config=app_cfg,
+            working_dir=worker_dir,
+            questions_path=qfile_path,
+            session_budget_hours=session_budget_seconds / 3600.0,
+            session_id=session_id,
+            runtime_builder=runtime_builder,
+        )
+
+        chk_path = Path(checkpoint_archive_str) if checkpoint_archive_str else None
+        audit_res = runner.run_session(
+            checkpoint_archive_path=chk_path,
+            max_questions_in_session=max_questions,
+        )
+
+        if result_queue is not None:
+            result_queue.put({
+                "worker_id": worker_id,
+                "pid": pid,
+                "success": True,
+                "status": audit_res.get("status"),
+                "completed_count": audit_res.get("completed_question_count", 0),
+                "audit": audit_res,
+            })
+    except Exception as err:
+        _LOGGER.error(f"[WORKER {worker_id} FATAL ERROR] PID={pid}: {err}", exc_info=True)
+        if result_queue is not None:
+            result_queue.put({
+                "worker_id": worker_id,
+                "pid": pid,
+                "success": False,
+                "error": str(err),
+            })
+        sys.exit(1)
+
+
+def _canonicalize_for_hash(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _canonicalize_for_hash(v) for k, v in sorted(obj.items())}
+    elif isinstance(obj, (list, tuple, set)):
+        items = [_canonicalize_for_hash(x) for x in obj]
+        if all(isinstance(x, (str, int, float, bool)) for x in items):
+            return sorted(items)
+        return items
+    return obj
+
+
 class DualPublic1000SessionRunner:
-    """Coordinator for 2-worker replicated Public-1000 execution."""
+    """Coordinator for 2-worker replicated Public-1000 execution via independent OS processes."""
 
     def __init__(
         self,
@@ -99,6 +202,7 @@ class DualPublic1000SessionRunner:
         session_budget_hours: float = 9.5,
         session_id: str | None = None,
         runtime_builders: dict[int, Callable[[], OnlineRuntime]] | None = None,
+        custom_builder_target: tuple[str, str] | None = None,
         worker_devices: tuple[str, str] = ("0", "1"),
     ) -> None:
         self.app_config = app_config
@@ -110,6 +214,7 @@ class DualPublic1000SessionRunner:
             or f"dual_session_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d_%H%M%S')}"
         )
         self.runtime_builders = runtime_builders or {}
+        self.custom_builder_target = custom_builder_target
         self.worker_devices = worker_devices
 
         self.questions: list[tuple[str, str]] = Public1000SessionRunner._load_questions(self.questions_path)
@@ -149,7 +254,8 @@ class DualPublic1000SessionRunner:
 
     def _compute_config_hash(self) -> str:
         data = self.app_config.model_dump(mode="json")
-        return compute_string_sha256(json.dumps(data, sort_keys=True))
+        canonical = _canonicalize_for_hash(data)
+        return compute_string_sha256(json.dumps(canonical, sort_keys=True))
 
     def _ensure_worker_question_files(self) -> None:
         self.worker_0_dir.mkdir(parents=True, exist_ok=True)
@@ -383,36 +489,81 @@ class DualPublic1000SessionRunner:
         expected_previous_checkpoint_sha256: str | None = None,
         max_questions_per_worker: int | None = None,
     ) -> dict[str, Any]:
-        """Run Dual-T4 session with concurrent worker execution and global progress monitoring."""
+        """Run Dual-T4 session with true OS-process isolation and race-safe monitoring."""
         self.working_dir.mkdir(parents=True, exist_ok=True)
-        records_0, records_1 = self.restore_and_validate_checkpoint(
+        self.restore_and_validate_checkpoint(
             combined_checkpoint_archive_path=combined_checkpoint_archive_path,
             expected_previous_checkpoint_sha256=expected_previous_checkpoint_sha256,
         )
 
-        runner_0 = self.worker_0_runner
-        runner_1 = self.worker_1_runner
-        assert runner_0 is not None and runner_1 is not None
-
+        self._ensure_worker_question_files()
+        config_dict = self.app_config.model_dump(mode="json")
         session_start_time = time.perf_counter()
-        stop_heartbeat = threading.Event()
-        worker_exceptions: list[Exception] = []
 
-        # Heartbeat thread
+        ctx = mp.get_context("spawn")
+        result_queue = ctx.Queue()
+
+        # Launch Worker 0 process
+        p0 = ctx.Process(
+            target=_worker_process_entrypoint,
+            args=(
+                0,
+                str(self.worker_0_dir),
+                str(self.worker_0_qfile),
+                config_dict,
+                self.session_budget_seconds,
+                f"{self.session_id}_w0",
+                self.worker_devices[0],
+                max_questions_per_worker,
+                None,
+                self.custom_builder_target,
+                str(Path(__file__).resolve().parents[4]),
+                result_queue,
+            ),
+            name="DualWorker_0",
+        )
+
+        # Launch Worker 1 process
+        p1 = ctx.Process(
+            target=_worker_process_entrypoint,
+            args=(
+                1,
+                str(self.worker_1_dir),
+                str(self.worker_1_qfile),
+                config_dict,
+                self.session_budget_seconds,
+                f"{self.session_id}_w1",
+                self.worker_devices[1],
+                max_questions_per_worker,
+                None,
+                self.custom_builder_target,
+                str(Path(__file__).resolve().parents[4]),
+                result_queue,
+            ),
+            name="DualWorker_1",
+        )
+
+        p0.start()
+        p1.start()
+        _LOGGER.info(f"Launched Worker 0 (PID={p0.pid}, Device={self.worker_devices[0]}) and Worker 1 (PID={p1.pid}, Device={self.worker_devices[1]})")
+
+        stop_heartbeat = threading.Event()
+
+        # Race-safe read-only heartbeat thread
         def _heartbeat_loop() -> None:
             while not stop_heartbeat.wait(30.0):
                 elapsed = time.perf_counter() - session_start_time
-                w0_done = len(runner_0.restore_and_validate_checkpoint()) if (runner_0.results_path.exists()) else len(records_0)
-                w1_done = len(runner_1.restore_and_validate_checkpoint()) if (runner_1.results_path.exists()) else len(records_1)
+                w0_done = _count_durable_records_safe(self.worker_0_dir / CHECKPOINT_RESULTS_FILENAME)
+                w1_done = _count_durable_records_safe(self.worker_1_dir / CHECKPOINT_RESULTS_FILENAME)
                 total_done = w0_done + w1_done
-                pct = (total_done / self.expected_total_count) * 100.0
+                pct = (total_done / self.expected_total_count) * 100.0 if self.expected_total_count > 0 else 0.0
                 q_hr = (total_done / (elapsed / 3600.0)) if elapsed > 0 else 0.0
                 eta_s = ((self.expected_total_count - total_done) / (total_done / elapsed)) if total_done > 0 else 0.0
 
                 gpu_stats = get_dual_gpu_telemetry()
                 print(
                     f"\n[DUAL-GPU HEARTBEAT {elapsed:.1f}s] GLOBAL DURABLE: {total_done}/{self.expected_total_count} ({pct:.1f}%) | "
-                    f"W0: {w0_done}/{len(self.partition_0_items)} | W1: {w1_done}/{len(self.partition_1_items)} | "
+                    f"W0 (PID {p0.pid}): {w0_done}/{len(self.partition_0_items)} | W1 (PID {p1.pid}): {w1_done}/{len(self.partition_1_items)} | "
                     f"Throughput: {q_hr:.1f} q/hr | ETA: {eta_s/60:.1f} min | "
                     f"GPU0: {gpu_stats['gpu_0']['util_pct']} ({gpu_stats['gpu_0']['vram_used_mb']:.0f}/{gpu_stats['gpu_0']['vram_total_mb']:.0f} MB) | "
                     f"GPU1: {gpu_stats['gpu_1']['util_pct']} ({gpu_stats['gpu_1']['vram_used_mb']:.0f}/{gpu_stats['gpu_1']['vram_total_mb']:.0f} MB)"
@@ -421,41 +572,78 @@ class DualPublic1000SessionRunner:
         hb_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
         hb_thread.start()
 
-        # Concurrent worker execution
-        def _run_w0() -> None:
+        # Coordinator process monitor loop
+        worker_failed = False
+        try:
+            while p0.is_alive() or p1.is_alive():
+                # Check if one process died unexpectedly
+                if not p0.is_alive() and p0.exitcode != 0:
+                    _LOGGER.error(f"Worker 0 process (PID={p0.pid}) exited with failure code {p0.exitcode}")
+                    worker_failed = True
+                    if p1.is_alive():
+                        p1.terminate()
+                    break
+
+                if not p1.is_alive() and p1.exitcode != 0:
+                    _LOGGER.error(f"Worker 1 process (PID={p1.pid}) exited with failure code {p1.exitcode}")
+                    worker_failed = True
+                    if p0.is_alive():
+                        p0.terminate()
+                    break
+
+                time.sleep(0.5)
+
+            p0.join(timeout=5.0)
+            p1.join(timeout=5.0)
+        finally:
+            stop_heartbeat.set()
+            if p0.is_alive():
+                p0.terminate()
+                p0.join()
+            if p1.is_alive():
+                p1.terminate()
+                p1.join()
+
+        if p0.exitcode != 0 or p1.exitcode != 0:
+            worker_failed = True
+
+        # Drain result queue
+        queue_results = []
+        while not result_queue.empty():
             try:
-                os.environ["CUDA_VISIBLE_DEVICES"] = self.worker_devices[0]
-                runner_0.run_session(max_questions_in_session=max_questions_per_worker)
-            except Exception as e:
-                _LOGGER.error(f"Worker 0 failed: {e}")
-                worker_exceptions.append(e)
+                queue_results.append(result_queue.get_nowait())
+            except Exception:
+                break
 
-        def _run_w1() -> None:
-            try:
-                os.environ["CUDA_VISIBLE_DEVICES"] = self.worker_devices[1]
-                runner_1.run_session(max_questions_in_session=max_questions_per_worker)
-            except Exception as e:
-                _LOGGER.error(f"Worker 1 failed: {e}")
-                worker_exceptions.append(e)
+        for q_res in queue_results:
+            if not q_res.get("success"):
+                worker_failed = True
 
-        t0 = threading.Thread(target=_run_w0)
-        t1 = threading.Thread(target=_run_w1)
+        # Read whatever durable records exist on disk
+        runner_0, runner_1 = self._init_worker_runners()
+        try:
+            res_records_0 = runner_0.restore_and_validate_checkpoint()
+        except Exception:
+            res_records_0 = []
+            if (self.worker_0_dir / CHECKPOINT_RESULTS_FILENAME).exists():
+                with (self.worker_0_dir / CHECKPOINT_RESULTS_FILENAME).open("r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            res_records_0.append(json.loads(line))
 
-        t0.start()
-        t1.start()
-
-        t0.join()
-        t1.join()
-
-        stop_heartbeat.set()
-
-        # Reload verified records from disk
-        res_records_0 = runner_0.restore_and_validate_checkpoint()
-        res_records_1 = runner_1.restore_and_validate_checkpoint()
+        try:
+            res_records_1 = runner_1.restore_and_validate_checkpoint()
+        except Exception:
+            res_records_1 = []
+            if (self.worker_1_dir / CHECKPOINT_RESULTS_FILENAME).exists():
+                with (self.worker_1_dir / CHECKPOINT_RESULTS_FILENAME).open("r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip():
+                            res_records_1.append(json.loads(line))
 
         total_completed = len(res_records_0) + len(res_records_1)
 
-        if worker_exceptions:
+        if worker_failed:
             status = "DUAL_GPU_WORKER_FAILURE_CHECKPOINT_READY"
         elif total_completed == self.expected_total_count:
             status = "ALL_QUESTIONS_COMPLETED"

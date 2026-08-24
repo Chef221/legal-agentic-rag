@@ -79,6 +79,17 @@ def compute_qid_set_hash(qids: Sequence[str]) -> str:
     return compute_string_sha256(joined)
 
 
+def _canonicalize_for_hash(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        return {k: _canonicalize_for_hash(v) for k, v in sorted(obj.items())}
+    elif isinstance(obj, (list, tuple, set)):
+        items = [_canonicalize_for_hash(x) for x in obj]
+        if all(isinstance(x, (str, int, float, bool)) for x in items):
+            return sorted(items)
+        return items
+    return obj
+
+
 class Public1000SessionRunner:
     """Multi-session durable Public-1000 execution controller."""
 
@@ -118,7 +129,8 @@ class Public1000SessionRunner:
 
     def _compute_config_hash(self) -> str:
         data = self.app_config.model_dump(mode="json")
-        return compute_string_sha256(json.dumps(data, sort_keys=True))
+        canonical = _canonicalize_for_hash(data)
+        return compute_string_sha256(json.dumps(canonical, sort_keys=True))
 
     @staticmethod
     def _load_questions(path: Path) -> list[tuple[str, str]]:
