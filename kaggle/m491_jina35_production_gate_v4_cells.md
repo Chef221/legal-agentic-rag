@@ -6,6 +6,8 @@
 - M45 Database dataset
 - M49 Merged Generator dataset (`/kaggle/input/m49-generator-merged`)
 - Offline HuggingFace Cache dataset (Qwen embedding + Jina v3.5)
+- Official Public-1000 Questions dataset (`public-official.json`)
+- (Optional for Session 2+) Previous Session Checkpoint: `public1000_checkpoint_latest.zip` or `.zip.bin`
 
 ---
 
@@ -190,8 +192,7 @@ def compute_dir_tree_sha256(directory: Path) -> str:
             rel_path = file_path.relative_to(directory).as_posix()
             file_bytes = file_path.read_bytes()
             file_sha = hashlib.sha256(file_bytes).hexdigest()
-            hasher.update(f"{rel_path}:{file_sha}
-".encode("utf-8"))
+            hasher.update(f"{rel_path}:{file_sha}\n".encode("utf-8"))
     return hasher.hexdigest()
 
 gen_tree_sha = compute_dir_tree_sha256(gen_dir)
@@ -310,18 +311,74 @@ print("GATE B FULL-RUNTIME T4 SMOKE: STRICT PASS (5/5 VERIFIED ANSWERS)")
 
 ---
 
-### CELL 10 — Package Evidence & Output Results
+### CELL 10 — MULTI-SESSION PUBLIC-1000 RUNNER (12-Hour Session Survival)
 ```python
-import zipfile
+from pathlib import Path
+from legal_agentic_rag.competition.uit_dsc_2026.public1000_session_runner import Public1000SessionRunner
+from legal_agentic_rag.runtime.online import OnlineRuntimeFactory
+from legal_agentic_rag.serving.config_loader import load_application_config
+
+print("=== CELL 10: MULTI-SESSION PUBLIC-1000 EXECUTION CONTROLLER ===")
+
+# 1. Discover official Public-1000 questions
+public_q_candidates = list(Path("/kaggle/input").rglob("public-official.json")) + list(Path("/kaggle/input").rglob("public_official.json"))
+assert public_q_candidates, "public-official.json not found under /kaggle/input"
+public_q_path = public_q_candidates[0]
+print(f"Found official public questions: {public_q_path}")
+
+# 2. Check for optional prior session checkpoint archive (.zip or .zip.bin)
+prior_checkpoint_path = None
+checkpoint_candidates = (
+    list(Path("/kaggle/input").rglob("public1000_checkpoint_latest.zip*"))
+    + list(Path("/kaggle/input").rglob("m491_jina35_public1000_checkpoint*"))
+)
+if checkpoint_candidates:
+    prior_checkpoint_path = checkpoint_candidates[0]
+    print(f"Found previous session checkpoint: {prior_checkpoint_path}")
+else:
+    print("No previous checkpoint detected. Initializing Session 1.")
+
+# 3. Load resolved production config
+config_path = extract_dir / "configs" / "uit-dsc-2026-task2-m491-jina35.example.json"
+app_cfg = load_application_config(config_path)
+
+# 4. Configure runtime builder
+def runtime_builder():
+    factory = OnlineRuntimeFactory.from_config(app_cfg, device="cuda:0")
+    return factory.build()
+
+public_working_dir = Path("/kaggle/working/public1000_execution")
+
+# 5. Initialize Public1000SessionRunner with 9.5-hour safe budget
+runner = Public1000SessionRunner(
+    app_config=app_cfg,
+    working_dir=public_working_dir,
+    questions_path=public_q_path,
+    session_budget_hours=9.5,  # Stops cleanly well before 12h limit
+    runtime_builder=runtime_builder,
+)
+
+# 6. Execute session
+session_audit = runner.run_session(checkpoint_archive_path=prior_checkpoint_path)
+print(f"Session Status: {session_audit['status']}")
+```
+
+---
+
+### CELL 11 — OFFICIAL CODABENCH SUBMISSION PACKAGING (Gated on 1000/1000)
+```python
 from pathlib import Path
 
-print("=== CELL 10: PACKAGING VERIFICATION RESULTS ===")
+print("=== CELL 11: CODABENCH SUBMISSION PACKAGING ===")
 
-results_zip = Path("/kaggle/working/m491_jina35_production_gate_v4_results.zip")
-with zipfile.ZipFile(results_zip, "w", zipfile.ZIP_DEFLATED) as zf:
-    for out_file in list(Path("/kaggle/working/gate_a_results").rglob("*")) + list(Path("/kaggle/working/gate_b_results").rglob("*")):
-        if out_file.is_file():
-            zf.write(out_file, arcname=out_file.relative_to("/kaggle/working").as_posix())
+submission_out_dir = Path("/kaggle/working/submission_package")
 
-print(f"Saved results package: {results_zip} ({results_zip.stat().st_size:,} bytes)")
+try:
+    sub_zip_path = runner.package_final_submission(submission_out_dir)
+    print(f"SUCCESS: Submission zip created at: {sub_zip_path}")
+    print(f"Submission zip size: {sub_zip_path.stat().st_size:,} bytes")
+    print("READY TO DOWNLOAD SUBMISSION.ZIP FOR CODABENCH SUBMISSION!")
+except Exception as err:
+    print(f"SUBMISSION PACKAGING HELD: {err}")
+    print("If more sessions are required, download 'public1000_checkpoint_latest.zip' and resume in the next session.")
 ```
