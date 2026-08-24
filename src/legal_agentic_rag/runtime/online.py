@@ -31,7 +31,7 @@ from legal_agentic_rag.generation import (
 from legal_agentic_rag.indexing.bm25 import SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.graph import AdjacencyGraphBackend
 from legal_agentic_rag.indexing.vector import NumpyVectorBackend
-from legal_agentic_rag.reranking import CrossEncoderReranker
+from legal_agentic_rag.reranking import build_reranker
 from legal_agentic_rag.retrieval import (
     DenseRetriever,
     FixedRetriever,
@@ -150,7 +150,7 @@ class OnlineRuntimeFactory:
             embedding_provider
             or SentenceTransformerEmbeddingProvider(config.offline.embedding)
         )
-        self._reranker = reranker or CrossEncoderReranker(
+        self._reranker = reranker or build_reranker(
             config.online.reranker
         )
         self._context_grader = context_grader or RuleBasedContextGrader(

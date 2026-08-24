@@ -2370,3 +2370,18 @@ the remaining answer-only-SFT versus evidence-marker runtime mismatch. Because t
 deterministic top-evidence fallback materially contributed to the measured score,
 future work must preserve M49.1 as a control and cannot remove fallback based only
 on warning counts.
+
+
+---
+
+## Decision: M49.1-JINA35 Reranker Validation & Selectable Production Integration (Phase A)
+
+1. **Clean100 Validation Outcome**:
+   - `jinaai/jina-reranker-v3.5` (revision `e8a93f33f0b22108f8c2364f8484ce3422552fbc`, 596,836,352 parameters) validated on unexposed Clean100 ($n=100$) achieving $+0.037$ ROUGE-L ($P=0.9884$) and $+0.039$ METEOR ($P=0.9939$) over M49.1 control under a strict two-phase reference firewall.
+2. **Selectable Production Integration Authorized**:
+   - `JinaNativeReranker` integrated as an explicit selectable backend (`backend: "jina_native_listwise"`).
+   - Factory `build_reranker()` dispatches between legacy `sentence_transformers_cross_encoder` and `jina_native_listwise`.
+   - Control configuration `configs/uit-dsc-2026-task2-m491-qwen3-dev.example.json` remains immutable and byte-identical to `10681c8c05008432cd1c7170cd3917f4317c1c69`.
+   - Dedicated configuration `configs/uit-dsc-2026-task2-m491-jina35.example.json` created.
+3. **Production Promotion Status**:
+   - Production promotion remains `PENDING_MECHANICAL_INTEGRATION_GATE`. Promotion requires successful completion of Gate A (mechanical parity) and Gate B (full M49.1 T4 runtime coexistence smoke) on Kaggle GPU.

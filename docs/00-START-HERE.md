@@ -22,6 +22,8 @@ còn số đo lịch sử trong design decisions, không còn notebook/config th
    `15-OFFICIAL-SCORING-CONTRACT.md` — contract BTC.
 5. `05-OFFLINE-PIPELINE.md` hoặc `06-ONLINE-PIPELINE.md` tùy phạm vi sửa.
 6. `07-UNIFIED-SCHEMA.md` và `08-DESIGN-DECISIONS.md` trước thay đổi kiến trúc.
+7. [`19-M491-RERANKER-RESEARCH-STORY.md`](19-M491-RERANKER-RESEARCH-STORY.md) — câu chuyện nghiên cứu reranker M49.1 và validation Clean100.
+8. [`20-M491-JINA35-PRODUCTION-INTEGRATION.md`](20-M491-JINA35-PRODUCTION-INTEGRATION.md) — hồ sơ tích hợp kỹ thuật Jina v3.5.
 
 ## Bản đồ nhanh
 

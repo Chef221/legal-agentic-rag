@@ -247,6 +247,10 @@ class RerankerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    backend: Literal[
+        "sentence_transformers_cross_encoder",
+        "jina_native_listwise",
+    ] = "sentence_transformers_cross_encoder"
     model_name: str = Field(
         default="cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
         min_length=1,
@@ -264,19 +268,33 @@ class RerankerConfig(BaseModel):
     input_mode: Literal["text_only", "legal_context"] = "legal_context"
     prompt_name: str | None = Field(default=None, min_length=1)
     instruction: str | None = Field(default=None, min_length=1)
+    native_context_cap: int | None = Field(default=None, gt=0, le=32768)
+    expected_parameter_count: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_prompt_policy(self) -> "RerankerConfig":
         """Require a stable prompt name whenever a custom instruction is used."""
-        if (self.prompt_name is None) != (self.instruction is None):
-            raise ValueError(
-                "reranker prompt_name and instruction must be set together"
-            )
-        if (
-            self.device.casefold().startswith("cpu")
-            and self.torch_dtype != "float32"
-        ):
-            raise ValueError("CPU reranking requires float32")
+        if self.backend == "jina_native_listwise":
+            if self.native_context_cap is None:
+                object.__setattr__(self, "native_context_cap", 12288)
+            if self.device.casefold().startswith("cuda"):
+                if self.torch_dtype != "float16":
+                    raise ValueError("CUDA Jina reranking requires float16")
+            elif self.device.casefold().startswith("cpu"):
+                if self.torch_dtype != "float32":
+                    raise ValueError("CPU Jina reranking requires float32")
+            else:
+                raise ValueError(f"Unsupported device family for Jina reranker: {self.device}")
+        elif self.backend == "sentence_transformers_cross_encoder":
+            if (self.prompt_name is None) != (self.instruction is None):
+                raise ValueError(
+                    "reranker prompt_name and instruction must be set together"
+                )
+            if (
+                self.device.casefold().startswith("cpu")
+                and self.torch_dtype != "float32"
+            ):
+                raise ValueError("CPU reranking requires float32")
         return self
 
 
