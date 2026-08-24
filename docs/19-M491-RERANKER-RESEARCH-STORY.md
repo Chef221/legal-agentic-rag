@@ -316,3 +316,39 @@ Following external strategic review of Phase A.3 artifacts:
      - `jinaai/jina-reranker-v3.5`: 596,836,352 params (proven from 312 safetensors tensor shapes).
      - M49 Merged Generator: dynamic weights produced on Kaggle, exact numel status `PENDING_GATE_B_PREFLIGHT`.
    - Gate B preflight verifies live initialized parameter counts before running test questions.
+
+
+---
+
+## 17. Phase A.4 — Real Gate-A Attempt #1 Failure Reconciliation & Index Normalization
+
+### Real Gate A Attempt #1 Event Record
+- **Date:** 2026-08-24
+- **Environment:** Kaggle Tesla T4 (Single GPU, 16GB VRAM, Internet OFF)
+- **Execution Bundle:** `m491_jina35_production_gate_v1.zip` (`be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`)
+- **Execution Code Authority:** `90de9a9d813df87432bc9183f8edebd4ed1f0b24`
+- **Observed Sequence:**
+  1. Phase-1 authority SHAs verified: PASS.
+  2. 100-QID frozen population parsed: PASS.
+  3. Production `JinaNativeReranker` initialized: PASS.
+  4. Exact Jina weights loaded: PASS.
+  5. First QID 30883 entered reranking.
+  6. Strict production result parser rejected `np.int64(23)` candidate index: `legal_agentic_rag.exceptions.ModelError: Invalid non-integer candidate index np.int64(23) in Jina rerank results`.
+  7. Completed QIDs: 0/100.
+  8. No Gate-A parity report produced.
+  9. No Clean100 reference answers accessed.
+  10. GPU memory returned to clean state.
+
+### Forensic Classification
+- **Model Quality Result:** NONE
+- **Mechanical Parity Result:** NONE
+- **Integration Failure:** YES
+- **Cause:** Production native-result parser used strict `isinstance(raw_idx, int)` without scalar normalization, rejecting the `np.int64` scalar returned by native Jina remote-code model.
+- **Candidate Quality Evidence Affected:** NO
+- **Clean100 Quality Validation Affected:** NO
+- **Gate B Authorized:** NO
+
+### Phase A.4 Resolution
+- Normalized integer-like scalar candidate indices using `operator.index()` in standard library, supporting `np.int64` while strictly rejecting floats (`23.0`), strings (`"23"`), booleans (`True`/`False`), and container types.
+- Expanded test coverage to 467 passing tests.
+- Rebuilt immutable execution package `m491_jina35_production_gate_v2.zip`.

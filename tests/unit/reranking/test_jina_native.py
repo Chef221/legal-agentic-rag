@@ -437,3 +437,63 @@ def test_jina_rerank_scoring_flow_and_no_grad() -> None:
     assert extra.get("actual_parameter_device") == "cpu"
     assert extra.get("backend") == "jina_native_listwise"
     assert "cau hoi gi" not in str(extra)
+
+
+def test_jina_native_numpy_integer_index_normalization() -> None:
+    """Test that real runtime scalar types (e.g. np.int64(23)) normalize to Python int without error."""
+    import numpy as np
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = JinaNativeReranker(cfg)
+
+    # 40 candidates test case matching Clean100 K=40
+    raw_results = [
+        {"index": np.int64(23), "relevance_score": 0.95},
+        {"index": np.int32(0), "relevance_score": 0.85},
+        {"index": np.int64(1), "relevance_score": 0.75},
+    ] + [
+        {"index": np.int64(i), "relevance_score": float(0.50 - i * 0.01)}
+        for i in range(2, 40) if i != 23
+    ]
+
+    scores = reranker._parse_native_results(raw_results, expected_count=40)
+    assert len(scores) == 40
+    assert scores[23] == 0.95
+    assert scores[0] == 0.85
+    assert scores[1] == 0.75
+    assert all(isinstance(s, float) and math.isfinite(s) for s in scores)
+
+
+def test_jina_native_non_integral_index_rejection() -> None:
+    """Test strict rejection of non-integral types: floats, strings, booleans, containers."""
+    import numpy as np
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cpu",
+        torch_dtype="float32",
+    )
+    reranker = JinaNativeReranker(cfg)
+
+    invalid_indices = [
+        23.0,
+        "23",
+        True,
+        False,
+        None,
+        [23],
+        {"index": 23},
+        np.float64(23.0),
+    ]
+
+    for inv in invalid_indices:
+        raw_items = [
+            {"index": inv, "score": 0.9},
+            {"index": 1, "score": 0.8},
+        ]
+        with pytest.raises(ModelError, match="Invalid non-integer candidate index|Invalid boolean candidate index"):
+            reranker._parse_native_results(raw_items, expected_count=2)

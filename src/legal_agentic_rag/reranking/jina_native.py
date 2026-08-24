@@ -7,6 +7,7 @@ import gc
 from importlib.metadata import PackageNotFoundError, version
 import logging
 import math
+import operator
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -339,8 +340,15 @@ class JinaNativeReranker:
             else:
                 raise ModelError(f"Unexpected item type in Jina rerank output: {type(item)}")
 
-            if not isinstance(orig_idx, int) or isinstance(orig_idx, bool):
+            if isinstance(orig_idx, bool):
                 raise ModelError(f"Invalid non-integer candidate index {orig_idx!r} in Jina rerank results")
+
+            try:
+                norm_idx = operator.index(orig_idx)
+            except (TypeError, ValueError) as error:
+                raise ModelError(f"Invalid non-integer candidate index {orig_idx!r} in Jina rerank results") from error
+
+            orig_idx = int(norm_idx)
             if orig_idx < 0 or orig_idx >= expected_count:
                 raise ModelError(
                     f"Out-of-range candidate index {orig_idx} in Jina rerank results (expected 0..{expected_count-1})"

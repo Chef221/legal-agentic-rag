@@ -263,3 +263,17 @@ Next Action:
   - Reranker (`Jina-v3.5`): `596,836,352` (safetensors header verified)
   - Generator (M49 Merged): `PENDING_GATE_B_PREFLIGHT`
   - Registered Historical Stack Total: `3,311,750,784` ($< 4,000,000,000$)
+
+
+---
+
+## 19. Phase A.4 Gate-A Attempt #1 Audit & V2 Authority Ledger
+
+- **Incident:** REAL GATE A ATTEMPT #1 INTEGRATION FAILURE
+- **Failure Root Cause:** `ModelError: Invalid non-integer candidate index np.int64(23)` from strict `isinstance(orig_idx, int)` check on Jina's native numpy index output.
+- **Resolution:** Replaced raw `isinstance` with `operator.index()` normalization.
+- **V1 Execution Code Authority:** `90de9a9d813df87432bc9183f8edebd4ed1f0b24` (Historically frozen)
+- **V2 Execution Code Authority:** `M491_JINA35_EXECUTION_CODE_AUTHORITY_V2`
+- **V2 Bundle Name:** `m491_jina35_production_gate_v2.zip` (Kaggle transport: `m491_jina35_production_gate_v2.zip.bin`)
+- **Clean100 Authorities Status:** UNCHANGED (Exact byte-for-byte identity preserved)
+- **Gate A Criteria & Tolerance:** UNCHANGED (Full K=40 sequence match, top-10 sequence match, top-1 match, max absolute score difference $\le 10^{-3}$)
