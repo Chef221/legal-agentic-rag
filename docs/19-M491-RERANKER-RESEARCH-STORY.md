@@ -298,3 +298,21 @@ Prior to any GPU execution on Kaggle, the engineering authority was frozen into 
    - `REAL_GATE_A_FROZEN_CLEAN100 = NOT_RUN`
    - `REAL_GATE_B_T4 = NOT_RUN`
    - `PRODUCTION_PROMOTION = PENDING`
+
+
+---
+
+## 16. Phase A.3.1 — Final Authority Reconciliation & Parameter Provenance
+
+Following external strategic review of Phase A.3 artifacts:
+1. **Two-Commit Lineage Reconciliation:**
+   - `M491_JINA35_EXECUTION_CODE_AUTHORITY`: Commit `90de9a9d813df87432bc9183f8edebd4ed1f0b24` (frozen pre-GPU execution package).
+   - `M491_JINA35_ORCHESTRATION_DOC_AUTHORITY`: Commit `e37c357a59f6f12447bb3dbe930da38d4461bedd` (added Kaggle cells and updated ledger).
+   - Verified that zero executable source, configuration, or runner scripts changed between Commit A and Commit B.
+   - Preserved `m491_jina35_production_gate_v1.zip` (`be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`) without needless rebuild.
+2. **Parameter-Budget Provenance Rigor:**
+   - Distinguished historical registered substitution total ($3,311,750,784$ params) from independently proven safetensors component tensor numels:
+     - `Qwen/Qwen3-Embedding-0.6B`: 595,776,512 params (proven from 310 safetensors tensor shapes).
+     - `jinaai/jina-reranker-v3.5`: 596,836,352 params (proven from 312 safetensors tensor shapes).
+     - M49 Merged Generator: dynamic weights produced on Kaggle, exact numel status `PENDING_GATE_B_PREFLIGHT`.
+   - Gate B preflight verifies live initialized parameter counts before running test questions.

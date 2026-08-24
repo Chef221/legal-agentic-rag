@@ -249,3 +249,17 @@ Next Action:
 - **Execution Authority Bundle:** `m491_jina35_production_gate_v1.zip` (SHA `be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`)
 - **Reference Material in Bundle:** NO (0 reference answers)
 - **Kaggle Execution Cell File:** `kaggle/m491_jina35_production_gate_v1_cells.md`
+
+
+---
+
+## 18. Phase A.3.1 Authority Reconciliation Ledger
+
+- **Execution Code Authority:** `90de9a9d813df87432bc9183f8edebd4ed1f0b24`
+- **Orchestration Doc Authority:** `e37c357a59f6f12447bb3dbe930da38d4461bedd`
+- **Bundle Status:** FRESH & PRESERVED (`be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`)
+- **Parameter Provenance:**
+  - Embedding (`Qwen3-Embedding-0.6B`): `595,776,512` (safetensors header verified)
+  - Reranker (`Jina-v3.5`): `596,836,352` (safetensors header verified)
+  - Generator (M49 Merged): `PENDING_GATE_B_PREFLIGHT`
+  - Registered Historical Stack Total: `3,311,750,784` ($< 4,000,000,000$)
