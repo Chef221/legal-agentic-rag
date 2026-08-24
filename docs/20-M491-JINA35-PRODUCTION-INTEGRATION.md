@@ -233,3 +233,19 @@ Next Action:
 - **Strict Authority Validation:** Mandatory `clean100_phase1_manifest.json` SHA verification, line-by-line field validation, unique QIDs/chunk IDs, 40-candidate parity.
 - **Strict Native Result Parser:** Rejects missing/duplicate/non-integer indices, non-finite scores, unexpected item formats, and incomplete coverage.
 - **Test Suite Status:** 464 passed, 1 skipped (0 failed). All 10 original Phase A tests restored and retained.
+
+
+---
+
+## 17. Phase A.3 Pre-GPU Checkpoint & Authority Freeze Ledger
+
+- **Status:** IMMUTABLE PRE-GPU CHECKPOINT FROZEN
+- **Worktree:** `C:\legal-agentic-rag-m491-jina35`
+- **Branch:** `m491/jina35-production-integration`
+- **Pre-GPU Code Authority Commit:** `90de9a9d813df87432bc9183f8edebd4ed1f0b24`
+- **Root Control Commit:** `10681c8c05008432cd1c7170cd3917f4317c1c69`
+- **Control Config Status against 10681c8:** UNCHANGED (`a38bc642f0e4bf006d624ccb1f56721775c5d9aa4a4b24cf82abe5ed52046be6`)
+- **Exact Parameter Total:** `3,311,750,784` (Compliant under 4B cap)
+- **Execution Authority Bundle:** `m491_jina35_production_gate_v1.zip` (SHA `be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`)
+- **Reference Material in Bundle:** NO (0 reference answers)
+- **Kaggle Execution Cell File:** `kaggle/m491_jina35_production_gate_v1_cells.md`

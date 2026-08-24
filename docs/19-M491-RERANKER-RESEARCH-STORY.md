@@ -268,3 +268,33 @@ A second pre-GPU strategic review identified final mechanical harness and teleme
    - Zero GPU compute was consumed locally.
    - Zero Clean100 reference answers were opened.
    - All harness bugs were resolved before packaging for Kaggle execution.
+
+
+---
+
+## 15. Phase A.3 — Immutable Pre-GPU Checkpoint & Execution Authority Freeze
+
+Prior to any GPU execution on Kaggle, the engineering authority was frozen into an immutable checkpoint:
+
+1. **Static Test Suite & Coverage Verification:**
+   - 465 passed, 1 skipped across full pytest suite (100% pass rate).
+   - 36 targeted tests verified covering all JinaNativeReranker contracts, configuration isolation, Gate A/B CLI, BackgroundHeartbeat, and strict fail-closed validation.
+2. **Exact Competition Parameter Budget Authority:**
+   - Documented in `docs/artifacts/m491-jina35-parameter-budget-authority.json`:
+     - Dense Embedding (`Qwen/Qwen3-Embedding-0.6B` @ `97b0c61...`): 596,000,000 params.
+     - Candidate Reranker (`jinaai/jina-reranker-v3.5` @ `e8a93f3...`): 596,836,352 params.
+     - Generator (`/kaggle/working/m49-generator-merged`): 2,118,914,432 params.
+     - Semantic Verifier (Disabled): 0 params.
+     - **Exact Total Candidate Stack:** **3,311,750,784** parameters ($< 4,000,000,000$ limit, 17.21% headroom).
+3. **Pre-GPU Local Code Authority Commit:**
+   - Created local commit `90de9a9d813df87432bc9183f8edebd4ed1f0b24` on branch `m491/jina35-production-integration`.
+   - Tracked control config (`configs/uit-dsc-2026-task2-m491-qwen3-dev.example.json`) is confirmed UNCHANGED from root control `10681c8c05008432cd1c7170cd3917f4317c1c69` (Git object SHA: `a38bc642f0e4bf006d624ccb1f56721775c5d9aa4a4b24cf82abe5ed52046be6`).
+4. **Reproducible Kaggle Execution Authority Bundle:**
+   - Packaged deterministic ZIP `m491_jina35_production_gate_v1.zip` (SHA `be32b11284fd627750d0afa17723e625522d1cf5c26dac5f58715e128d8ca711`, 151 members).
+   - Contains zero training data, zero gold reference answers, and zero scoring programs.
+5. **Current Operational Status:**
+   - `GATE_A_HARNESS_VERIFIED = PASS`
+   - `GATE_B_HARNESS_VERIFIED = PASS`
+   - `REAL_GATE_A_FROZEN_CLEAN100 = NOT_RUN`
+   - `REAL_GATE_B_T4 = NOT_RUN`
+   - `PRODUCTION_PROMOTION = PENDING`
