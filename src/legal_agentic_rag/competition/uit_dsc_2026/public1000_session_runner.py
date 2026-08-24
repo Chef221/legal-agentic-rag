@@ -206,6 +206,9 @@ class Public1000SessionRunner:
         if manifest.get("execution_code_authority_commit") != FROZEN_AUTHORITY_BINDINGS["execution_code_authority_commit"]:
             raise ArtifactCompatibilityError("Checkpoint execution_code_authority_commit mismatch")
 
+        if manifest.get("runtime_dependencies") and manifest.get("runtime_dependencies") != FROZEN_AUTHORITY_BINDINGS["runtime_dependencies"]:
+            raise ArtifactCompatibilityError("Checkpoint runtime_dependencies mismatch")
+
         # Verify results.jsonl SHA
         actual_results_sha = compute_file_sha256(self.results_path)
         if manifest.get("results_jsonl_sha256") != actual_results_sha:
