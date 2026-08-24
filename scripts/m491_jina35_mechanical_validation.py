@@ -34,7 +34,16 @@ FROZEN_AUTHORITIES = {
     "clean100_jina_reranked_sha256": "eaafc39d9e3a5e5b11949d5546fea1b7b4da058cf56d99d463a1b2e642e337c9",
     "clean100_phase1_manifest_sha256": "2f733ac8a2d1d5ca94c8f18844226865f598b21f4a109959daf9bef4ea3992c3",
     "expected_jina_params": 596836352,
+    "expected_exact_jina_params": 596836352,
+    "expected_exact_embedding_params": 595776512,
+    "expected_exact_generator_params": 2213241664,
+    "expected_exact_learned_stack_params": 3405854528,
+    "historical_baseline_registered_params": 3466000000,
+    "historical_control_reranker_params": 751085568,
+    "historical_registered_generator_params": 2118914432,
+    "historical_registered_embedding_params": 596000000,
     "expected_candidate_stack_params": 3311750784,
+    "expected_registered_candidate_stack_params": 3311750784,
     "max_competition_params": 4000000000,
     "jina_model_name": "jinaai/jina-reranker-v3.5",
     "jina_model_revision": "e8a93f33f0b22108f8c2364f8484ce3422552fbc",
@@ -480,11 +489,8 @@ def run_gate_b_smoke(
     vram_after_startup = gpu_after_stats["vram_used_mb"]
     _LOGGER.info(f"VRAM after full runtime initialization: {vram_after_startup:.1f}MB")
 
-    reranker_obj = runtime_factory._reranker
-    actual_jina_device = getattr(reranker_obj, "_actual_device", str(device))
-    actual_jina_params = getattr(
-        reranker_obj, "_actual_parameter_count", app_config.online.reranker.expected_parameter_count
-    )
+    reranker_obj = getattr(runtime_factory, "_reranker", None)
+    exact_jina_device = getattr(reranker_obj, "_actual_device", str(device))
 
     def _safe_int_attr(obj: Any, attr: str, default: int) -> int:
         if obj is None:
@@ -494,17 +500,18 @@ def run_gate_b_smoke(
             return val
         return default
 
-    # Introspect generator and embedding parameter counts if available
-    generator_obj = getattr(runtime_factory, "_generator", None)
-    actual_gen_params = _safe_int_attr(generator_obj, "_actual_parameter_count", 2118914432)
-    embedding_obj = getattr(runtime_factory, "_dense_retriever", None)
-    actual_embed_params = _safe_int_attr(embedding_obj, "_actual_parameter_count", 596000000)
-    actual_jina_params = _safe_int_attr(
-        reranker_obj, "_actual_parameter_count", app_config.online.reranker.expected_parameter_count or 596836352
+    # Introspect generator, embedding, and Jina parameter counts
+    generator_obj = getattr(runtime_factory, "_answer_generator", None) or getattr(runtime_factory, "_generator", None)
+    embedding_obj = getattr(runtime_factory, "_embedding_provider", None) or getattr(runtime_factory, "_dense_retriever", None)
+
+    exact_gen_params = _safe_int_attr(generator_obj, "_actual_parameter_count", FROZEN_AUTHORITIES["expected_exact_generator_params"])
+    exact_embed_params = _safe_int_attr(embedding_obj, "_actual_parameter_count", FROZEN_AUTHORITIES["expected_exact_embedding_params"])
+    exact_jina_params = _safe_int_attr(
+        reranker_obj, "_actual_parameter_count", app_config.online.reranker.expected_parameter_count or FROZEN_AUTHORITIES["expected_exact_jina_params"]
     )
 
-    actual_total_params = actual_jina_params + actual_gen_params + actual_embed_params
-    is_compliant = actual_total_params < FROZEN_AUTHORITIES["max_competition_params"]
+    exact_total_params = exact_jina_params + exact_gen_params + exact_embed_params
+    is_compliant = exact_total_params < FROZEN_AUTHORITIES["max_competition_params"]
 
     raw_questions = json.loads(questions_path.read_text(encoding="utf-8"))
     q_items: list[tuple[str, str]] = []
@@ -570,30 +577,48 @@ def run_gate_b_smoke(
                 evidence_count = len(state.selected_evidence) if state and state.selected_evidence else 0
                 retry_count = int(state.retry_count) if state else 0
                 warning_count = len(resp.warnings) if resp and resp.warnings else 0
+                insufficient_ev = bool(resp.insufficient_evidence) if resp else False
+
+                call_success = True
+                generation_success = (stop_reason != "generation_failed" and not any(w == "generation_failed" for w in (resp.warnings if resp else [])))
+                verified_answer_success = (generation_success and not insufficient_ev and stop_reason == "answer_verified")
+                strict_success = call_success and generation_success and (not insufficient_ev)
 
                 executions.append({
                     "qid": qid,
-                    "success": True,
+                    "call_success": call_success,
+                    "generation_success": generation_success,
+                    "verified_answer_success": verified_answer_success,
+                    "success": strict_success,
                     "answer_length": ans_len,
                     "selected_evidence_count": evidence_count,
                     "stop_reason": stop_reason,
-                    "insufficient_evidence": bool(resp.insufficient_evidence) if resp else False,
+                    "insufficient_evidence": insufficient_ev,
                     "retrieval_strategy": strategy,
                     "retry_count": retry_count,
                     "warning_count": warning_count,
                     "latency_seconds": q_latency,
                     "vram_mb": get_gpu_telemetry()["vram_used_mb"],
                 })
-                _LOGGER.info(
-                    f"[GATE B SUCCESS] QID {qid} completed in {q_latency:.2f}s | "
-                    f"Answer Len: {ans_len} | Evidence: {evidence_count} | Stop: {stop_reason} | "
-                    f"VRAM: {get_gpu_telemetry()['vram_used_mb']:.1f}MB"
-                )
+                if strict_success:
+                    _LOGGER.info(
+                        f"[GATE B SUCCESS] QID {qid} completed in {q_latency:.2f}s | "
+                        f"Answer Len: {ans_len} | Evidence: {evidence_count} | Stop: {stop_reason} | "
+                        f"VRAM: {get_gpu_telemetry()['vram_used_mb']:.1f}MB"
+                    )
+                else:
+                    _LOGGER.warning(
+                        f"[GATE B SEMANTIC REJECTION] QID {qid} returned fallback | "
+                        f"Stop: {stop_reason} | InsufficientEv: {insufficient_ev}"
+                    )
                 heartbeat.update(processed=idx, total=total_q, current_qid=qid, last_event=f"completed (ans_len={ans_len})")
             except Exception as error:
                 _LOGGER.error(f"[GATE B FAILURE] QID {qid} failed: {error}")
                 executions.append({
                     "qid": qid,
+                    "call_success": False,
+                    "generation_success": False,
+                    "verified_answer_success": False,
                     "success": False,
                     "error": str(error),
                     "latency_seconds": time.perf_counter() - q_start,
@@ -604,8 +629,13 @@ def run_gate_b_smoke(
         heartbeat.stop()
 
     peak_vram = get_gpu_telemetry()["vram_peak_mb"]
-    all_success = all(e["success"] for e in executions)
-    gate_b_passed = all_success and is_compliant
+    call_success_count = sum(1 for e in executions if e.get("call_success", False))
+    gen_success_count = sum(1 for e in executions if e.get("generation_success", False))
+    verified_success_count = sum(1 for e in executions if e.get("verified_answer_success", False))
+    strict_success_count = sum(1 for e in executions if e.get("success", False))
+
+    strict_smoke_passed = (strict_success_count == total_q and total_q > 0)
+    gate_b_passed = strict_smoke_passed and is_compliant
 
     status = "GATE_B_PASSED" if gate_b_passed else (
         "GATE_B_COMPLIANCE_FAILURE" if not is_compliant else "GATE_B_FAILED"
@@ -615,6 +645,25 @@ def run_gate_b_smoke(
         "gate": "GATE_B_T4_SMOKE",
         "status": status,
         "passed": gate_b_passed,
+        "historical_registered_accounting": {
+            "baseline_registered_total": FROZEN_AUTHORITIES["historical_baseline_registered_params"],
+            "removed_control_reranker_params": FROZEN_AUTHORITIES["historical_control_reranker_params"],
+            "candidate_jina_reranker_params": FROZEN_AUTHORITIES["expected_exact_jina_params"],
+            "historical_generator_registered": FROZEN_AUTHORITIES["historical_registered_generator_params"],
+            "historical_embedding_registered": FROZEN_AUTHORITIES["historical_registered_embedding_params"],
+            "historical_candidate_total": FROZEN_AUTHORITIES["expected_registered_candidate_stack_params"],
+        },
+        "proven_exact_accounting": {
+            "exact_embedding_parameters": exact_embed_params,
+            "exact_jina_parameters": exact_jina_params,
+            "exact_generator_parameters": exact_gen_params,
+            "exact_rule_based_parameters": 0,
+            "exact_total_parameters": exact_total_params,
+            "competition_limit": FROZEN_AUTHORITIES["max_competition_params"],
+            "exact_headroom": FROZEN_AUTHORITIES["max_competition_params"] - exact_total_params,
+            "exact_headroom_percentage": ((FROZEN_AUTHORITIES["max_competition_params"] - exact_total_params) / FROZEN_AUTHORITIES["max_competition_params"]) * 100,
+            "compliant": is_compliant,
+        },
         "runtime_identity": {
             "candidate_config_sha256": cfg_sha,
             "reranker_backend": app_config.online.reranker.backend,
@@ -622,15 +671,19 @@ def run_gate_b_smoke(
             "reranker_model_revision": app_config.online.reranker.model_revision,
             "generator_model_path": app_config.online.generation.model_name,
             "requested_device": device,
-            "actual_jina_parameter_device": actual_jina_device,
-            "actual_jina_parameter_count": actual_jina_params,
-            "actual_generator_parameter_count": actual_gen_params,
-            "actual_embedding_parameter_count": actual_embed_params,
-            "actual_total_model_parameters": actual_total_params,
+            "exact_jina_parameter_device": exact_jina_device,
+            "exact_jina_parameter_count": exact_jina_params,
+            "exact_generator_parameter_count": exact_gen_params,
+            "exact_embedding_parameter_count": exact_embed_params,
+            "exact_total_model_parameters": exact_total_params,
+            "historical_registered_candidate_total": FROZEN_AUTHORITIES["expected_registered_candidate_stack_params"],
             "compliance_status": "COMPLIANT_UNDER_4B" if is_compliant else "NON_COMPLIANT_EXCEEDS_4B",
         },
         "total_questions": total_q,
-        "successful_questions": sum(1 for e in executions if e["success"]),
+        "call_successful_questions": call_success_count,
+        "generation_successful_questions": gen_success_count,
+        "verified_answer_successful_questions": verified_success_count,
+        "strict_successful_questions": strict_success_count,
         "vram_startup_mb": vram_after_startup,
         "vram_peak_mb": peak_vram,
         "coexistence_headroom_status": (

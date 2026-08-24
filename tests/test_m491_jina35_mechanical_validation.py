@@ -189,6 +189,9 @@ def test_gate_b_reads_agent_run_result_telemetry(tmp_path: Path) -> None:
     assert res["passed"] is True
     assert res["status"] == "GATE_B_PASSED"
     exec_0 = res["executions"][0]
+    assert exec_0["call_success"] is True
+    assert exec_0["generation_success"] is True
+    assert exec_0["verified_answer_success"] is True
     assert exec_0["success"] is True
     assert exec_0["answer_length"] == len(_MockAnswerResp.answer)
     assert exec_0["selected_evidence_count"] == 2
@@ -196,6 +199,232 @@ def test_gate_b_reads_agent_run_result_telemetry(tmp_path: Path) -> None:
     assert exec_0["retrieval_strategy"] == "hybrid_rerank"
     assert exec_0["retry_count"] == 1
     assert exec_0["warning_count"] == 1
+
+
+def test_gate_b_fails_if_generation_failed_fallback(tmp_path: Path) -> None:
+    """BUG 1 REGRESSION: Gate B fails when runtime.answer() returns safely with stop_reason=generation_failed."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(Path(r"C:\legal-agentic-rag-m491-jina35\configs\uit-dsc-2026-task2-m491-jina35.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+    questions_file = tmp_path / "questions.json"
+    questions_file.write_text(json.dumps({"30883": {"question": "Cau hoi?"}}), encoding="utf-8")
+
+    class _MockFallbackResp:
+        answer = "Top evidence fallback text."
+        insufficient_evidence = True
+        retrieval_strategy = MagicMock(value="hybrid_rerank")
+        warnings = ["generator:generation_failed"]
+
+    class _MockRunResult:
+        response = _MockFallbackResp()
+        state = MagicMock(selected_evidence=[], retry_count=0)
+        stop_reason = MagicMock(value="generation_failed")
+
+    mock_runtime = MagicMock()
+    mock_runtime.answer.return_value = _MockRunResult()
+
+    mock_factory = MagicMock()
+    mock_factory._reranker = MagicMock(_actual_device="cpu", _actual_parameter_count=596836352)
+    mock_factory.build.return_value = mock_runtime
+
+    with patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory", return_value=mock_factory):
+        res = run_gate_b_smoke(
+            config_path=cfg_file,
+            questions_path=questions_file,
+            output_dir=tmp_path / "out_b_fail",
+            device="cpu",
+            max_questions=1,
+        )
+
+    assert res["passed"] is False
+    assert res["status"] == "GATE_B_FAILED"
+    assert res["executions"][0]["call_success"] is True
+    assert res["executions"][0]["generation_success"] is False
+    assert res["executions"][0]["success"] is False
+
+
+def test_gate_b_fails_if_one_of_five_generation_failed(tmp_path: Path) -> None:
+    """Gate B fails when 1 of 5 questions experiences generation failure."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(Path(r"C:\legal-agentic-rag-m491-jina35\configs\uit-dsc-2026-task2-m491-jina35.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+    questions_file = tmp_path / "questions5.json"
+    questions_file.write_text(json.dumps({f"q{i}": {"question": f"Question {i}?"} for i in range(1, 6)}), encoding="utf-8")
+
+    def _side_effect_answer(query: Any) -> Any:
+        qid = query.query_id
+        if qid == "q3":
+            # Failing question
+            res = MagicMock()
+            res.response = MagicMock(answer="fallback", insufficient_evidence=True, retrieval_strategy=MagicMock(value="hybrid_rerank"), warnings=["generation_failed"])
+            res.state = MagicMock(selected_evidence=[], retry_count=0)
+            res.stop_reason = MagicMock(value="generation_failed")
+            return res
+        else:
+            res = MagicMock()
+            res.response = MagicMock(answer="good answer", insufficient_evidence=False, retrieval_strategy=MagicMock(value="hybrid_rerank"), warnings=[])
+            res.state = MagicMock(selected_evidence=[{"chunk_id": "c1"}], retry_count=0)
+            res.stop_reason = MagicMock(value="answer_verified")
+            return res
+
+    mock_runtime = MagicMock()
+    mock_runtime.answer.side_effect = _side_effect_answer
+
+    mock_factory = MagicMock()
+    mock_factory._reranker = MagicMock(_actual_device="cpu", _actual_parameter_count=596836352)
+    mock_factory.build.return_value = mock_runtime
+
+    with patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory", return_value=mock_factory):
+        res = run_gate_b_smoke(
+            config_path=cfg_file,
+            questions_path=questions_file,
+            output_dir=tmp_path / "out_b_5",
+            device="cpu",
+            max_questions=5,
+        )
+
+    assert res["passed"] is False
+    assert res["status"] == "GATE_B_FAILED"
+    assert res["total_questions"] == 5
+    assert res["call_successful_questions"] == 5
+    assert res["generation_successful_questions"] == 4
+    assert res["strict_successful_questions"] == 4
+
+
+def test_gate_b_fails_if_insufficient_evidence_in_smoke_set(tmp_path: Path) -> None:
+    """Gate B fails when a designated smoke question returns insufficient_evidence=True."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(Path(r"C:\legal-agentic-rag-m491-jina35\configs\uit-dsc-2026-task2-m491-jina35.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+    questions_file = tmp_path / "questions.json"
+    questions_file.write_text(json.dumps({"30883": {"question": "Cau hoi?"}}), encoding="utf-8")
+
+    class _MockAbstentionResp:
+        answer = "Toi khong the tra loi vi thieu chung cu."
+        insufficient_evidence = True
+        retrieval_strategy = MagicMock(value="hybrid_rerank")
+        warnings = ["insufficient_evidence"]
+
+    class _MockRunResult:
+        response = _MockAbstentionResp()
+        state = MagicMock(selected_evidence=[], retry_count=0)
+        stop_reason = MagicMock(value="abstention")
+
+    mock_runtime = MagicMock()
+    mock_runtime.answer.return_value = _MockRunResult()
+
+    mock_factory = MagicMock()
+    mock_factory._reranker = MagicMock(_actual_device="cpu", _actual_parameter_count=596836352)
+    mock_factory.build.return_value = mock_runtime
+
+    with patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory", return_value=mock_factory):
+        res = run_gate_b_smoke(
+            config_path=cfg_file,
+            questions_path=questions_file,
+            output_dir=tmp_path / "out_b_abstention",
+            device="cpu",
+            max_questions=1,
+        )
+
+    assert res["passed"] is False
+    assert res["status"] == "GATE_B_FAILED"
+    assert res["executions"][0]["insufficient_evidence"] is True
+    assert res["executions"][0]["success"] is False
+
+
+def test_gate_b_strict_five_question_pass_and_exact_parameter_accounting(tmp_path: Path) -> None:
+    """Gate B strict pass on 5 questions and exact proven parameter accounting."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(Path(r"C:\legal-agentic-rag-m491-jina35\configs\uit-dsc-2026-task2-m491-jina35.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+    questions_file = tmp_path / "questions5.json"
+    questions_file.write_text(json.dumps({f"q{i}": {"question": f"Question {i}?"} for i in range(1, 6)}), encoding="utf-8")
+
+    class _MockResp:
+        answer = "Tra loi hop le day du."
+        insufficient_evidence = False
+        retrieval_strategy = MagicMock(value="hybrid_rerank")
+        warnings = []
+
+    class _MockRunResult:
+        response = _MockResp()
+        state = MagicMock(selected_evidence=[{"chunk_id": "c1"}], retry_count=0)
+        stop_reason = MagicMock(value="answer_verified")
+
+    mock_runtime = MagicMock()
+    mock_runtime.answer.return_value = _MockRunResult()
+
+    mock_factory = MagicMock()
+    mock_factory._reranker = MagicMock(_actual_device="cuda:0", _actual_parameter_count=596836352)
+    mock_factory._answer_generator = MagicMock(_actual_parameter_count=2213241664)
+    mock_factory._embedding_provider = MagicMock(_actual_parameter_count=595776512)
+    mock_factory.build.return_value = mock_runtime
+
+    with patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory", return_value=mock_factory):
+        res = run_gate_b_smoke(
+            config_path=cfg_file,
+            questions_path=questions_file,
+            output_dir=tmp_path / "out_b_strict5",
+            device="cuda:0",
+            max_questions=5,
+        )
+
+    assert res["passed"] is True
+    assert res["status"] == "GATE_B_PASSED"
+    assert res["total_questions"] == 5
+    assert res["strict_successful_questions"] == 5
+    assert res["call_successful_questions"] == 5
+    assert res["generation_successful_questions"] == 5
+    assert res["verified_answer_successful_questions"] == 5
+
+    # Parameter accounting verification
+    exact = res["proven_exact_accounting"]
+    assert exact["exact_embedding_parameters"] == 595776512
+    assert exact["exact_jina_parameters"] == 596836352
+    assert exact["exact_generator_parameters"] == 2213241664
+    assert exact["exact_total_parameters"] == 3405854528
+    assert exact["exact_headroom"] == 594145472
+    assert exact["compliant"] is True
+
+    hist = res["historical_registered_accounting"]
+    assert hist["historical_candidate_total"] == 3311750784
+    assert hist["baseline_registered_total"] == 3466000000
+
+
+def test_gate_b_parameter_cap_fail_closed(tmp_path: Path) -> None:
+    """Gate B fails closed if exact total parameters exceed 4B limit."""
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text(Path(r"C:\legal-agentic-rag-m491-jina35\configs\uit-dsc-2026-task2-m491-jina35.example.json").read_text(encoding="utf-8"), encoding="utf-8")
+
+    questions_file = tmp_path / "questions.json"
+    questions_file.write_text(json.dumps({"30883": {"question": "Cau hoi?"}}), encoding="utf-8")
+
+    mock_runtime = MagicMock()
+    mock_runtime.answer.return_value = MagicMock(
+        response=MagicMock(answer="ans", insufficient_evidence=False, retrieval_strategy=MagicMock(value="hybrid_rerank"), warnings=[]),
+        state=MagicMock(selected_evidence=[], retry_count=0),
+        stop_reason=MagicMock(value="answer_verified"),
+    )
+
+    mock_factory = MagicMock()
+    # 4.5B generator params -> exceeds 4B cap
+    mock_factory._reranker = MagicMock(_actual_device="cpu", _actual_parameter_count=596836352)
+    mock_factory._answer_generator = MagicMock(_actual_parameter_count=4500000000)
+    mock_factory._embedding_provider = MagicMock(_actual_parameter_count=595776512)
+    mock_factory.build.return_value = mock_runtime
+
+    with patch("legal_agentic_rag.runtime.online.OnlineRuntimeFactory", return_value=mock_factory):
+        res = run_gate_b_smoke(
+            config_path=cfg_file,
+            questions_path=questions_file,
+            output_dir=tmp_path / "out_b_exceeds",
+            device="cpu",
+            max_questions=1,
+        )
+
+    assert res["passed"] is False
+    assert res["status"] == "GATE_B_COMPLIANCE_FAILURE"
+    assert res["proven_exact_accounting"]["compliant"] is False
 
 def test_gate_a_fails_if_top10_or_full_k_differs(tmp_path: Path) -> None:
     """Test D & E: top10 or full-k mismatch causes Gate A to fail."""

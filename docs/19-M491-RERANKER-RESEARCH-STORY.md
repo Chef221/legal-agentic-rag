@@ -413,3 +413,49 @@ The production integration now **exactly reproduces** the validated Clean100 Jin
 
 ### Static Consumer Audit Verdict
 Comprehensive audit of all 23 occurrences of `original_question` across `src/**` confirmed that only `JinaNativeReranker` intentionally consumes raw question bytes when no rewrite is present. All other subsystems (BM25, dense retrieval, CrossEncoder, query understanding, evidence selection, and agent state tracking) continue to use `normalized_question` as designed, preserving 100% control baseline equivalence.
+
+
+---
+
+## 20. Gate B T4 Runtime Coexistence Verification & Parameter Reconciliation
+
+### 20.1 Gate B Attempt #1 — Dependency Drift & Harness False Positive
+Gate B Attempt #1 ran on Kaggle T4 with default environment dependencies (`transformers==5.0.0`).
+- Retrieval, embedding, Jina reranking, and evidence selection completed without error.
+- However, all 5/5 questions returned `stop_reason = generation_failed` and `insufficient_evidence = true` (falling back to top evidence excerpts).
+- The old Gate-B harness falsely marked this run as passed simply because `runtime.answer()` returned an `AnswerResponse` without an uncaught Python exception.
+
+### 20.2 Forensic Investigation & Offline Recovery
+Forensic investigation proved:
+1. **Generator Architecture:** `Qwen3_5ForConditionalGeneration` (model_type `qwen3_5`).
+2. **Environment Drift:** The generator was merged under `transformers==5.15.0`, `torch==2.10.0+cu128`, `accelerate==1.14.0`. Kaggle's default `transformers==5.0.0` failed with `KeyError: qwen3_5`.
+3. **Offline Wheelhouse Installation:** An offline wheelhouse with `transformers==5.15.0`, `safetensors==0.8.0`, `accelerate==1.14.0`, `tokenizers==0.22.2`, and `huggingface-hub==1.11.0` was installed with `--no-index` and Internet OFF.
+4. **Preflight Verification:** AutoConfig resolved `Qwen3_5Config` and `AutoModelForImageTextToText` resolved `Qwen3_5ForConditionalGeneration`. Single-question smoke confirmed `stop_reason = answer_verified` and `generation_failed = false`.
+
+### 20.3 Strict Gate B Attempt #2 Execution Evidence
+Strict Gate B Attempt #2 executed on Kaggle Tesla T4 across the preregistered 5-question smoke set:
+- **Status:** **`GATE_B_PASSED`** (Return Code 0)
+- **Questions:** 5/5 completed
+- **Generation Failures:** 0 / 5
+- **Insufficient Evidence Fallbacks:** 0 / 5
+- **All Questions Stopped With:** `answer_verified`
+- **Question Execution Details:**
+  - QID 30883: 10 selected evidence, latency 84.56s
+  - QID 61237: 7 selected evidence, latency 152.02s
+  - QID 41677: 10 selected evidence, latency 100.34s
+  - QID 167543: 10 selected evidence, latency 23.04s
+  - QID 126457: 9 selected evidence, latency 41.92s
+- **Total Reported Latency:** 405.95s
+- **Peak Measured VRAM:** **11,972.98 MiB** (on 16GB physical T4, ~14,912 MiB allocatable)
+- **T4 Coexistence:** **PASS** (zero VRAM overflow, clean memory lifecycle)
+- **Reference Access:** NONE
+
+### 20.4 Parameter Accounting Ledger Reconciliation
+Independently measured parameter accounting from tensor shapes and instantiated numel revealed that historical registration had under-counted the merged generator:
+- **Embedding (`Qwen/Qwen3-Embedding-0.6B` @ `97b0c614`):** 595,776,512 exact parameters (historical: 596,000,000, delta -223,488).
+- **Reranker (`jinaai/jina-reranker-v3.5` @ `e8a93f33`):** 596,836,352 exact parameters (historical: 596,836,352, delta 0).
+- **Merged Generator (`m49-generator-merged`, tree SHA `e6f163aa...`):** 2,213,241,664 exact parameters (historical: 2,118,914,432, delta +94,327,232).
+- **Active Learned Stack Exact Total:** **3,405,854,528 parameters**
+- **Competition Cap:** 4,000,000,000 parameters
+- **Exact Headroom:** **594,145,472 parameters (14.8536% headroom)**
+- **Compliance Verdict:** **COMPLIANT UNDER 4B** (The generator artifact was 100% correct; the historical registered estimation was under-counted).

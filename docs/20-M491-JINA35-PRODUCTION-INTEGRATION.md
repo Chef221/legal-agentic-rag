@@ -312,3 +312,25 @@ Next Action:
   - 0 missing / 0 extra / 0 malformed
 - **Consumer Audit:** Complete; zero unintended whitespace sensitivity across non-Jina components.
 - **Next Stage:** Gate B T4 Runtime Coexistence Smoke Authorization.
+
+
+---
+
+## 22. Gate B T4 Coexistence Verification & Production Authority Hardening
+
+- **Operational Event:** FULL M49.1 RUNTIME T4 SMOKE EXECUTION (2026-08-24)
+- **Environment:** Kaggle Tesla T4 (16GB VRAM, Internet OFF, Offline Wheelhouse)
+- **Dependency Invariant:** `transformers==5.15.0`, `safetensors==0.8.0`, `accelerate==1.14.0`, `tokenizers==0.22.2`, `huggingface-hub==1.11.0`
+- **Results:**
+  - Gate A: 100/100 exact full-K parity ($\max |\Delta|=0.0$, 0 missing/extra/malformed).
+  - Gate B Strict Attempt #2: 5/5 answer_verified, 0 generation failures, 0 insufficient-evidence fallbacks.
+  - Peak Measured VRAM: 11,972.98 MiB.
+- **Reconciled Parameter Budget:**
+  - Embedding: 595,776,512 params
+  - Jina Native Reranker: 596,836,352 params
+  - Merged Generator: 2,213,241,664 params (Tree SHA: `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b`)
+  - Exact Learned Total: **3,405,854,528 params** (< 4,000,000,000; Headroom: 594,145,472 params).
+- **Harness & Schema Hardening:**
+  - `scripts/m491_jina35_mechanical_validation.py` enforces strict success (`call_success AND generation_success AND NOT insufficient_evidence`).
+  - Telemetry strictly separates `historical_registered_accounting` from `proven_exact_accounting`.
+  - All unit and regression tests passing.
