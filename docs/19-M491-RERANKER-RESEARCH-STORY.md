@@ -459,3 +459,20 @@ Independently measured parameter accounting from tensor shapes and instantiated 
 - **Competition Cap:** 4,000,000,000 parameters
 - **Exact Headroom:** **594,145,472 parameters (14.8536% headroom)**
 - **Compliance Verdict:** **COMPLIANT UNDER 4B** (The generator artifact was 100% correct; the historical registered estimation was under-counted).
+
+
+---
+
+## 21. Dual-T4 Throughput Parallelism Architecture & Public-1000 Orchestration
+
+### 21.1 Motivation & Replicated Architecture
+Following the successful single-T4 Gate B validation (5/5 verified answers, 11,973 MiB peak VRAM, ~81s/q average latency), the full Public-1000 benchmark requires ~22.5 hours of single-GPU wall-clock time, exceeding Kaggle's single-session 12-hour timeout.
+To achieve throughput parallelism while maintaining exact deterministic inference semantics:
+1. **Replicated Worker Instances:** Rather than pipeline or tensor model parallelism (which introduces inter-GPU communication overhead), the orchestration deploys two identical, independent `OnlineRuntime` instances across physical Tesla T4 GPUs (`CUDA_VISIBLE_DEVICES=0` and `CUDA_VISIBLE_DEVICES=1`).
+2. **Canonical Deterministic Partitioning (`canonical_index_mod_2_v1`):** Questions are partitioned strictly by their position in the canonical input list:
+   $$\text{Worker 0} = Q_{0::2} \quad (500 \text{ questions}), \quad \text{Worker 1} = Q_{1::2} \quad (500 \text{ questions})$$
+   - Disjoint, complete, and perfectly deterministic across session restarts.
+3. **Competition Parameter Accounting Compliance:**
+   - Active learned stack: 3,405,854,528 parameters (< 4,000,000,000 limit).
+   - Replicated inference instances: 2 instances of the same compliant architecture.
+4. **Dual-GPU Gate C Requirement:** Before authorizing full Public-1000 execution, a reference-free 10-question smoke validation (Gate C) must run on Kaggle Dual-T4 hardware to verify concurrent VRAM residency, process isolation, and zero-rerun checkpoint mechanics.

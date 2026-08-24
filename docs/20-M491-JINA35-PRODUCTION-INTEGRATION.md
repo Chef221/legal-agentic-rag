@@ -334,3 +334,22 @@ Next Action:
   - `scripts/m491_jina35_mechanical_validation.py` enforces strict success (`call_success AND generation_success AND NOT insufficient_evidence`).
   - Telemetry strictly separates `historical_registered_accounting` from `proven_exact_accounting`.
   - All unit and regression tests passing.
+
+
+---
+
+## 23. Dual-T4 Multi-Session Orchestration & Gate C Validation Framework
+
+- **Operational Mission:** Throughput parallelism on Kaggle Dual Tesla T4 (2x16GB VRAM, Internet OFF).
+- **Coordinator Module:** `src/legal_agentic_rag/competition/uit_dsc_2026/dual_session_runner.py`
+  - Coordinator does not load models; it orchestrates worker lifecycles, global timekeeping, and combined checkpointing.
+  - Worker 0: Isolated via `CUDA_VISIBLE_DEVICES=0`, executes Partition 0 ($Q_{0::2}$).
+  - Worker 1: Isolated via `CUDA_VISIBLE_DEVICES=1`, executes Partition 1 ($Q_{1::2}$).
+- **Durable Checkpoint & Crash Safety:**
+  - Each worker maintains its own isolated, atomic JSONL stream with per-question `flush()` and `os.fsync()`.
+  - Combined export: `public1000_dual_gpu_checkpoint_latest.zip` containing top-level manifest, audit, and worker directories.
+  - Fail-closed resume contract cryptographically validates partition strategy, worker membership, code commits, config hashes, input question SHAs, and previous combined checkpoint pointers.
+  - If a worker process fails, the coordinator cleanly halts the surviving worker and emits a `DUAL_GPU_WORKER_FAILURE_CHECKPOINT_READY` export preserving all completed work.
+- **Gate C Concurrency Smoke (10 Questions):**
+  - First 10 deterministic questions from `clean100_questions_only.json` (QIDs: `30883`, `61237`, `41677`, `167543`, `126457`, `137193`, `33209`, `87663`, `28763`, `133221`).
+  - Proves concurrent GPU residency, 10/10 durable records, 0 generation failures, and offline 5.15.0 runtime.

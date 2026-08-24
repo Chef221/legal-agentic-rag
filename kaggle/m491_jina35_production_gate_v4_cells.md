@@ -369,3 +369,190 @@ except Exception as err:
     print(f"SUBMISSION PACKAGING HELD: {err}")
     print("If more sessions are required, download 'public1000_checkpoint_latest.zip' and resume in the next session.")
 ```
+
+
+---
+
+### CELL 11 — GATE C: DUAL-T4 INFRASTRUCTURE & CONCURRENCY SMOKE (10 QUESTIONS)
+```python
+import os
+import sys
+import json
+import time
+from pathlib import Path
+import torch
+from legal_agentic_rag.competition.uit_dsc_2026.dual_session_runner import DualPublic1000SessionRunner
+from legal_agentic_rag.runtime.online import OnlineRuntimeFactory
+from legal_agentic_rag.serving.config_loader import load_application_config
+
+print("=== CELL 11: GATE C — DUAL-T4 CONCURRENCY SMOKE VALIDATION ===")
+
+# Verify Dual-GPU hardware is present
+assert torch.cuda.is_available(), "CUDA is not available"
+gpu_count = torch.cuda.device_count()
+print(f"Detected {gpu_count} CUDA GPUs:")
+for idx in range(gpu_count):
+    print(f" - GPU {idx}: {torch.cuda.get_device_name(idx)} ({torch.cuda.get_device_properties(idx).total_memory / (1024*1024):.0f} MB VRAM)")
+assert gpu_count >= 2, f"Gate C requires >= 2 CUDA GPUs for dual-T4 validation, found {gpu_count}"
+
+# Load Clean100 questions-only authority and extract exactly first 10 questions
+clean100_qfile = extract_dir / "authority" / "clean100_questions_only.json"
+assert clean100_qfile.exists(), f"Authority clean100_questions_only.json missing: {clean100_qfile}"
+all_clean_q = json.loads(clean100_qfile.read_text(encoding="utf-8"))
+
+gate_c_qids = list(all_clean_q.keys())[:10]
+print(f"Gate C 10 Deterministic QIDs: {gate_c_qids}")
+gate_c_qdict = {qid: all_clean_q[qid] for qid in gate_c_qids}
+
+gate_c_qpath = Path("/kaggle/working/gate_c_10_questions.json")
+gate_c_qpath.write_text(json.dumps(gate_c_qdict, indent=2, ensure_ascii=False), encoding="utf-8")
+
+config_path = extract_dir / "configs" / "uit-dsc-2026-task2-m491-jina35.example.json"
+app_cfg = load_application_config(config_path)
+
+# Build runtime builders for Worker 0 and Worker 1
+def _build_worker_runtime_0():
+    factory = OnlineRuntimeFactory.from_config(app_cfg, device="cuda:0")
+    return factory.build()
+
+def _build_worker_runtime_1():
+    factory = OnlineRuntimeFactory.from_config(app_cfg, device="cuda:0")
+    return factory.build()
+
+gate_c_work_dir = Path("/kaggle/working/gate_c_dual_t4_smoke")
+
+gate_c_runner = DualPublic1000SessionRunner(
+    app_config=app_cfg,
+    working_dir=gate_c_work_dir,
+    questions_path=gate_c_qpath,
+    session_budget_hours=1.0,
+    session_id="gate_c_smoke_run",
+    runtime_builders={0: _build_worker_runtime_0, 1: _build_worker_runtime_1},
+    worker_devices=("0", "1"),
+)
+
+start_t = time.perf_counter()
+gate_c_audit = gate_c_runner.run_session()
+elapsed_t = time.perf_counter() - start_t
+
+print("=" * 80)
+print(" GATE C VALIDATION SUMMARY")
+print("=" * 80)
+print(f" Status:               {gate_c_audit['status']}")
+print(f" Total Completed:      {gate_c_audit['global_completed_count']} / 10")
+print(f" Worker 0 Completed:   {gate_c_audit['worker_0_completed']} / 5")
+print(f" Worker 1 Completed:   {gate_c_audit['worker_1_completed']} / 5")
+print(f" Total Elapsed Time:   {elapsed_t:.2f}s (Avg {elapsed_t/10.0:.2f}s/q)")
+print(f" Combined Checkpoint:  {gate_c_audit['checkpoint_zip_path']}")
+print(f" Checkpoint SHA256:    {gate_c_audit['checkpoint_zip_sha256']}")
+print("=" * 80)
+
+assert gate_c_audit["status"] == "ALL_QUESTIONS_COMPLETED", f"Gate C failed with status: {gate_c_audit['status']}"
+assert gate_c_audit["global_completed_count"] == 10, "Gate C did not complete all 10 questions"
+assert gate_c_audit["worker_0_completed"] == 5, "Worker 0 did not complete 5 questions"
+assert gate_c_audit["worker_1_completed"] == 5, "Worker 1 did not complete 5 questions"
+print("GATE C CONCURRENCY SMOKE: PASS")
+```
+
+---
+
+### CELL 12 — GATE C RESUME MICRO-TEST (Zero-Rerun Checkpoint Validation)
+```python
+print("=== CELL 12: GATE C RESUME MICRO-TEST ===")
+
+# Instantiate a fresh runner and restore the Gate C combined checkpoint
+gate_c_resumer = DualPublic1000SessionRunner(
+    app_config=app_cfg,
+    working_dir=gate_c_work_dir,
+    questions_path=gate_c_qpath,
+    session_id="gate_c_resume_test",
+    worker_devices=("0", "1"),
+)
+
+records_0, records_1 = gate_c_resumer.restore_and_validate_checkpoint()
+total_resumed = len(records_0) + len(records_1)
+print(f"Resumed Records: {total_resumed} (Worker 0: {len(records_0)}, Worker 1: {len(records_1)})")
+assert total_resumed == 10, f"Expected 10 resumed records, found {total_resumed}"
+assert len(records_0) == 5, f"Expected 5 records for Worker 0, found {len(records_0)}"
+assert len(records_1) == 5, f"Expected 5 records for Worker 1, found {len(records_1)}"
+
+print("GATE C RESUME MICRO-TEST: PASS (All 10/10 questions restored without reruns)")
+```
+
+---
+
+### CELL 13 — DUAL-T4 PUBLIC-1000 MULTI-SESSION EXECUTION CONTROLLER
+```python
+from pathlib import Path
+from legal_agentic_rag.competition.uit_dsc_2026.dual_session_runner import DualPublic1000SessionRunner
+from legal_agentic_rag.runtime.online import OnlineRuntimeFactory
+from legal_agentic_rag.serving.config_loader import load_application_config
+
+print("=== CELL 13: DUAL-T4 PUBLIC-1000 MULTI-SESSION CONTROLLER ===")
+
+# Discover official Public-1000 questions
+public_q_candidates = (
+    list(Path("/kaggle/input").rglob("public-official.json"))
+    + list(Path("/kaggle/input").rglob("public_official.json"))
+)
+assert public_q_candidates, "public-official.json not found under /kaggle/input"
+public_q_path = public_q_candidates[0]
+print(f"Official Public Questions: {public_q_path}")
+
+# Check for prior combined dual-GPU checkpoint (.zip or .zip.bin)
+prior_combined_checkpoint = None
+combined_chk_candidates = (
+    list(Path("/kaggle/input").rglob("public1000_dual_gpu_checkpoint_latest.zip*"))
+    + list(Path("/kaggle/input").rglob("m491_jina35_dual_gpu_checkpoint*"))
+)
+if combined_chk_candidates:
+    prior_combined_checkpoint = combined_chk_candidates[0]
+    print(f"Found previous combined dual-GPU checkpoint: {prior_combined_checkpoint}")
+else:
+    print("No previous combined checkpoint found. Starting Dual-GPU Session 1.")
+
+config_path = extract_dir / "configs" / "uit-dsc-2026-task2-m491-jina35.example.json"
+app_cfg = load_application_config(config_path)
+
+def _build_worker_runtime_0():
+    factory = OnlineRuntimeFactory.from_config(app_cfg, device="cuda:0")
+    return factory.build()
+
+def _build_worker_runtime_1():
+    factory = OnlineRuntimeFactory.from_config(app_cfg, device="cuda:0")
+    return factory.build()
+
+dual_public_work_dir = Path("/kaggle/working/public1000_dual_gpu_execution")
+
+dual_runner = DualPublic1000SessionRunner(
+    app_config=app_cfg,
+    working_dir=dual_public_work_dir,
+    questions_path=public_q_path,
+    session_budget_hours=9.5,  # Stops cleanly before 12h limit
+    runtime_builders={0: _build_worker_runtime_0, 1: _build_worker_runtime_1},
+    worker_devices=("0", "1"),
+)
+
+session_audit = dual_runner.run_session(combined_checkpoint_archive_path=prior_combined_checkpoint)
+print(f"Dual Session Final Status: {session_audit['status']}")
+```
+
+---
+
+### CELL 14 — DUAL-T4 OFFICIAL CODABENCH SUBMISSION PACKAGING (Gated on 1000/1000)
+```python
+from pathlib import Path
+
+print("=== CELL 14: DUAL-T4 CODABENCH SUBMISSION PACKAGING ===")
+
+submission_out_dir = Path("/kaggle/working/submission_package_dual")
+
+try:
+    sub_zip_path = dual_runner.package_final_submission(submission_out_dir)
+    print(f"SUCCESS: Dual-T4 Submission zip created at: {sub_zip_path}")
+    print(f"Submission zip size: {sub_zip_path.stat().st_size:,} bytes")
+    print("READY TO DOWNLOAD SUBMISSION.ZIP FOR CODABENCH SUBMISSION!")
+except Exception as err:
+    print(f"SUBMISSION PACKAGING HELD: {err}")
+    print("If additional sessions are required, download 'public1000_dual_gpu_checkpoint_latest.zip' and resume in the next session.")
+```
