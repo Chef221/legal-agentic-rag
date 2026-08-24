@@ -294,3 +294,21 @@ Next Action:
 - **Resolution:** Updated `JinaNativeReranker` to preserve `query.original_question` without `strip()`.
 - **V3 Execution Code Authority:** `M491_JINA35_EXECUTION_CODE_AUTHORITY_V3`
 - **V3 Bundle:** `m491_jina35_production_gate_v3.zip` (`m491_jina35_production_gate_v3.zip.bin`)
+
+
+---
+
+## 21. Phase A.6 Real Gate-A Pass & Consumer Audit Ledger
+
+- **Status:** **REAL GATE A PASSED**
+- **Evidence Package SHA:** `13386b93b27f33097b3fe9930fe7e5bfb43214028ea01626371ed52b8de399fc`
+- **Execution Code Authority:** `80713ae0ce190616381889de9cf293ab3bb61534` (V3)
+- **Execution Bundle SHA:** `88d8d5ea2144626e4d7416aa4c85e6da5b981c4d6eaca617c7b13bb01d652fe3` (V3)
+- **Metrics:**
+  - 100/100 Top-1 chunk identity
+  - 100/100 Top-10 ordered sequence
+  - 100/100 Full-K (40) ordered sequence
+  - Max absolute score difference = 0.0
+  - 0 missing / 0 extra / 0 malformed
+- **Consumer Audit:** Complete; zero unintended whitespace sensitivity across non-Jina components.
+- **Next Stage:** Gate B T4 Runtime Coexistence Smoke Authorization.

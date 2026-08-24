@@ -386,3 +386,30 @@ Following external strategic review of Phase A.3 artifacts:
 ### Phase A.5 Production Resolution
 - Changed `JinaNativeReranker` query fallback semantics to `query.rewritten_question or query.original_question` without stripping or mutation, exactly matching the validated Clean100 V4 baseline.
 - Retained `CrossEncoderReranker` baseline semantics (`query.rewritten_question or query.normalized_question`).
+
+
+---
+
+## 19. Phase A.6 — Real Gate-A Attempt #3 PASS & Consumer Audit
+
+### Real Gate A Attempt #3 Verification Record
+- **Date:** 2026-08-24
+- **Environment:** Kaggle Tesla T4 (Single GPU, 16GB VRAM, Internet OFF)
+- **Execution Bundle:** `m491_jina35_production_gate_v3.zip` (`88d8d5ea2144626e4d7416aa4c85e6da5b981c4d6eaca617c7b13bb01d652fe3`)
+- **Execution Code Authority:** `80713ae0ce190616381889de9cf293ab3bb61534` (V3)
+- **Results:**
+  - `status`: **`GATE_A_PASSED`**
+  - `total_qids`: 100/100 (100.0% full population, non-partial)
+  - `top1_exact`: **100/100 (100.0%)**
+  - `top10_ordered_exact`: **100/100 (100.0%)**
+  - `full_k_ordered_exact`: **100/100 (100.0%)**
+  - `missing_count`: 0, `extra_count`: 0, `malformed_count`: 0
+  - `max_abs_score_diff`: **0.0** (exact numerical match within tolerance 0.001)
+  - `reference_access`: NO (zero gold reference answers accessed)
+- **Gate-A Evidence Artifact SHA:** `13386b93b27f33097b3fe9930fe7e5bfb43214028ea01626371ed52b8de399fc`
+
+### Scientific Conclusion
+The production integration now **exactly reproduces** the validated Clean100 Jina v3.5 candidate bit-for-bit across all 100 QIDs, including the six raw-whitespace questions that previously exposed wrapper query drift.
+
+### Static Consumer Audit Verdict
+Comprehensive audit of all 23 occurrences of `original_question` across `src/**` confirmed that only `JinaNativeReranker` intentionally consumes raw question bytes when no rewrite is present. All other subsystems (BM25, dense retrieval, CrossEncoder, query understanding, evidence selection, and agent state tracking) continue to use `normalized_question` as designed, preserving 100% control baseline equivalence.
