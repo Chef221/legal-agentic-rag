@@ -464,10 +464,18 @@ class AnswerResponse(BaseModel):
     trace_id: str
     metadata: dict[str, JsonValue] = Field(default_factory=dict)
 
-    @field_validator("question", "answer", "trace_id")
+    @field_validator("question")
+    @classmethod
+    def validate_question(cls, value: str) -> str:
+        """Reject an empty question while preserving exact raw bytes."""
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError("question must not be empty")
+        return value
+
+    @field_validator("answer", "trace_id")
     @classmethod
     def validate_required_text(cls, value: str) -> str:
-        """Reject responses without question, answer text, or trace identity."""
+        """Reject responses without answer text or trace identity."""
         return _non_empty(value)
 
     @field_validator("citations")

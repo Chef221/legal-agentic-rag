@@ -138,9 +138,7 @@ def _worker_process_entrypoint(
         else:
             def runtime_builder():
                 from legal_agentic_rag.runtime.online import OnlineRuntimeFactory
-                # Because of CUDA_VISIBLE_DEVICES isolation, local GPU is always cuda:0
-                dev = "cuda:0" if ("cuda" in app_cfg.generation.device.lower() or "cuda" in app_cfg.embedding.device.lower()) else "cpu"
-                factory = OnlineRuntimeFactory.from_config(app_cfg, device=dev)
+                factory = OnlineRuntimeFactory(app_cfg)
                 return factory.build()
 
         runner = Public1000SessionRunner(

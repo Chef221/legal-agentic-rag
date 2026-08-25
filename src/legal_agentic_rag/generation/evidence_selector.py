@@ -103,6 +103,18 @@ class EvidenceSelector:
             document_number,
             document_references,
         )
+
+        if (
+            document_references
+            and document_number is None
+            and document_match is False
+        ):
+            document_match = (
+                self._fallback_document_reference_match(
+                    hit,
+                    document_references,
+                )
+            )
         article_match = self._reference_match(
             article_number,
             article_references,
@@ -204,7 +216,195 @@ class EvidenceSelector:
 
     @staticmethod
     def _normalize_reference(value: str) -> str:
-        return "".join(value.split()).casefold()
+        """Normalize reference identity without broad text accent folding."""
+        import re
+
+        normalized = "".join(value.split()).casefold()
+
+        if re.fullmatch(
+            r"\d{1,4}/\d{4}/[0-9a-zđ-]+"
+            r"(?:/[0-9a-zđ-]+)*",
+            normalized,
+        ):
+            normalized = normalized.replace("đ", "d")
+
+        return normalized
+
+    @staticmethod
+    def _document_reference_identity_prefix(
+        reference: str,
+    ) -> str | None:
+        """Return a conservative TVPL identity prefix for a query reference."""
+        import re
+
+        normalized = EvidenceSelector._normalize_reference(
+            reference
+        )
+
+        match = re.fullmatch(
+            r"(?P<number>\d{1,4})/"
+            r"(?P<year>\d{4})/"
+            r"(?P<suffix>[0-9a-z-]+"
+            r"(?:/[0-9a-z-]+)*)",
+            normalized,
+        )
+
+        if match is None:
+            return None
+
+        number = match.group("number")
+        year = match.group("year")
+        suffix = match.group("suffix").replace("/", "-")
+
+        first_code = suffix.split("-", 1)[0]
+
+        # Conservative mapping only.
+        # Unsupported document families fail closed.
+        type_prefix_by_code = {
+            "nd": "nghi-dinh",
+            "tt": "thong-tu",
+            "ttlt": "thong-tu",
+            "qd": "quyet-dinh",
+            "nq": "nghi-quyet",
+            "ct": "chi-thi",
+            "vbhn": "van-ban-hop-nhat",
+        }
+
+        document_type = type_prefix_by_code.get(
+            first_code
+        )
+
+        if document_type is None:
+            return None
+
+        return (
+            f"{document_type}-"
+            f"{number}-"
+            f"{year}-"
+            f"{suffix}"
+        )
+
+    @staticmethod
+    def _canonical_identity_slug(
+        value: object,
+        *,
+        source_url: bool = False,
+    ) -> str | None:
+        """Canonicalize a title or URL basename for anchored identity matching."""
+        import re
+        import unicodedata
+        from pathlib import PurePosixPath
+        from urllib.parse import unquote, urlparse
+
+        if not isinstance(value, str):
+            return None
+
+        text = value.strip()
+
+        if not text:
+            return None
+
+        if source_url:
+            try:
+                parsed = urlparse(text)
+            except Exception:
+                return None
+
+            text = PurePosixPath(
+                unquote(parsed.path)
+            ).name
+
+            if text.casefold().endswith(".aspx"):
+                text = text[:-5]
+
+        text = unicodedata.normalize(
+            "NFKD",
+            text,
+        )
+
+        text = "".join(
+            character
+            for character in text
+            if not unicodedata.combining(
+                character
+            )
+        )
+
+        text = (
+            text
+            .casefold()
+            .replace("đ", "d")
+        )
+
+        text = re.sub(
+            r"[^a-z0-9]+",
+            "-",
+            text,
+        ).strip("-")
+
+        return text or None
+
+    @staticmethod
+    def _fallback_document_reference_match(
+        hit: RetrievalHit,
+        references: set[str],
+    ) -> bool:
+        """
+        Match explicit document identity without fabricating document_number.
+
+        Requirements:
+        - query has a supported explicit document reference;
+        - document_title begins with that document identity;
+        - source_url basename begins with the same identity.
+
+        A document that merely mentions another legal document later in its
+        title/URL therefore does not match.
+        """
+        if not references:
+            return False
+
+        title = EvidenceSelector._canonical_identity_slug(
+            hit.metadata.get("document_title")
+        )
+
+        source_url = EvidenceSelector._canonical_identity_slug(
+            hit.metadata.get("source_url"),
+            source_url=True,
+        )
+
+        if title is None or source_url is None:
+            return False
+
+        for reference in references:
+
+            prefix = (
+                EvidenceSelector
+                ._document_reference_identity_prefix(
+                    reference
+                )
+            )
+
+            if prefix is None:
+                continue
+
+            title_match = (
+                title == prefix
+                or title.startswith(
+                    prefix + "-"
+                )
+            )
+
+            url_match = (
+                source_url == prefix
+                or source_url.startswith(
+                    prefix + "-"
+                )
+            )
+
+            if title_match and url_match:
+                return True
+
+        return False
 
     @staticmethod
     def _text(value: object) -> str | None:
