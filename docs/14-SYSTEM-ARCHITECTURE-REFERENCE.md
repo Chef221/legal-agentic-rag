@@ -7,12 +7,16 @@
 | Official contexts | 8,532 |
 | M45 legal chunks | 385,962 |
 | Sparse index | SQLite FTS5 BM25 |
-| Dense model | Qwen3-Embedding-0.6B, 1,024 dimensions |
-| Reranker | Qwen3-Reranker-0.6B |
-| Generator | Qwen3.5-2B; M49 official-only merged revision |
-| Retained control | M48 |
-| Current runtime | M49.1 |
-| Best measured score | METEOR 0.382772249, ROUGE-L 0.473653736 |
+| Dense model | Qwen3-Embedding-0.6B, 1,024 dimensions (595,776,512 params) |
+| Retained branch reranker | `Qwen/Qwen3-Reranker-0.6B` (`e61197ed45024b0ed8a2d74b80b4d909f1255473`) |
+| Evaluated candidate reranker | `jinaai/jina-reranker-v3.5` (`e8a93f33f0b22108f8c2364f8484ce3422552fbc`, 596,836,352 params) |
+| Generator | Qwen3.5-2B; M49 official-only merged revision (2,213,241,664 params) |
+| Total Active Learned Stack (M49.1-JINA35) | 3,405,854,528 params (< 4.0B cap; +594,145,472 headroom) |
+| Retained control | M48 (METEOR 0.2685876695, ROUGE-L 0.3631401334) |
+| Prior baseline | M49.1 Qwen3-Reranker (METEOR 0.382772249, ROUGE-L 0.473653736) |
+| **Latest evaluated candidate** | **M49.1-JINA35** (Kaggle-evaluated artifact) |
+| **Best measured Codabench score** | **METEOR 0.406858976, ROUGE-L 0.496260842** |
+| **Evaluated submission.zip SHA256** | `f11af3c9a4571ff8e8997716b39484bcf69f636b54af7c815ba44756ac2d9200` |
 
 Raw datasets and large artifacts are intentionally absent from Git.
 
@@ -28,7 +32,7 @@ Official corpus
 Official question
   -> query understanding
   -> sparse+dense retrieval
-  -> RRF fusion and reranking
+  -> RRF fusion and reranking (Qwen3 / Jina v3.5)
   -> bounded graph/retry workflow
   -> evidence/context builder
   -> generator
@@ -131,23 +135,24 @@ M49 uses the group-safe official train partition to train QLoRA for one epoch wi
 response-only loss, then merges the adapter into the base fp16 generator. It does
 not fine-tune retrieval/reranking and does not rebuild M45.
 
-### M49.1 current runtime
+### M49.1 baseline
 
 M49.1 uses the same M49 weights with plain-text evidence markers, deterministic
 repetition controls, exact claim deduplication and the M48 bounded recovery path.
-Its public batch is the current measured control for future experiments.
+Its public batch is the prior measured baseline.
 
-## 6. Model inventory
+### M49.1-JINA35 evaluated candidate
 
-| Role | Identity | Revision |
-|---|---|---|
-| Embedding | `Qwen/Qwen3-Embedding-0.6B` | `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` |
-| Reranker | `Qwen/Qwen3-Reranker-0.6B` | `e61197ed45024b0ed8a2d74b80b4d909f1255473` |
-| Generator base | `Qwen/Qwen3.5-2B` | `15852e8c16360a2fea060d615a32b45270f8a8fc` |
-| M49 merged tree | local model | `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b` |
+M49.1-JINA35 upgraded reranking to `jinaai/jina-reranker-v3.5`, validated Hotfix V1 raw-identity preservation and Hotfix V2 dual-source anchored explicit-document matching on Kaggle hardware, producing the latest evaluated Codabench submission (METEOR `0.406858976`, ROUGE-L `0.496260842`). The Public-1000 execution is **CLOSED**. Next repository work is source reconciliation against the local git branch.
 
-The approximate combined parameter count is 3.466B. No model-based semantic
-verifier is active in the retained competition configs.
+## 6. Model inventory & Parameter compliance
+
+| Role | Identity | Revision | Parameters | Provenance |
+|---|---|---|---:|---|
+| Embedding | `Qwen/Qwen3-Embedding-0.6B` | `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` | 595,776,512 | `docs/artifacts/m491-jina35-parameter-budget-authority.json` (Safetensors header) |
+| Reranker (Evaluated) | `jinaai/jina-reranker-v3.5` | `e8a93f33f0b22108f8c2364f8484ce3422552fbc` | 596,836,352 | `docs/artifacts/m491-jina35-parameter-budget-authority.json` (Safetensors header) |
+| Generator (Merged) | `Qwen/Qwen3.5-2B` (M49 SFT) | `e6f163aa4f094ac5d943893009a78ba2c62798ed6432eb637887a9843944304b` | 2,213,241,664 | `docs/artifacts/m491-jina35-parameter-budget-authority.json` (Instantiated model numel) |
+| **Total Stack** | — | — | **3,405,854,528** | `< 4,000,000,000` competition cap (+594,145,472 headroom) |
 
 ## 7. Package ownership
 
@@ -160,7 +165,7 @@ verifier is active in the retained competition configs.
 | `indexing` | persistent BM25/vector/graph stores |
 | `embeddings` | document/query embedding provider |
 | `retrieval` | sparse/dense retrieval, fusion and strategies |
-| `reranking` | bounded cross-encoder reranking |
+| `reranking` | bounded cross-encoder / listwise reranking |
 | `generation` | context, generation, grounding and citations |
 | `agent`, `tools` | closed bounded orchestration |
 | `runtime` | offline/online composition |

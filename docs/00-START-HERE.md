@@ -2,39 +2,42 @@
 
 ## Trạng thái
 
-Repository hiện giữ ba mốc có ích:
+Repository hiện giữ các mốc có ích:
 
-| Mốc | Vai trò | Trạng thái |
+| Mốc | Vai trò | Trạng thái / Score |
 |---|---|---|
-| M48 | control không fine-tune | giữ để đối chứng |
+| M48 | control không fine-tune | giữ để đối chứng (METEOR 0.2685876695, ROUGE-L 0.3631401334) |
 | M49 | fine-tune generator bằng official train | giữ training/weights lineage |
-| M49.1 | runtime tốt nhất hiện tại | METEOR 0.382772249 |
+| M49.1 | baseline reranker Qwen3 | METEOR 0.382772249, ROUGE-L 0.473653736 |
+| **M49.1-JINA35** | **candidate hoàn tất đánh giá ngoài mới nhất (Kaggle-evaluated)** | **METEOR 0.406858976, ROUGE-L 0.496260842** |
 
-M45 vẫn được giữ ở tầng offline vì cả ba mốc trên dùng DB/index M45. M46/M47 chỉ
+M45 vẫn được giữ ở tầng offline vì các mốc trên dùng DB/index M45. M46/M47 chỉ
 còn số đo lịch sử trong design decisions, không còn notebook/config thực thi.
 
 ## Thứ tự đọc
 
 1. [`../AGENTS.md`](../AGENTS.md) — quy tắc bắt buộc.
-2. [`../HANDOFF.md`](../HANDOFF.md) — trạng thái, cách tái lập và hướng tiếp theo.
-3. [`18-M491-PUBLIC-RESULT.md`](18-M491-PUBLIC-RESULT.md) — kết quả/audit hiện tại.
-4. `13-UIT-DSC-2026-DATA-CONTRACT.md` và
+2. [`../CURRENT-WORK.md`](../CURRENT-WORK.md) — trạng thái đối soát repository và kết quả Public-1000.
+3. [`../HANDOFF.md`](../HANDOFF.md) — trạng thái, cách tái lập và hướng tiếp theo.
+4. [`21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md) — hồ sơ postmortem, hotfix V2, kết quả Codabench và checksum chính thức của M49.1-JINA35.
+5. [`18-M491-PUBLIC-RESULT.md`](18-M491-PUBLIC-RESULT.md) — bảng so sánh benchmark giữa các mốc.
+6. `13-UIT-DSC-2026-DATA-CONTRACT.md` và
    `15-OFFICIAL-SCORING-CONTRACT.md` — contract BTC.
-5. `05-OFFLINE-PIPELINE.md` hoặc `06-ONLINE-PIPELINE.md` tùy phạm vi sửa.
-6. `07-UNIFIED-SCHEMA.md` và `08-DESIGN-DECISIONS.md` trước thay đổi kiến trúc.
-7. [`19-M491-RERANKER-RESEARCH-STORY.md`](19-M491-RERANKER-RESEARCH-STORY.md) — câu chuyện nghiên cứu reranker M49.1 và validation Clean100.
-8. [`20-M491-JINA35-PRODUCTION-INTEGRATION.md`](20-M491-JINA35-PRODUCTION-INTEGRATION.md) — hồ sơ tích hợp kỹ thuật Jina v3.5.
+7. `05-OFFLINE-PIPELINE.md` hoặc `06-ONLINE-PIPELINE.md` tùy phạm vi sửa.
+8. `07-UNIFIED-SCHEMA.md` và `08-DESIGN-DECISIONS.md` trước thay đổi kiến trúc.
+9. [`19-M491-RERANKER-RESEARCH-STORY.md`](19-M491-RERANKER-RESEARCH-STORY.md) — câu chuyện nghiên cứu reranker M49.1 và validation Clean100.
+10. [`20-M491-JINA35-PRODUCTION-INTEGRATION.md`](20-M491-JINA35-PRODUCTION-INTEGRATION.md) — hồ sơ tích hợp kỹ thuật Jina v3.5 (Phase A).
 
 ## Bản đồ nhanh
 
 ```text
 Official corpus
   -> M45 offline artifacts
-  -> retrieval/reranking/context
+  -> retrieval / reranker (Qwen3 / Jina v3.5) / context
   -> M48 base generator policy
   -> M49 official-only SFT weights
-  -> M49.1 runtime policy
-  -> verified answer-only submission
+  -> M49.1 / M49.1-JINA35 runtime policy
+  -> verified answer-only submission (1000/1000 valid)
 ```
 
 Code chính nằm trong `src/legal_agentic_rag`. Config retained nằm trong `configs`.
@@ -50,14 +53,8 @@ Notebook/runbook Kaggle nằm trong `notebooks` và `docs/runbooks`.
 - Không dùng dữ liệu ngoài, synthetic data hoặc model API.
 - Không commit dữ liệu, weights, index, checkpoint hay submission.
 
-## Hướng ưu tiên
+## Hướng ưu tiên và việc đã đóng
 
-M49.1 có 900/1.000 generator fallbacks nhưng vẫn tăng mạnh score nhờ retrieval và
-top-evidence fallback. Hướng kế tiếp phải giữ M49.1 làm control, rồi tách riêng hai
-thử nghiệm:
-
-1. question-aware extractive trimming/answer-length selection;
-2. contract inference khớp answer-only SFT mà vẫn grounded.
-
-Không loại top-evidence fallback chỉ để giảm warning count; phải chứng minh METEOR
-tăng trên split cố định.
+- **M49.1-JINA35 Public-1000 execution là CLOSED**: 1.000/1.000 câu hợp lệ, submission Codabench đạt ROUGE-L `0.496260842`, METEOR `0.406858976`.
+- Việc đã đóng không được chạy lại chỉ để kiểm tra hoặc tái lập. Một lần chạy Public-1000 tương lai chỉ được phép khi có giả thuyết/mục tiêu mới được xác định rõ ràng với execution authority mới.
+- **Nhiệm vụ kế tiếp:** Đối soát semantic changes đã được chứng minh trên Kaggle (Hotfix V1 `answering.py` và Hotfix V2 `evidence_selector.py`) vào nhánh git cục bộ qua quy trình diff tối thiểu và kiểm thử hồi quy đầy đủ.

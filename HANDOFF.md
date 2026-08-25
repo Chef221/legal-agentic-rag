@@ -10,20 +10,16 @@ have been removed.
 
 ## 1. Current answer in one minute
 
-- Current best measured candidate: **M49.1**.
-- Public-compatible score: **METEOR 0.382772249**, **ROUGE-L 0.473653736**.
-- Retained control: **M48**, METEOR 0.2685876695 and ROUGE-L 0.3631401334.
-- M49 is the official-only SFT generator used by M49.1; it is not a separate
-  recommended public runtime.
-- Retrieval still uses the immutable M45 DB/index built from the official
-  `selected-contexts.zip` only.
-- Do not rebuild the DB unless the corpus, embedding model, chunking or vector
-  configuration changes.
-- Do not commit official data, indexes, model weights, batch outputs or
-  submissions.
-
-The detailed M49.1 audit is in
-[`docs/18-M491-PUBLIC-RESULT.md`](docs/18-M491-PUBLIC-RESULT.md).
+- Latest completed externally evaluated candidate: **M49.1-JINA35** (Kaggle-evaluated artifact).
+- Official Codabench score: **METEOR 0.406858976**, **ROUGE-L 0.496260842** (1000/1000 valid answers).
+- Prior baseline: **M49.1** (Qwen3-Reranker), METEOR 0.382772249, ROUGE-L 0.473653736.
+- Retained control: **M48**, METEOR 0.2685876695, ROUGE-L 0.3631401334.
+- Exact active learned stack parameters: **3,405,854,528** (Embedding: 595,776,512; Jina v3.5: 596,836,352; Generator: 2,213,241,664), compliant with the < 4B limit (`docs/artifacts/m491-jina35-parameter-budget-authority.json`).
+- Retrieval uses the immutable M45 DB/index built from official `selected-contexts.zip`.
+- **M49.1-JINA35 Public-1000 execution is CLOSED.** Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
+- Postmortem & artifact checksums: [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md).
+- Status tracker: [`CURRENT-WORK.md`](CURRENT-WORK.md).
+- **Next repository task:** Reconcile the Kaggle-proven semantic changes (Hotfix V1 `answering.py` raw-identity preservation and Hotfix V2 `evidence_selector.py` dual-source anchored fallback) against the current git branch through minimal semantic diffing, test additions, and full suite validation, rather than benchmark reruns.
 
 ## 2. Retained candidate lineage
 

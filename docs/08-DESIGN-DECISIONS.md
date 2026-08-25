@@ -2385,3 +2385,42 @@ on warning counts.
    - Dedicated configuration `configs/uit-dsc-2026-task2-m491-jina35.example.json` created.
 3. **Production Promotion Status**:
    - Production promotion remains `PENDING_MECHANICAL_INTEGRATION_GATE`. Promotion requires successful completion of Gate A (mechanical parity) and Gate B (full M49.1 T4 runtime coexistence smoke) on Kaggle GPU.
+
+---
+
+## D097 — M49.1-JINA35 Public-1000 Execution, Identity Hotfixes, Multiprocessing Invariants, and Final Submission
+
+**Status:** Accepted and Evaluated via Authoritative Kaggle Artifact (Codabench ROUGE-L `0.496260842`, METEOR `0.406858976`)
+
+Milestone M49.1-JINA35 completed full Public-1000 execution on Kaggle Dual-T4 hardware, upgrading the reranking stage to `jinaai/jina-reranker-v3.5` (596,836,352 parameters) under the competition parameter limit (total stack 3,405,854,528 parameters; proven from `docs/artifacts/m491-jina35-parameter-budget-authority.json`).
+
+During execution, two competition-boundary issues and one multiprocessing orchestration issue were investigated and resolved:
+
+1. **Raw Question Identity Preservation (Hotfix V1)**:
+   - *Problem:* 38/39 failed records in the initial 814 run were questions with raw surrounding/trailing whitespace. Schema normalization (`.strip()`) inside `AnswerResponse` stripped whitespace from `question`, breaking byte-exact identity matching with official input.
+   - *Decision:* Split question validation from answer/trace normalization in `schemas/answering.py`. The question validator rejects empty/blank input but preserves exact raw string bytes. Eliminated 54/54 whitespace mismatches on Public-1000 without relaxing answer or citation validation.
+
+2. **Conservative Dual-Source Anchored Explicit Document Fallback (Hotfix V2)**:
+   - *Problem:* Question 17789 asked about `Nghị định 26/2023/NĐ-CP` where candidate metadata lacked `document_number`. Reference normalizer failed to equate `NĐ` and `ND`.
+   - *Decision:* Implemented conservative explicit reference fallback in `generation/evidence_selector.py`. Applies `Đ`/`ND` canonicalization strictly within reference matching and requires dual-source anchoring (both `document_title` and `source_url` basename must agree on the canonicalized document identity). Never fabricates `document_number` metadata; fails closed on ambiguity or single-source matches.
+
+3. **Strict Checkpoint Authority Discipline**:
+   - *Decision:* The incomplete 814 checkpoint was quarantined (`ee7b8c21...`). 39 invalid records were purged, creating a sanitized 775-question baseline (`b9fbfff4...`). The remaining 225 pending questions were executed without re-running valid rows. The final combined checkpoint (`3e69f6d5...`) achieved 1,000/1,000 valid answers.
+
+4. **Python Multiprocessing Spawn Invariants**:
+   - *Decision:* With `"spawn"` context, child worker processes re-import the main module. Top-level assertions or production directory creation must never occur at module level. Production execution is strictly guarded within `production_main()` under `if __name__ == "__main__":` with `freeze_support()`.
+
+5. **Final Submission & Benchmark Result**:
+   - The authoritative submission (`submission.zip` SHA256 `f11af3c9a4571ff8e8997716b39484bcf69f636b54af7c815ba44756ac2d9200`) achieved official Codabench scores:
+     - **ROUGE-L:** `0.496260842`
+     - **METEOR:** `0.406858976`
+   - See [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md) for full causal history, audit logs, and artifact lineage.
+
+6. **Closed Work and Future Repository Reconciliation**:
+   - **M49.1-JINA35 Public-1000 execution is CLOSED.** Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
+   - The Kaggle-proven Hotfix V1/V2 semantic changes are preserved in the execution transport bundle (`792ceb1e...`). Future repository source reconciliation requires:
+     1. Diffing the current git branch against the Kaggle-proven V1/V2 changes;
+     2. Integrating the minimal semantic changes without blindly replacing whole files;
+     3. Adding regression unit tests for raw question identity preservation and conservative explicit-document identity fallback;
+     4. Executing the full pytest suite;
+     5. Only then considering the source fixes integrated into the branch.
