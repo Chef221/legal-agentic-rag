@@ -4,12 +4,13 @@ Updated: 2026-08-25
 
 This file is the operational handoff for the next developer. Read `AGENTS.md`
 first. The repository has been cleaned to retain M48, M49, M49.1 and the M49.1-JINA35
-canonical baseline plus the M45 offline foundation required by all of them. M46 and
+canonical baseline on `main` plus the M45 offline foundation required by all of them. M46 and
 M47 remain only as historical measurements in design documents; their runnable
 notebooks, configs and outputs have been removed.
 
 ## 1. Current answer in one minute
 
+- Canonical Git Branch: **`main`** (Canonical Main Promotion: **COMPLETE**).
 - Current canonical baseline: **M49.1-JINA35** (reconciled and verified in repository source).
 - Official Codabench score: **METEOR 0.406858976**, **ROUGE-L 0.496260842** (1000/1000 valid answers).
 - Prior baseline: **M49.1** (Qwen3-Reranker), METEOR 0.382772249, ROUGE-L 0.473653736.
@@ -17,6 +18,9 @@ notebooks, configs and outputs have been removed.
 - Active reranker: `jinaai/jina-reranker-v3.5` (596,836,352 parameters), total stack 3,405,854,528 parameters (< 4B cap; `docs/artifacts/m491-jina35-parameter-budget-authority.json`).
 - Retrieval uses the immutable M45 DB/index built from official `selected-contexts.zip`.
 - **M49.1-JINA35 Public-1000 execution is CLOSED.** Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
+- Pre-promotion GitHub main preserved at: `archive/main-before-m491-canonical-e1a7916` (`e1a79162c394411ab45349353678be4278dcce71`).
+- History-preserving main adoption merge: `6ebc0e5bde118e8c83e810251557a2f66c69a0d8`.
+- Canonical promotion branch preserved at: `promotion/m491-jina35-canonical` (`0640a4289a098b1946c5121de90446e0d4dd09d5`).
 - Postmortem & artifact checksums: [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md).
 - Status tracker: [`CURRENT-WORK.md`](CURRENT-WORK.md).
 - **Repository source reconciliation:** **COMPLETE** (Hotfix V1 raw-identity preservation and Hotfix V2 dual-source anchored fallback are integrated and verified in source and tests).
@@ -44,4 +48,4 @@ Question
 ```
 
 M48 is retained as the last non-fine-tuned control. M49 retains the training
-workflow and weights identity. M49.1-JINA35 is the active canonical baseline.
+workflow and weights identity. M49.1-JINA35 is the active canonical baseline on `main`.

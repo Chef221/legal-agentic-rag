@@ -1,5 +1,7 @@
 # Current Work — UIT DSC 2026 LegalQA
 
+**Canonical Git Branch:** `main`
+**Canonical Main Promotion:** `COMPLETE`
 **Current Canonical Baseline:** `M49.1-JINA35`
 **Repository Reconciliation Status:** `COMPLETE`
 **Next Engineering Work:** `NOT YET SELECTED`
@@ -9,9 +11,13 @@
 
 ## 1. Executive Status
 
-Milestone **M49.1-JINA35** is the **CANONICAL CURRENT SYSTEM BASELINE** of this repository.
+Milestone **M49.1-JINA35** is the **CANONICAL CURRENT SYSTEM BASELINE** of this repository and is promoted to **`main`**.
 
-The Kaggle-proven runtime behaviors (Hotfix V1 raw-question identity preservation and Hotfix V2 conservative dual-source anchored explicit-document identity matching) have been fully reconciled and verified in the canonical repository source tree.
+- **Canonical Git Branch:** `main` (synchronized locally and on GitHub).
+- **History-Preserving Main Adoption Merge:** `6ebc0e5bde118e8c83e810251557a2f66c69a0d8`
+- **Pre-Promotion GitHub Main Preserved At:** `archive/main-before-m491-canonical-e1a7916` (`e1a79162c394411ab45349353678be4278dcce71`).
+- **Canonical Promotion Branch Preserved At:** `promotion/m491-jina35-canonical` (`0640a4289a098b1946c5121de90446e0d4dd09d5`).
+- The Kaggle-proven runtime behaviors (Hotfix V1 raw-question identity preservation and Hotfix V2 conservative dual-source anchored explicit-document identity matching) are fully reconciled and verified in the canonical repository source tree.
 
 ### Authoritative Final Benchmark Result
 
@@ -54,8 +60,8 @@ The Kaggle-proven runtime behaviors (Hotfix V1 raw-question identity preservatio
 
 1. **Closed Work Policy:**
    M49.1-JINA35 Public-1000 execution is **CLOSED** (1000/1000 strict valid records). Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
-2. **Repository Reconciliation — Complete:**
-   The Kaggle-proven Hotfix V1/V2 semantic changes have been reconciled into the repository source tree with full regression test coverage.
+2. **Repository Reconciliation & Main Promotion — Complete:**
+   The Kaggle-proven Hotfix V1/V2 semantic changes are fully integrated into the repository source tree with full regression test coverage and promoted to `main`.
 3. **Next Engineering Work:**
    **NOT YET SELECTED.** Do not prematurely resume historical experimental lines without a defined hypothesis and user approval.
 4. **Detailed Documentation:**
