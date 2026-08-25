@@ -2390,11 +2390,11 @@ on warning counts.
 
 ## D097 — M49.1-JINA35 Public-1000 Execution, Identity Hotfixes, Multiprocessing Invariants, and Final Submission
 
-**Status:** Accepted and Evaluated via Authoritative Kaggle Artifact (Codabench ROUGE-L `0.496260842`, METEOR `0.406858976`)
+**Status:** Accepted and Reconciled into Repository Canonical Baseline (Codabench ROUGE-L `0.496260842`, METEOR `0.406858976`)
 
 Milestone M49.1-JINA35 completed full Public-1000 execution on Kaggle Dual-T4 hardware, upgrading the reranking stage to `jinaai/jina-reranker-v3.5` (596,836,352 parameters) under the competition parameter limit (total stack 3,405,854,528 parameters; proven from `docs/artifacts/m491-jina35-parameter-budget-authority.json`).
 
-During execution, two competition-boundary issues and one multiprocessing orchestration issue were investigated and resolved:
+During execution, two competition-boundary issues and one multiprocessing orchestration issue were investigated, resolved, and subsequently reconciled into the canonical repository source tree:
 
 1. **Raw Question Identity Preservation (Hotfix V1)**:
    - *Problem:* 38/39 failed records in the initial 814 run were questions with raw surrounding/trailing whitespace. Schema normalization (`.strip()`) inside `AnswerResponse` stripped whitespace from `question`, breaking byte-exact identity matching with official input.
@@ -2416,11 +2416,6 @@ During execution, two competition-boundary issues and one multiprocessing orches
      - **METEOR:** `0.406858976`
    - See [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md) for full causal history, audit logs, and artifact lineage.
 
-6. **Closed Work and Future Repository Reconciliation**:
+6. **Closed Work and Repository Source Reconciliation**:
    - **M49.1-JINA35 Public-1000 execution is CLOSED.** Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
-   - The Kaggle-proven Hotfix V1/V2 semantic changes are preserved in the execution transport bundle (`792ceb1e...`). Future repository source reconciliation requires:
-     1. Diffing the current git branch against the Kaggle-proven V1/V2 changes;
-     2. Integrating the minimal semantic changes without blindly replacing whole files;
-     3. Adding regression unit tests for raw question identity preservation and conservative explicit-document identity fallback;
-     4. Executing the full pytest suite;
-     5. Only then considering the source fixes integrated into the branch.
+   - **Source reconciliation is COMPLETE**: The Kaggle-proven Hotfix V1 (`schemas/answering.py`), Hotfix V2 (`generation/evidence_selector.py`), and runtime builder repair (`competition/uit_dsc_2026/dual_session_runner.py`) are fully integrated into the repository with regression unit tests passing.

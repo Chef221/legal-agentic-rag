@@ -9,7 +9,7 @@ Repository hiện giữ các mốc có ích:
 | M48 | control không fine-tune | giữ để đối chứng (METEOR 0.2685876695, ROUGE-L 0.3631401334) |
 | M49 | fine-tune generator bằng official train | giữ training/weights lineage |
 | M49.1 | baseline reranker Qwen3 | METEOR 0.382772249, ROUGE-L 0.473653736 |
-| **M49.1-JINA35** | **candidate hoàn tất đánh giá ngoài mới nhất (Kaggle-evaluated)** | **METEOR 0.406858976, ROUGE-L 0.496260842** |
+| **M49.1-JINA35** | **baseline chuẩn hiện tại của repository (đã tích hợp source)** | **METEOR 0.406858976, ROUGE-L 0.496260842** |
 
 M45 vẫn được giữ ở tầng offline vì các mốc trên dùng DB/index M45. M46/M47 chỉ
 còn số đo lịch sử trong design decisions, không còn notebook/config thực thi.
@@ -17,7 +17,7 @@ còn số đo lịch sử trong design decisions, không còn notebook/config th
 ## Thứ tự đọc
 
 1. [`../AGENTS.md`](../AGENTS.md) — quy tắc bắt buộc.
-2. [`../CURRENT-WORK.md`](../CURRENT-WORK.md) — trạng thái đối soát repository và kết quả Public-1000.
+2. [`../CURRENT-WORK.md`](../CURRENT-WORK.md) — trạng thái baseline canonical và kết quả Public-1000.
 3. [`../HANDOFF.md`](../HANDOFF.md) — trạng thái, cách tái lập và hướng tiếp theo.
 4. [`21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md) — hồ sơ postmortem, hotfix V2, kết quả Codabench và checksum chính thức của M49.1-JINA35.
 5. [`18-M491-PUBLIC-RESULT.md`](18-M491-PUBLIC-RESULT.md) — bảng so sánh benchmark giữa các mốc.
@@ -36,7 +36,7 @@ Official corpus
   -> retrieval / reranker (Qwen3 / Jina v3.5) / context
   -> M48 base generator policy
   -> M49 official-only SFT weights
-  -> M49.1 / M49.1-JINA35 runtime policy
+  -> M49.1-JINA35 canonical runtime policy
   -> verified answer-only submission (1000/1000 valid)
 ```
 
@@ -57,4 +57,4 @@ Notebook/runbook Kaggle nằm trong `notebooks` và `docs/runbooks`.
 
 - **M49.1-JINA35 Public-1000 execution là CLOSED**: 1.000/1.000 câu hợp lệ, submission Codabench đạt ROUGE-L `0.496260842`, METEOR `0.406858976`.
 - Việc đã đóng không được chạy lại chỉ để kiểm tra hoặc tái lập. Một lần chạy Public-1000 tương lai chỉ được phép khi có giả thuyết/mục tiêu mới được xác định rõ ràng với execution authority mới.
-- **Nhiệm vụ kế tiếp:** Đối soát semantic changes đã được chứng minh trên Kaggle (Hotfix V1 `answering.py` và Hotfix V2 `evidence_selector.py`) vào nhánh git cục bộ qua quy trình diff tối thiểu và kiểm thử hồi quy đầy đủ.
+- **Repository reconciliation:** **HOÀN THÀNH**. Các thay đổi semantic (Hotfix V1 `answering.py` và Hotfix V2 `evidence_selector.py`) đã được đối soát và kiểm thử đầy đủ trong source tree.

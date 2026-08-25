@@ -8,7 +8,7 @@ The official-compatible scoring over 1,000 public questions produced the followi
 |---|---|---:|---:|---|
 | **M48 Control** | `Qwen3-Reranker-0.6B` | 0.3631401334440235 | 0.2685876695455311 | Retained Control |
 | **M49.1 Baseline** | `Qwen3-Reranker-0.6B` | 0.473653736 | 0.382772249 | Prior Milestone Baseline |
-| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Latest Evaluated Benchmark Authority** |
+| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Current Canonical Baseline** |
 | **Delta (M49.1-JINA35 vs M49.1)** | — | **+0.022607106** | **+0.024086727** | — |
 | **Delta (M49.1-JINA35 vs M48)** | — | **+0.133120708556** | **+0.138271306455** | — |
 

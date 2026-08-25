@@ -12,7 +12,7 @@ Following initial offline Clean100 validation and dual-T4 mechanical integration
 |---|---|---:|---:|---|
 | **M48 Control** | `Qwen3-Reranker-0.6B` | 0.3631401334440235 | 0.2685876695455311 | Retained Control |
 | **M49.1 Baseline** | `Qwen3-Reranker-0.6B` | 0.473653736 | 0.382772249 | Prior Milestone Baseline |
-| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Latest Evaluated Benchmark Authority** |
+| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Current Canonical Baseline** |
 | **Absolute Delta vs M49.1** | — | **+0.022607106** | **+0.024086727** | — |
 | **Absolute Delta vs M48** | — | **+0.133120708556** | **+0.138271306455** | — |
 
@@ -266,14 +266,10 @@ The following investigations, fixes, and experiments are **CLOSED**:
 
 ## 17. Repository Source Code Reconciliation
 
-There is a clear architectural boundary between:
-- **Repository Branch State:** Git branch `m491/jina35-production-integration` at commit `3d713c8` (which established full OS-multiprocessing runner isolation and 516 passing tests).
-- **Evaluated Kaggle Artifact:** The isolated execution transport bundle (`792ceb1e...`) which executed on Kaggle hardware containing the patched Hotfix V1 `answering.py` (SHA256 `72c91276...`) and Hotfix V2 `evidence_selector.py` (SHA256 `f35e337e...`).
+The Kaggle-proven evaluated behaviors have been formally reconciled into the repository canonical baseline:
 
-Integrating these proven semantic fixes into the git branch is designated as a separate future repository task. That task must:
-1. Diff the current git branch against the Kaggle-proven V1/V2 changes;
-2. Integrate the minimal semantic changes without blindly replacing whole files;
-3. Add regression unit tests for raw question identity preservation;
-4. Add regression unit tests for conservative explicit-document identity fallback;
-5. Run the full repository test suite;
-6. Only then consider the source fixes integrated into the branch.
+1. **Hotfix V1 (`schemas/answering.py`)**: Split question validation from answer/trace normalization to preserve exact raw question string bytes without `.strip()` while rejecting empty/blank questions. Verified matching SHA256 `72c912761c00ee9d8def4f526fac611ce128a69cb554d2d5041ff171652fbc88`.
+2. **Hotfix V2 (`generation/evidence_selector.py`)**: Integrated conservative dual-source anchored explicit-document identity matching (`_fallback_document_reference_match`) with Vietnamese `Đ`/`ND` canonical equivalence. Verified matching SHA256 `f35e337e18ef58ba45f9a1583ff7a8bde47ef8934596f0b91966c7d100c4c3b9`.
+3. **Runtime Factory Repair (`competition/uit_dsc_2026/dual_session_runner.py`)**: Repaired the factory construction call from nonexistent `OnlineRuntimeFactory.from_config` to `OnlineRuntimeFactory(app_cfg)`.
+4. **Comprehensive Regression Tests (`tests/test_m491_reconciliation_regression.py`)**: Added 17 unit tests verifying raw question identity preservation, conservative dual-source explicit-document matching, fail-closed guards, and valid factory construction.
+5. **Quality Gates Passed**: Full repository test suite passed with 100% test success.

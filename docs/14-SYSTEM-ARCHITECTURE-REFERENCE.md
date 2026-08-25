@@ -14,7 +14,7 @@
 | Total Active Learned Stack (M49.1-JINA35) | 3,405,854,528 params (< 4.0B cap; +594,145,472 headroom) |
 | Retained control | M48 (METEOR 0.2685876695, ROUGE-L 0.3631401334) |
 | Prior baseline | M49.1 Qwen3-Reranker (METEOR 0.382772249, ROUGE-L 0.473653736) |
-| **Latest evaluated candidate** | **M49.1-JINA35** (Kaggle-evaluated artifact) |
+| **Current canonical baseline** | **M49.1-JINA35** (reconciled repository baseline) |
 | **Best measured Codabench score** | **METEOR 0.406858976, ROUGE-L 0.496260842** |
 | **Evaluated submission.zip SHA256** | `f11af3c9a4571ff8e8997716b39484bcf69f636b54af7c815ba44756ac2d9200` |
 
@@ -143,7 +143,7 @@ Its public batch is the prior measured baseline.
 
 ### M49.1-JINA35 evaluated candidate
 
-M49.1-JINA35 upgraded reranking to `jinaai/jina-reranker-v3.5`, validated Hotfix V1 raw-identity preservation and Hotfix V2 dual-source anchored explicit-document matching on Kaggle hardware, producing the latest evaluated Codabench submission (METEOR `0.406858976`, ROUGE-L `0.496260842`). The Public-1000 execution is **CLOSED**. Next repository work is source reconciliation against the local git branch.
+M49.1-JINA35 upgraded reranking to `jinaai/jina-reranker-v3.5`, validated Hotfix V1 raw-identity preservation and Hotfix V2 dual-source anchored explicit-document matching on Kaggle hardware, producing the latest evaluated Codabench submission (METEOR `0.406858976`, ROUGE-L `0.496260842`). The Public-1000 execution is **CLOSED** (1000/1000 strict valid). Source code reconciliation into the repository canonical baseline is **COMPLETE**.
 
 ## 6. Model inventory & Parameter compliance
 

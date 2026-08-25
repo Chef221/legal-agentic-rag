@@ -5,7 +5,7 @@ Data Science Challenge 2026 Task 2.
 
 ## Trạng thái hiện tại
 
-- **Candidate hoàn tất đánh giá ngoài mới nhất:** **M49.1-JINA35** (Kaggle-evaluated artifact).
+- **Baseline chuẩn hiện tại của repository:** **M49.1-JINA35** (đã đối soát và tích hợp hoàn tất vào source tree).
 - **Điểm Codabench chính thức:** **METEOR `0.406858976`**, **ROUGE-L `0.496260842`** (1.000/1.000 câu hợp lệ).
 - **Baseline trước đó:** **M49.1** (Qwen3-Reranker) — METEOR `0.382772249`, ROUGE-L `0.473653736`.
 - **Control còn giữ:** **M48** — METEOR `0.2685876695`, ROUGE-L `0.3631401334`.
@@ -13,12 +13,13 @@ Data Science Challenge 2026 Task 2.
   weights đó với listwise reranker `jinaai/jina-reranker-v3.5` và runtime policy Hotfix V2.
 - M48/M49/M49.1/M49.1-JINA35 dùng chung DB/index M45 đã build từ canonical
   `selected-contexts.zip`.
-- M49.1-JINA35 Public-1000 execution đã **CLOSED / HOÀN TẤT**. Việc kế tiếp của repository
-  là đối soát semantic source code (Hotfix V1/V2) vào nhánh git, không chạy lại benchmark.
+- M49.1-JINA35 Public-1000 execution đã **CLOSED / HOÀN TẤT** (1.000/1.000 câu hợp lệ).
+  Việc đối soát semantic source code (Hotfix V1/V2) vào canonical baseline đã **HOÀN THÀNH**.
 
 Thành viên mới bắt đầu tại
 [`docs/00-START-HERE.md`](docs/00-START-HERE.md), sau đó đọc
-[`CURRENT-WORK.md`](CURRENT-WORK.md) và [`HANDOFF.md`](HANDOFF.md). Hồ sơ chi tiết M49.1-JINA35 nằm tại
+[`CURRENT-WORK.md`](CURRENT-WORK.md) và [`HANDOFF.md`](HANDOFF.md). Kết quả benchmark M49.1 và M49.1-JINA35 nằm tại
+[`docs/18-M491-PUBLIC-RESULT.md`](docs/18-M491-PUBLIC-RESULT.md). Hồ sơ chi tiết M49.1-JINA35 nằm tại
 [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md).
 
 ## Pipeline
@@ -102,4 +103,4 @@ legal-rag-validate
 
 Không commit full dataset, scorer archive, source ZIP đóng gói, model weights,
 BM25/vector/graph artifacts, Kaggle checkpoint, `submission.zip`, cache, log hoặc
-secret. Repository chỉ giữ code, config, notebook, test, tài liệu và fixture nhỏ.
+secret. Repository chỉ giũ code, config, notebook, test, tài liệu và fixture nhỏ.
