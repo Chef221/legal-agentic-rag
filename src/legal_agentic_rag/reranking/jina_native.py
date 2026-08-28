@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import gc
+import hashlib
 from importlib.metadata import PackageNotFoundError, version
 import logging
 import math
 import operator
+from pathlib import Path
 from time import perf_counter
 from typing import Any, Protocol
 
@@ -27,6 +29,18 @@ from legal_agentic_rag.schemas.retrieval import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def compute_projector_state_sha256(module: Any) -> str:
+    """Compute deterministic SHA256 over module state dict according to exact S7 specification."""
+    state_hash = hashlib.sha256()
+    for name, tensor in sorted(module.state_dict().items()):
+        value = tensor.detach().float().cpu().contiguous()
+        state_hash.update(name.encode("utf-8"))
+        state_hash.update(str(value.dtype).encode("utf-8"))
+        state_hash.update(str(tuple(value.shape)).encode("utf-8"))
+        state_hash.update(value.numpy().tobytes())
+    return state_hash.hexdigest().lower()
 
 
 class _JinaRerankModel(Protocol):
@@ -110,6 +124,7 @@ class JinaNativeReranker:
 
         model = self._ensure_model()
         is_cuda = self._config.device.casefold().startswith("cuda")
+        is_o2 = self._config.projector_checkpoint_path is not None
 
         if is_cuda:
             gc.collect()
@@ -122,12 +137,21 @@ class JinaNativeReranker:
         try:
             import torch
             with torch.no_grad():
-                native_results = model.rerank(
-                    query=question,
-                    documents=serialized_documents,
-                    top_n=len(serialized_documents),
-                    return_embeddings=False,
-                )
+                if is_o2 and is_cuda:
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        native_results = model.rerank(
+                            query=question,
+                            documents=serialized_documents,
+                            top_n=len(serialized_documents),
+                            return_embeddings=False,
+                        )
+                else:
+                    native_results = model.rerank(
+                        query=question,
+                        documents=serialized_documents,
+                        top_n=len(serialized_documents),
+                        return_embeddings=False,
+                    )
         except Exception as error:
             raise ModelError(f"Native Jina rerank execution failed: {error}") from error
         finally:
@@ -292,6 +316,108 @@ class JinaNativeReranker:
                 raise ModelError(
                     f"Jina parameter gate violation: expected {config.expected_parameter_count} params, got {actual_params}"
                 )
+
+        if config.projector_checkpoint_path is not None:
+            _LOGGER.info(
+                "jina_o2_projector_load_started",
+                extra={
+                    "checkpoint_path": str(config.projector_checkpoint_path),
+                    "expected_file_sha256": config.projector_checkpoint_sha256,
+                    "expected_state_sha256": config.expected_projector_state_sha256,
+                    "expected_projector_params": config.expected_projector_parameter_count,
+                },
+            )
+            if (
+                not hasattr(model, "projector")
+                or not hasattr(model.projector, "parameters")
+                or not hasattr(model.projector, "state_dict")
+                or not hasattr(model.projector, "load_state_dict")
+            ):
+                raise BackendInitializationError(
+                    f"Loaded Jina model {type(model)} does not expose a valid projector submodule"
+                )
+
+            for p in model.parameters():
+                p.requires_grad_(False)
+
+            try:
+                model.projector.float()
+            except Exception as error:
+                raise BackendInitializationError(
+                    f"Failed to convert projector to float32: {error}"
+                ) from error
+
+            actual_proj_params = sum(p.numel() for p in model.projector.parameters())
+            if config.expected_projector_parameter_count is not None:
+                if actual_proj_params != config.expected_projector_parameter_count:
+                    raise ModelError(
+                        f"O2 projector parameter count mismatch: expected {config.expected_projector_parameter_count}, got {actual_proj_params}"
+                    )
+
+            ckpt_path = Path(config.projector_checkpoint_path)
+            if not ckpt_path.exists() or not ckpt_path.is_file():
+                raise BackendInitializationError(
+                    f"O2 projector checkpoint path '{ckpt_path}' does not exist or is not a regular file"
+                )
+
+            h = hashlib.sha256()
+            with open(ckpt_path, "rb") as f:
+                while chunk := f.read(1024 * 1024):
+                    h.update(chunk)
+            file_sha = h.hexdigest().lower()
+            if config.projector_checkpoint_sha256 is not None:
+                if file_sha != config.projector_checkpoint_sha256.lower():
+                    raise ModelError(
+                        f"O2 projector checkpoint file SHA256 mismatch: expected {config.projector_checkpoint_sha256}, got {file_sha}"
+                    )
+
+            try:
+                import safetensors.torch
+            except ImportError as error:
+                raise BackendInitializationError(
+                    "safetensors dependency is unavailable for O2 projector loading"
+                ) from error
+
+            try:
+                checkpoint_state = safetensors.torch.load_file(str(ckpt_path), device="cpu")
+            except Exception as error:
+                raise BackendInitializationError(
+                    f"Failed to load safetensors checkpoint '{ckpt_path}': {error}"
+                ) from error
+
+            actual_keys = sorted(checkpoint_state.keys())
+            expected_keys = ["0.weight", "2.weight"]
+            if actual_keys != expected_keys:
+                raise ModelError(
+                    f"O2 projector checkpoint keys mismatch: expected {expected_keys}, got {actual_keys}"
+                )
+
+            try:
+                model.projector.load_state_dict(checkpoint_state, strict=True)
+            except Exception as error:
+                raise ModelError(
+                    f"Failed to load O2 projector state dict into model.projector: {error}"
+                ) from error
+
+            for p in model.projector.parameters():
+                if p.dtype != torch.float32:
+                    raise ModelError(f"O2 projector parameter dtype {p.dtype} is not float32")
+
+            actual_state_sha = compute_projector_state_sha256(model.projector)
+            if config.expected_projector_state_sha256 is not None:
+                if actual_state_sha != config.expected_projector_state_sha256.lower():
+                    raise ModelError(
+                        f"O2 projector loaded state SHA256 mismatch: expected {config.expected_projector_state_sha256}, got {actual_state_sha}"
+                    )
+
+            _LOGGER.info(
+                "jina_o2_projector_load_completed",
+                extra={
+                    "actual_file_sha256": file_sha,
+                    "actual_state_sha256": actual_state_sha,
+                    "actual_projector_params": actual_proj_params,
+                },
+            )
 
         _LOGGER.info("jina_reranker_load_completed")
         return model

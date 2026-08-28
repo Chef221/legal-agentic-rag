@@ -1,11 +1,15 @@
 """Typed configuration for online retrieval and grounded generation."""
 
+from pathlib import Path
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from legal_agentic_rag.schemas.retrieval import RetrievalStrategy
+
+_HEX_64_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class RetrievalConfig(BaseModel):
@@ -270,6 +274,10 @@ class RerankerConfig(BaseModel):
     instruction: str | None = Field(default=None, min_length=1)
     native_context_cap: int | None = Field(default=None, gt=0, le=32768)
     expected_parameter_count: int | None = Field(default=None, gt=0)
+    projector_checkpoint_path: Path | None = None
+    projector_checkpoint_sha256: str | None = None
+    expected_projector_state_sha256: str | None = None
+    expected_projector_parameter_count: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def validate_prompt_policy(self) -> "RerankerConfig":
@@ -295,6 +303,44 @@ class RerankerConfig(BaseModel):
                 and self.torch_dtype != "float32"
             ):
                 raise ValueError("CPU reranking requires float32")
+
+        o2_fields = (
+            self.projector_checkpoint_path,
+            self.projector_checkpoint_sha256,
+            self.expected_projector_state_sha256,
+            self.expected_projector_parameter_count,
+        )
+        has_any_o2 = any(f is not None for f in o2_fields)
+        has_all_o2 = all(f is not None for f in o2_fields)
+
+        if has_any_o2:
+            if self.backend != "jina_native_listwise":
+                raise ValueError(
+                    "Projector checkpoint configuration is only supported for jina_native_listwise backend"
+                )
+            if not has_all_o2:
+                raise ValueError(
+                    "O2 projector configuration requires all 4 authority fields: "
+                    "projector_checkpoint_path, projector_checkpoint_sha256, "
+                    "expected_projector_state_sha256, expected_projector_parameter_count"
+                )
+            if not self.device.casefold().startswith("cuda"):
+                raise ValueError(
+                    f"O2 projector reranking requires CUDA device, got {self.device}"
+                )
+            if self.torch_dtype != "float16":
+                raise ValueError(
+                    f"O2 projector reranking requires float16 base runtime, got {self.torch_dtype}"
+                )
+            if not _HEX_64_PATTERN.fullmatch(self.projector_checkpoint_sha256 or ""):
+                raise ValueError(
+                    f"projector_checkpoint_sha256 must be a 64-char hex SHA256 string, got {self.projector_checkpoint_sha256}"
+                )
+            if not _HEX_64_PATTERN.fullmatch(self.expected_projector_state_sha256 or ""):
+                raise ValueError(
+                    f"expected_projector_state_sha256 must be a 64-char hex SHA256 string, got {self.expected_projector_state_sha256}"
+                )
+
         return self
 
 

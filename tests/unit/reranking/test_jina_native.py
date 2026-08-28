@@ -596,3 +596,338 @@ def test_jina_native_leading_trailing_whitespace_preservation_test_c() -> None:
     call_kwargs = mock_model.rerank.call_args[1]
     assert call_kwargs["query"] == raw_q
     assert call_kwargs["query"] == "  Leading and trailing whitespace question?   "
+
+
+# --- O2 PROJECTOR INTEGRATION TESTS ---
+
+import safetensors.torch
+import torch
+
+
+class _MockCudaDevice:
+    type = "cuda"
+
+    def __str__(self) -> str:
+        return "cuda:0"
+
+
+class _SyntheticProjector(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.add_module("0", torch.nn.Linear(8, 4, bias=False))
+        self.add_module("1", torch.nn.ReLU())
+        self.add_module("2", torch.nn.Linear(4, 2, bias=False))
+
+
+class _SyntheticJinaModel(torch.nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.base_layer = torch.nn.Linear(8, 8)
+        self.projector = _SyntheticProjector()
+        self._tokenizer = MagicMock()
+        self._tokenizer.model_max_length = 12288
+        for p in self.parameters():
+            p._mock_device = _MockCudaDevice()
+
+    def to(self, device: str) -> "_SyntheticJinaModel":
+        return self
+
+    def eval(self) -> "_SyntheticJinaModel":
+        return self
+
+    def _ensure_tokenizer(self) -> None:
+        pass
+
+    def rerank(
+        self,
+        query: str,
+        documents: list[str],
+        top_n: int | None = None,
+        return_embeddings: bool = False,
+    ) -> Any:
+        return [
+            {"index": i, "relevance_score": float(1.0 / (i + 1))}
+            for i in range(len(documents))
+        ]
+
+
+def _create_synthetic_checkpoint(
+    path: Path,
+    keys: list[str] | None = None,
+) -> tuple[str, str]:
+    """Helper to create a synthetic safetensors checkpoint and return (file_sha, state_sha)."""
+    from legal_agentic_rag.reranking.jina_native import compute_projector_state_sha256
+
+    if keys is None:
+        weights = {
+            "0.weight": torch.randn(4, 8, dtype=torch.float32),
+            "2.weight": torch.randn(2, 4, dtype=torch.float32),
+        }
+    else:
+        weights = {k: torch.randn(4, 8, dtype=torch.float32) for k in keys}
+
+    safetensors.torch.save_file(weights, str(path))
+
+    with open(path, "rb") as f:
+        file_sha = hashlib.sha256(f.read()).hexdigest()
+
+    temp_proj = _SyntheticProjector()
+    if keys is None:
+        temp_proj.load_state_dict(weights)
+        temp_proj.float()
+        state_sha = compute_projector_state_sha256(temp_proj)
+    else:
+        state_sha = "0" * 64
+
+    return file_sha, state_sha
+
+
+def test_o2_projector_load_missing_checkpoint_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed when configured checkpoint file does not exist."""
+    missing_path = tmp_path / "nonexistent.safetensors"
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=missing_path,
+        projector_checkpoint_sha256="a" * 64,
+        expected_projector_state_sha256="b" * 64,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(BackendInitializationError, match="does not exist or is not a regular file"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_file_sha_mismatch_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed when checkpoint file SHA256 does not match authority."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    _file_sha, state_sha = _create_synthetic_checkpoint(ckpt_path)
+    wrong_file_sha = "0" * 64
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=wrong_file_sha,
+        expected_projector_state_sha256=state_sha,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(ModelError, match="checkpoint file SHA256 mismatch"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_state_keys_mismatch_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed when safetensors keys are not strictly ['0.weight', '2.weight']."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, _ = _create_synthetic_checkpoint(ckpt_path, keys=["0.weight", "invalid.key"])
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256="c" * 64,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(ModelError, match="checkpoint keys mismatch"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_parameter_count_mismatch_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed when projector parameter count does not match authority."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, state_sha = _create_synthetic_checkpoint(ckpt_path)
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256=state_sha,
+        expected_projector_parameter_count=999,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(ModelError, match="projector parameter count mismatch"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_state_sha_mismatch_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed when loaded projector state SHA does not match authority."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, _state_sha = _create_synthetic_checkpoint(ckpt_path)
+    wrong_state_sha = "f" * 64
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256=wrong_state_sha,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(ModelError, match="loaded state SHA256 mismatch"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_model_missing_projector_fails_closed(tmp_path: Path) -> None:
+    """O2 loader fails closed if base model lacks a projector module."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, state_sha = _create_synthetic_checkpoint(ckpt_path)
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256=state_sha,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+
+    class _NoProjectorModel(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear = torch.nn.Linear(4, 4)
+            self._tokenizer = MagicMock(model_max_length=12288)
+            for p in self.parameters():
+                p._mock_device = _MockCudaDevice()
+        def to(self, d: str) -> Any: return self
+        def eval(self) -> Any: return self
+        def _ensure_tokenizer(self) -> None: pass
+        def rerank(self, *a: Any, **k: Any) -> Any: pass
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=_NoProjectorModel()):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            with pytest.raises(BackendInitializationError, match="does not expose a valid projector submodule"):
+                reranker._load_jina_model(cfg)
+
+
+def test_o2_projector_load_success_and_invariants(tmp_path: Path) -> None:
+    """Valid synthetic O2 checkpoint loads strictly, freezes base, and keeps projector FP32."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, state_sha = _create_synthetic_checkpoint(ckpt_path)
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256=state_sha,
+        expected_projector_parameter_count=40,
+    )
+    reranker = JinaNativeReranker(cfg)
+    model = _SyntheticJinaModel()
+
+    with patch("transformers.AutoModel.from_pretrained", return_value=model):
+        with patch.object(torch.Tensor, "device", new_callable=lambda: property(lambda self: getattr(self, "_mock_device", torch.device("cpu")))):
+            loaded_model = reranker._load_jina_model(cfg)
+
+    # 1. Base parameters frozen
+    for p in loaded_model.parameters():
+        assert p.requires_grad is False
+
+    # 2. Projector parameters are FP32
+    for p in loaded_model.projector.parameters():
+        assert p.dtype == torch.float32
+
+    # 3. Model returned is the loaded model
+    assert loaded_model is model
+
+
+def test_o2_forward_autocast_cuda_execution(tmp_path: Path) -> None:
+    """O2 forward on CUDA executes inside torch.autocast(device_type='cuda', dtype=torch.float16)."""
+    ckpt_path = tmp_path / "epoch1_projector.safetensors"
+    file_sha, state_sha = _create_synthetic_checkpoint(ckpt_path)
+
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+        projector_checkpoint_path=ckpt_path,
+        projector_checkpoint_sha256=file_sha,
+        expected_projector_state_sha256=state_sha,
+        expected_projector_parameter_count=40,
+    )
+    mock_model = MagicMock()
+    mock_model.rerank.return_value = [{"index": 0, "relevance_score": 0.99}]
+
+    reranker = JinaNativeReranker(cfg, model_loader=lambda c: mock_model)
+
+    query = RetrievalQuery(
+        query_id="q_o2",
+        original_question="O2 question?",
+        normalized_question="O2 question?",
+        top_k=1,
+        candidate_k=1,
+    )
+    candidates = [_make_dummy_hit("chunk_1", rank=1, score=0.5)]
+
+    autocast_mock = MagicMock()
+    with patch("torch.autocast", autocast_mock):
+        response = reranker.rerank(query, candidates)
+
+    assert len(response.hits) == 1
+    assert response.hits[0].score == 0.99
+    assert autocast_mock.called
+    autocast_kwargs = autocast_mock.call_args[1]
+    assert autocast_kwargs.get("device_type") == "cuda"
+    assert autocast_kwargs.get("dtype") == torch.float16
+
+
+def test_legacy_jina_forward_does_not_use_autocast() -> None:
+    """Legacy Jina path on CUDA does NOT invoke autocast."""
+    cfg = RerankerConfig(
+        backend="jina_native_listwise",
+        device="cuda",
+        torch_dtype="float16",
+    )
+    mock_model = MagicMock()
+    mock_model.rerank.return_value = [{"index": 0, "relevance_score": 0.99}]
+
+    reranker = JinaNativeReranker(cfg, model_loader=lambda c: mock_model)
+
+    query = RetrievalQuery(
+        query_id="q_legacy",
+        original_question="Legacy question?",
+        normalized_question="Legacy question?",
+        top_k=1,
+        candidate_k=1,
+    )
+    candidates = [_make_dummy_hit("chunk_1", rank=1, score=0.5)]
+
+    autocast_mock = MagicMock()
+    with patch("torch.autocast", autocast_mock):
+        response = reranker.rerank(query, candidates)
+
+    assert len(response.hits) == 1
+    assert not autocast_mock.called
