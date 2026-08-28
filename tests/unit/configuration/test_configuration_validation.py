@@ -463,3 +463,85 @@ def test_structure_parser_config_bounds_title_lookahead() -> None:
         LegalStructureParserConfig(maximum_title_characters=0)
     with pytest.raises(ValidationError):
         LegalStructureParserConfig(maximum_title_words=101)
+
+def test_o2_projector_config_validation() -> None:
+    """O2 projector authority validation enforces 4-field completeness, CUDA, float16, and SHA format."""
+    from pathlib import Path
+    valid_o2_kwargs = {
+        "backend": "jina_native_listwise",
+        "model_name": "jinaai/jina-reranker-v3.5",
+        "model_revision": "e8a93f33f0b22108f8c2364f8484ce3422552fbc",
+        "device": "cuda",
+        "torch_dtype": "float16",
+        "projector_checkpoint_path": Path("/kaggle/working/epoch1_projector.safetensors"),
+        "projector_checkpoint_sha256": "4de30bf01c9a2a51c3fa6682b4c2b3903e0c95d74d08dfc5cc1a2513541f219f",
+        "expected_projector_state_sha256": "89357853fe9788bdf33f8276a3b242552146c49612fb8835d3c5a06b3850f662",
+        "expected_projector_parameter_count": 786432,
+    }
+    # 1. Valid O2 config succeeds
+    cfg = RerankerConfig(**valid_o2_kwargs)
+    assert cfg.projector_checkpoint_path == Path("/kaggle/working/epoch1_projector.safetensors")
+    assert cfg.expected_projector_parameter_count == 786432
+
+    # 2. Legacy Jina config without projector fields remains valid
+    legacy_kwargs = {
+        "backend": "jina_native_listwise",
+        "model_name": "jinaai/jina-reranker-v3.5",
+        "model_revision": "e8a93f33f0b22108f8c2364f8484ce3422552fbc",
+        "device": "cuda",
+        "torch_dtype": "float16",
+    }
+    legacy_cfg = RerankerConfig(**legacy_kwargs)
+    assert legacy_cfg.projector_checkpoint_path is None
+
+    # 3. Partial projector authority is rejected (e.g. missing 1 field)
+    for field in ("projector_checkpoint_path", "projector_checkpoint_sha256", "expected_projector_state_sha256", "expected_projector_parameter_count"):
+        partial = dict(valid_o2_kwargs)
+        partial[field] = None
+        with pytest.raises(ValidationError, match="requires all 4 authority fields"):
+            RerankerConfig(**partial)
+
+    # 4. Projector on non-Jina backend is rejected
+    non_jina = dict(valid_o2_kwargs)
+    non_jina["backend"] = "sentence_transformers_cross_encoder"
+    non_jina["torch_dtype"] = "float32"
+    with pytest.raises(ValidationError, match="only supported for jina_native_listwise"):
+        RerankerConfig(**non_jina)
+
+    # 5. O2 projector on CPU is rejected
+    cpu_o2 = dict(valid_o2_kwargs)
+    cpu_o2["device"] = "cpu"
+    cpu_o2["torch_dtype"] = "float32"
+    with pytest.raises(ValidationError, match="requires CUDA device"):
+        RerankerConfig(**cpu_o2)
+
+    # 6. Malformed SHA is rejected
+    bad_sha = dict(valid_o2_kwargs)
+    bad_sha["projector_checkpoint_sha256"] = "short-sha"
+    with pytest.raises(ValidationError, match="64-char hex SHA256 string"):
+        RerankerConfig(**bad_sha)
+
+    bad_state_sha = dict(valid_o2_kwargs)
+    bad_state_sha["expected_projector_state_sha256"] = "z" * 64
+    with pytest.raises(ValidationError, match="64-char hex SHA256 string"):
+        RerankerConfig(**bad_state_sha)
+
+
+def test_m50_o2_config_matches_m491_outside_reranker() -> None:
+    """New M50 O2 config file is identical to current M49.1 Jina config everywhere outside online.reranker."""
+    import json
+    with open("configs/uit-dsc-2026-task2-m491-jina35.example.json", "r", encoding="utf-8") as f:
+        m491_data = json.load(f)
+    with open("configs/uit-dsc-2026-task2-m50-o2-jina35.example.json", "r", encoding="utf-8") as f:
+        m50_data = json.load(f)
+
+    # Remove reranker from both to verify exact equality
+    m491_reranker = m491_data["online"].pop("reranker")
+    m50_reranker = m50_data["online"].pop("reranker")
+
+    assert m491_data == m50_data
+
+    # Verify reranker has all 4 O2 fields added
+    for o2_key in ("projector_checkpoint_path", "projector_checkpoint_sha256", "expected_projector_state_sha256", "expected_projector_parameter_count"):
+        assert o2_key in m50_reranker
+        assert o2_key not in m491_reranker
