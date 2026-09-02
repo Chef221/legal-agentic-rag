@@ -193,13 +193,21 @@ class ContextBuilder:
     @staticmethod
     def _article_key(hit: RetrievalHit) -> tuple[str, str] | None:
         """Return a stable document/article identity when metadata provides one."""
+        # 1. Legacy structure path
         structure = hit.metadata.get("structure")
-        if not isinstance(structure, dict):
-            return None
-        article_number = structure.get("article_number")
-        if not isinstance(article_number, str) or not article_number.strip():
-            return None
-        return hit.document_id, article_number.strip().casefold()
+        if isinstance(structure, dict):
+            article_number = structure.get("article_number")
+            if isinstance(article_number, str) and article_number.strip():
+                return hit.document_id, article_number.strip().casefold()
+
+        # 2. V2 hierarchy fallback
+        hierarchy = hit.metadata.get("hierarchy")
+        if isinstance(hierarchy, dict):
+            article_label = hierarchy.get("article_label")
+            if isinstance(article_label, str) and article_label.strip():
+                return hit.document_id, article_label.strip().casefold()
+
+        return None
 
     @staticmethod
     def _evidence(
@@ -208,17 +216,25 @@ class ContextBuilder:
         trace: EvidenceSelectionTrace,
     ) -> Evidence:
         structure = hit.metadata.get("structure")
-        hierarchy = structure if isinstance(structure, dict) else {}
+        legacy_hierarchy = structure if isinstance(structure, dict) else {}
+        v2_hierarchy = hit.metadata.get("hierarchy") if isinstance(hit.metadata.get("hierarchy"), dict) else {}
+        v2_doc_identity = hit.metadata.get("document_identity") if isinstance(hit.metadata.get("document_identity"), dict) else {}
+
+        doc_title = hit.metadata.get("document_title") or v2_doc_identity.get("title")
+        doc_number = hit.metadata.get("document_number") or v2_doc_identity.get("document_number")
+        art_number = legacy_hierarchy.get("article_number") or v2_hierarchy.get("article_label")
+        art_title = legacy_hierarchy.get("article_title")
+
         try:
             return Evidence(
                 evidence_id=f"E{index}",
                 chunk_id=hit.chunk_id,
                 document_id=hit.document_id,
                 text=hit.text,
-                article_number=hierarchy.get("article_number"),
-                article_title=hierarchy.get("article_title"),
-                document_title=hit.metadata.get("document_title"),
-                document_number=hit.metadata.get("document_number"),
+                article_number=art_number,
+                article_title=art_title,
+                document_title=doc_title,
+                document_number=doc_number,
                 document_type=hit.metadata.get("document_type"),
                 effective_date=hit.metadata.get("effective_date"),
                 expiry_date=hit.metadata.get("expiry_date"),

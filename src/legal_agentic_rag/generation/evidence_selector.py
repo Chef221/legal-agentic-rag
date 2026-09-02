@@ -95,10 +95,9 @@ class EvidenceSelector:
         document_references: set[str],
         article_references: set[str],
     ) -> ScoredEvidenceCandidate:
-        document_number = self._text(hit.metadata.get("document_number"))
-        structure = hit.metadata.get("structure")
-        hierarchy = structure if isinstance(structure, dict) else {}
-        article_number = self._text(hierarchy.get("article_number"))
+        document_number = self._extract_document_number(hit)
+        article_number = self._extract_article_number(hit)
+
         document_match = self._reference_match(
             document_number,
             document_references,
@@ -126,7 +125,7 @@ class EvidenceSelector:
             document_match=document_match,
             article_match=article_match,
         )
-        overlap = self._lexical_overlap(query_terms, hit, hierarchy)
+        overlap = self._lexical_overlap(query_terms, hit)
         reference_match_count = sum(
             value is True for value in (document_match, article_match)
         )
@@ -178,6 +177,40 @@ class EvidenceSelector:
         )
 
     @staticmethod
+    def _extract_document_number(hit: RetrievalHit) -> str | None:
+        legacy_doc_num = EvidenceSelector._text(hit.metadata.get("document_number"))
+        if legacy_doc_num is not None:
+            return legacy_doc_num
+        doc_identity = hit.metadata.get("document_identity")
+        if isinstance(doc_identity, dict):
+            return EvidenceSelector._text(doc_identity.get("document_number"))
+        return None
+
+    @staticmethod
+    def _extract_document_title(hit: RetrievalHit) -> str | None:
+        legacy_title = EvidenceSelector._text(hit.metadata.get("document_title"))
+        if legacy_title is not None:
+            return legacy_title
+        doc_identity = hit.metadata.get("document_identity")
+        if isinstance(doc_identity, dict):
+            return EvidenceSelector._text(doc_identity.get("title"))
+        return None
+
+    @staticmethod
+    def _extract_article_number(hit: RetrievalHit) -> str | None:
+        structure = hit.metadata.get("structure")
+        if isinstance(structure, dict):
+            legacy_art = EvidenceSelector._text(structure.get("article_number"))
+            if legacy_art is not None:
+                return legacy_art
+        hierarchy = hit.metadata.get("hierarchy")
+        if isinstance(hierarchy, dict):
+            v2_art = EvidenceSelector._text(hierarchy.get("article_label"))
+            if v2_art is not None:
+                return v2_art
+        return None
+
+    @staticmethod
     def _reference_match(
         value: str | None,
         references: set[str],
@@ -192,17 +225,36 @@ class EvidenceSelector:
     def _lexical_overlap(
         query_terms: set[str],
         hit: RetrievalHit,
-        hierarchy: dict[str, object],
     ) -> float:
         if not query_terms:
             return 0.0
         values = [
             hit.text,
-            EvidenceSelector._text(hit.metadata.get("document_title")) or "",
-            EvidenceSelector._text(hit.metadata.get("document_number")) or "",
-            EvidenceSelector._text(hierarchy.get("article_title")) or "",
-            EvidenceSelector._text(hierarchy.get("article_number")) or "",
+            EvidenceSelector._extract_document_title(hit) or "",
+            EvidenceSelector._extract_document_number(hit) or "",
         ]
+        structure = hit.metadata.get("structure")
+        if isinstance(structure, dict):
+            values.extend([
+                EvidenceSelector._text(structure.get("article_title")) or "",
+                EvidenceSelector._text(structure.get("article_number")) or "",
+            ])
+        hierarchy = hit.metadata.get("hierarchy")
+        if isinstance(hierarchy, dict):
+            values.extend([
+                EvidenceSelector._text(hierarchy.get("article_label")) or "",
+                EvidenceSelector._text(hierarchy.get("clause_label")) or "",
+                EvidenceSelector._text(hierarchy.get("point_label")) or "",
+            ])
+            heading_path = hierarchy.get("heading_path")
+            if isinstance(heading_path, list):
+                for item in heading_path:
+                    if isinstance(item, dict):
+                        values.extend([
+                            EvidenceSelector._text(item.get("label")) or "",
+                            EvidenceSelector._text(item.get("title")) or "",
+                        ])
+
         evidence_terms = EvidenceSelector._terms(" ".join(values))
         return len(query_terms & evidence_terms) / len(query_terms)
 
@@ -258,8 +310,6 @@ class EvidenceSelector:
 
         first_code = suffix.split("-", 1)[0]
 
-        # Conservative mapping only.
-        # Unsupported document families fail closed.
         type_prefix_by_code = {
             "nd": "nghi-dinh",
             "tt": "thong-tu",
@@ -364,7 +414,7 @@ class EvidenceSelector:
             return False
 
         title = EvidenceSelector._canonical_identity_slug(
-            hit.metadata.get("document_title")
+            EvidenceSelector._extract_document_title(hit)
         )
 
         source_url = EvidenceSelector._canonical_identity_slug(

@@ -1,5 +1,6 @@
-"""Tests for bounded retrieval-hit to evidence conversion."""
+"""Tests for bounded retrieval-hit to evidence conversion with legacy and V2 representations."""
 
+import copy
 import pytest
 
 from legal_agentic_rag.configuration import EvidenceSelectionConfig, GenerationConfig
@@ -11,6 +12,7 @@ from legal_agentic_rag.schemas import (
     RetrievalQuery,
     RetrievalResponse,
     RetrievalStrategy,
+    RetrievalTrace,
 )
 
 
@@ -39,6 +41,65 @@ def _hit(
                 "article_title": f"Điều {rank}",
             },
         },
+    )
+
+
+def _v2_hit(
+    unit_id: str,
+    doc_id: str,
+    rank: int,
+    *,
+    doc_number: str | None = "45/2019/QH14",
+    doc_title: str | None = "Bộ luật Lao động 2019",
+    article_label: str | None = "113",
+    clause_label: str | None = "1",
+    point_label: str | None = None,
+    heading_path: list[dict] | None = None,
+    authority_text: str = "Người lao động được nghỉ hằng năm.",
+    retrieval_text: str = "Văn bản: Bộ luật Lao động\n---\nKhoản 1 Điều 113...",
+    token_count: int = 4,
+    reranker_score: float = 8.5,
+) -> RetrievalHit:
+    headings = heading_path if heading_path is not None else [
+        {"type": "CHAPTER", "label": "VII", "title": "THỜI GIỜ LÀM VIỆC, NGHỈ NGƠI"}
+    ]
+    trace = RetrievalTrace(
+        bm25_rank=rank,
+        dense_rank=rank,
+        bm25_score=-1.2,
+        dense_score=0.88,
+        bm25_rrf_contribution=0.016,
+        dense_rrf_contribution=0.016,
+        rrf_score=0.032,
+        reranker_score=reranker_score,
+    )
+    return RetrievalHit(
+        chunk_id=unit_id,
+        document_id=doc_id,
+        rank=rank,
+        score=reranker_score,
+        strategy=RetrievalStrategy.HYBRID_RERANK,
+        text=authority_text,
+        metadata={
+            "token_count": token_count,
+            "provision_id": f"{doc_id}::art:{article_label}",
+            "retrieval_text": retrieval_text,
+            "document_identity": {
+                "document_number": doc_number,
+                "title": doc_title,
+            },
+            "hierarchy": {
+                "article_label": article_label,
+                "clause_label": clause_label,
+                "point_label": point_label,
+                "heading_path": headings,
+            },
+            "strategy": "WHOLE_PROVISION",
+            "quality_flags": [],
+            "segment_index": 1,
+            "segment_count": 1,
+        },
+        retrieval_trace=trace,
     )
 
 
@@ -195,3 +256,91 @@ def test_context_builder_enforces_document_and_article_diversity() -> None:
     assert [item.chunk_id for item in result.evidence] == ["first", "other"]
     assert result.selection_trace[1].reason == "diversity_limit"
     assert "diversity_limit_omissions:1" in result.warnings
+
+
+# ==============================================================================
+# V2 CONTEXT BUILDER TESTS
+# ==============================================================================
+
+def test_v2_evidence_conversion_fields_and_trace() -> None:
+    """V2 retrieval units are converted to Evidence with authority text and metadata preservation."""
+    v2_hit = _v2_hit(
+        "unit_100",
+        "doc_labour",
+        1,
+        doc_number="45/2019/QH14",
+        doc_title="Bộ luật Lao động 2019",
+        article_label="113",
+        authority_text="Người lao động làm việc đủ 12 tháng được nghỉ hằng năm.",
+        retrieval_text="Văn bản: Bộ luật Lao động\n---\nKhoản 1 Điều 113...",
+        token_count=12,
+        reranker_score=9.2,
+    )
+    original_meta = copy.deepcopy(v2_hit.metadata)
+
+    builder = ContextBuilder(GenerationConfig(max_context_tokens=100, max_evidence=5))
+    result = builder.build(_response([v2_hit]))
+
+    assert len(result.evidence) == 1
+    ev = result.evidence[0]
+
+    # 1. Identity & text
+    assert ev.chunk_id == "unit_100"
+    assert ev.document_id == "doc_labour"
+    assert ev.text == "Người lao động làm việc đủ 12 tháng được nghỉ hằng năm."
+    # 5. retrieval_text is NOT Evidence.text
+    assert "retrieval_text" not in ev.text
+    assert "Khoản 1 Điều 113..." not in ev.text
+    # 2. Document title populated
+    assert ev.document_title == "Bộ luật Lao động 2019"
+    # 3. Document number populated
+    assert ev.document_number == "45/2019/QH14"
+    # 4. Article label populated as article_number
+    assert ev.article_number == "113"
+    # 6. Unavailable fields remain None
+    assert ev.document_type is None
+    assert ev.effective_date is None
+    assert ev.expiry_date is None
+    assert ev.effect_status is None
+    assert ev.source_url is None
+    # 7. chunk_metadata preserves V2 metadata
+    assert ev.metadata["chunk_metadata"]["provision_id"] == "doc_labour::art:113"
+    # 8. Trace preserved
+    assert ev.metadata["retrieval_trace"]["reranker_score"] == 9.2
+    assert ev.metadata["retrieval_trace"]["bm25_rank"] == 1
+    assert ev.metadata["retrieval_trace"]["dense_rank"] == 1
+    # 14. Input hit metadata not mutated
+    assert v2_hit.metadata == original_meta
+
+
+def test_v2_diversity_limits_per_document_and_article() -> None:
+    """V2 document and article diversity limits correctly filter excessive chunks."""
+    h1 = _v2_hit("u1", "doc_A", 1, doc_number="1/2024/QH", article_label="5")
+    # Same doc, same article -> filtered by max_per_article
+    h2 = _v2_hit("u2", "doc_A", 2, doc_number="1/2024/QH", article_label="5")
+    # Same doc, different article -> filtered by max_per_document if max_per_document=1
+    h3 = _v2_hit("u3", "doc_A", 3, doc_number="1/2024/QH", article_label="6")
+    # Different doc -> accepted
+    h4 = _v2_hit("u4", "doc_B", 4, doc_number="2/2024/QH", article_label="5")
+
+    builder = ContextBuilder(
+        GenerationConfig(max_context_tokens=100, max_evidence=5),
+        EvidenceSelectionConfig(max_per_document=2, max_per_article=1),
+    )
+
+    result = builder.build(_response([h1, h2, h3, h4]))
+
+    assert [ev.chunk_id for ev in result.evidence] == ["u1", "u3", "u4"]
+    assert result.selection_trace[1].reason == "diversity_limit"
+
+
+def test_v2_duplicate_hit_handling_fails_closed_on_payload_mismatch() -> None:
+    """V2 duplicate hits with identical payload are deduplicated; conflicting payload fails closed."""
+    h1 = _v2_hit("u_dup", "doc_A", 1)
+    result = ContextBuilder().build(_response([h1, h1]))
+    assert result.selected_count == 1
+    assert result.duplicate_hit_count == 1
+
+    h_conflict = h1.model_copy(update={"text": "Nội dung mâu thuẫn."})
+    with pytest.raises(DataValidationError, match="inconsistent"):
+        ContextBuilder().build(_response([h1, h_conflict]))
