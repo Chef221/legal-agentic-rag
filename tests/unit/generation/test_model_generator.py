@@ -611,3 +611,245 @@ def test_model_generator_rejects_duplicate_evidence_before_inference() -> None:
             "model-answer-query",
         )
     assert provider.calls == []
+
+
+def test_model_generator_plain_text_canonical_e_markers_preserved() -> None:
+    """Canonical [E1] markers are accepted unchanged without numeric recovery warning."""
+    provider = _FixtureProvider("Doanh nghiệp phải nộp thuế đúng hạn [E1].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence("E1")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert response.answer == "Doanh nghiệp phải nộp thuế đúng hạn [E1]."
+    assert len(response.citations) == 1
+    assert response.citations[0].evidence_id == "E1"
+    assert "plain_text_marker_recovery" in response.warnings
+    assert "plain_text_numeric_marker_recovery" not in response.warnings
+
+
+def test_model_generator_plain_text_accepts_single_numeric_alias() -> None:
+    """Numeric marker [1] is canonicalized to [E1] when E1 is supplied."""
+    provider = _FixtureProvider("Doanh nghiệp phải nộp thuế đúng hạn [1].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence("E1")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert response.answer == "Doanh nghiệp phải nộp thuế đúng hạn [E1]."
+    assert len(response.citations) == 1
+    assert response.citations[0].evidence_id == "E1"
+    assert "plain_text_marker_recovery" in response.warnings
+    assert "plain_text_numeric_marker_recovery" in response.warnings
+
+
+def test_model_generator_plain_text_accepts_other_numeric_alias() -> None:
+    """Numeric marker [2] is canonicalized to [E2] when E2 is supplied."""
+    provider = _FixtureProvider("Nghĩa vụ nộp thuế được quy định tại [2].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence("E1"), _evidence("E2", chunk_id="chunk-2")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert response.answer == "Nghĩa vụ nộp thuế được quy định tại [E2]."
+    assert len(response.citations) == 1
+    assert response.citations[0].evidence_id == "E2"
+    assert "plain_text_numeric_marker_recovery" in response.warnings
+
+
+def test_model_generator_plain_text_mixed_canonical_and_numeric_preserves_order() -> None:
+    """Mixed [E1] ... [2] canonicalizes to [E1] ... [E2] preserving citation order."""
+    provider = _FixtureProvider("Theo [E1], doanh nghiệp nộp thuế. Theo [2], có ngoại lệ.")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence("E1"), _evidence("E2", chunk_id="chunk-2")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert response.answer == "Theo [E1], doanh nghiệp nộp thuế. Theo [E2], có ngoại lệ."
+    assert [c.evidence_id for c in response.citations] == ["E1", "E2"]
+    assert "plain_text_numeric_marker_recovery" in response.warnings
+
+
+def test_model_generator_plain_text_rejects_unknown_numeric_alias_fail_closed() -> None:
+    """Unknown numeric alias [9] raises ModelError when E9 was not supplied."""
+    provider = _FixtureProvider("Thời hạn nộp thuế là 30 ngày [9].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+        max_structured_output_retries=0,
+    )
+    with pytest.raises(ModelError, match="supplied"):
+        generator.generate(
+            _query(),
+            [_evidence("E1")],
+            RetrievalStrategy.HYBRID_RERANK,
+            "model-answer-query",
+        )
+
+
+def test_model_generator_plain_text_rejects_zero_marker() -> None:
+    """[0] is not a valid numeric alias and fails schema parsing."""
+    provider = _FixtureProvider("Thời hạn nộp thuế là 30 ngày [0].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+        max_structured_output_retries=0,
+    )
+    with pytest.raises(ModelError, match="schema"):
+        generator.generate(
+            _query(),
+            [_evidence("E1")],
+            RetrievalStrategy.HYBRID_RERANK,
+            "model-answer-query",
+        )
+
+
+def test_model_generator_plain_text_rejects_leading_zero_marker() -> None:
+    """[01] is not a valid numeric alias and fails schema parsing."""
+    provider = _FixtureProvider("Thời hạn nộp thuế là 30 ngày [01].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+        max_structured_output_retries=0,
+    )
+    with pytest.raises(ModelError, match="schema"):
+        generator.generate(
+            _query(),
+            [_evidence("E1")],
+            RetrievalStrategy.HYBRID_RERANK,
+            "model-answer-query",
+        )
+
+
+def test_model_generator_plain_text_rejects_uncited_prose() -> None:
+    """Prose with no markers still fails schema parsing as before."""
+    provider = _FixtureProvider("Thời hạn nộp thuế là 30 ngày kể từ ngày nhận thông báo.")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+        max_structured_output_retries=0,
+    )
+    with pytest.raises(ModelError, match="schema"):
+        generator.generate(
+            _query(),
+            [_evidence("E1")],
+            RetrievalStrategy.HYBRID_RERANK,
+            "model-answer-query",
+        )
+
+
+def test_model_generator_json_mode_does_not_use_numeric_recovery() -> None:
+    """JSON schema mode does not gain numeric alias recovery."""
+    provider = _FixtureProvider(
+        json.dumps({
+            "answer": "Doanh nghiệp nộp thuế đúng hạn [1].",
+            "cited_evidence_ids": ["1"],
+            "insufficient_evidence": False,
+        })
+    )
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        prompt_schema_mode="json_schema",
+        max_structured_output_retries=0,
+    )
+    with pytest.raises(ModelError, match="schema"):
+        generator.generate(
+            _query(),
+            [_evidence("E1")],
+            RetrievalStrategy.HYBRID,
+            "model-answer-query",
+        )
+
+
+def test_model_generator_numeric_recovery_does_not_mutate_input_evidence() -> None:
+    """Input evidence list and individual Evidence instances remain immutable."""
+    ev = _evidence("E1")
+    ev_copy = ev.model_copy()
+    evidence_list = [ev]
+
+    provider = _FixtureProvider("Nộp thuế đúng hạn [1].")
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        prompt_schema_mode="plain_text_markers",
+    )
+    generator.generate(
+        _query(),
+        evidence_list,
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+
+    assert ev == ev_copy
+    assert len(evidence_list) == 1
+    assert evidence_list[0] is ev
+
+
+def test_model_generator_forensic_shape_regression() -> None:
+    """Exact forensic Q1 shape with trailing [1] recovers semantic synthesis."""
+    forensic_completion = (
+        "Theo khoản 1 Điều 5 Nghị định số 45/2022/NĐ-CP, "
+        "thời hiệu xử phạt vi phạm hành chính trong lĩnh vực bảo vệ môi trường là 02 năm.\n"
+        "[1]"
+    )
+    provider = _FixtureProvider(forensic_completion)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        answer_style="competition_reference",
+        prompt_schema_mode="plain_text_markers",
+    )
+    ev = Evidence(
+        evidence_id="E1",
+        chunk_id="chunk-env-1",
+        document_id="doc-45-2022",
+        text="Thời hiệu xử phạt vi phạm hành chính trong lĩnh vực bảo vệ môi trường là 02 năm.",
+        article_number="5",
+        document_title="Nghị định 45/2022/NĐ-CP",
+        document_number="45/2022/NĐ-CP",
+    )
+    response = generator.generate(
+        RetrievalQuery(
+            query_id="q1-forensic",
+            original_question="Thời hiệu xử phạt vi phạm hành chính trong lĩnh vực bảo vệ môi trường là bao lâu?",
+            normalized_question="thời hiệu xử phạt môi trường",
+            top_k=1,
+            candidate_k=1,
+        ),
+        [ev],
+        RetrievalStrategy.HYBRID_RERANK,
+        "q1-forensic",
+    )
+    assert response.metadata.get("semantic_synthesis") is True
+    assert "generator_model_error_fallback" not in response.warnings
+    assert "plain_text_numeric_marker_recovery" in response.warnings
+    assert "[E1]" in response.answer
+    assert "[1]" not in response.answer
+    assert len(response.citations) == 1
+    assert response.citations[0].evidence_id == "E1"

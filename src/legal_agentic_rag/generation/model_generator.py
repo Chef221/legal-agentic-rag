@@ -76,6 +76,8 @@ evidence. Không tổng hợp các văn bản chỉ vì cùng chứa một cụm
 trực tiếp giúp trả lời. Không kéo dài bằng giải thích chung hoặc lặp lại câu hỏi."""
 _BRACKET_CONTENT_PATTERN = re.compile(r"\[([^\[\]]+)\]")
 _EVIDENCE_ID_PATTERN = re.compile(r"\bE[1-9][0-9]*\b")
+_STRICT_NUMERIC_ALIAS_PATTERN = re.compile(r"^[1-9][0-9]*$")
+_CANONICAL_EVIDENCE_MARKER_PATTERN = re.compile(r"^E[1-9][0-9]*$")
 _LIST_OR_PROCEDURE_QUERY_PATTERN = re.compile(
     r"\b(?:bao gồm|gồm những|các trường hợp|hồ sơ|mẫu|thủ tục|trình tự|"
     r"quy trình|điều kiện|nghĩa vụ|nhiệm vụ)\b",
@@ -212,7 +214,28 @@ class ModelBackedAnswerGenerator:
                 )
                 model_error_retry_count += retry_count
                 try:
-                    draft = self._parse_draft(completion)
+                    parse_text = completion
+                    numeric_recovered = False
+                    if self._prompt_schema_mode == "plain_text_markers":
+                        parse_text, numeric_recovered = (
+                            self._normalize_plain_text_numeric_markers(
+                                completion, evidence_by_id
+                            )
+                        )
+                    draft = self._parse_draft(parse_text)
+                    if (
+                        numeric_recovered
+                        and "plain_text_numeric_marker_recovery"
+                        not in draft.warnings
+                    ):
+                        draft = draft.model_copy(
+                            update={
+                                "warnings": [
+                                    *draft.warnings,
+                                    "plain_text_numeric_marker_recovery",
+                                ]
+                            }
+                        )
                     draft = self._validate_draft(draft, evidence_by_id)
                     break
                 except ModelError as error:
@@ -269,8 +292,30 @@ class ModelBackedAnswerGenerator:
                 ),
             )
             model_error_retry_count += retry_count
+            repair_parse_text = completion
+            repair_numeric_recovered = False
+            if self._prompt_schema_mode == "plain_text_markers":
+                repair_parse_text, repair_numeric_recovered = (
+                    self._normalize_plain_text_numeric_markers(
+                        completion, evidence_by_id
+                    )
+                )
+            repaired_draft = self._parse_draft(repair_parse_text)
+            if (
+                repair_numeric_recovered
+                and "plain_text_numeric_marker_recovery"
+                not in repaired_draft.warnings
+            ):
+                repaired_draft = repaired_draft.model_copy(
+                    update={
+                        "warnings": [
+                            *repaired_draft.warnings,
+                            "plain_text_numeric_marker_recovery",
+                        ]
+                    }
+                )
             repaired_draft = self._validate_draft(
-                self._parse_draft(completion),
+                repaired_draft,
                 evidence_by_id,
             )
         except ModelError:
@@ -826,6 +871,42 @@ class ModelBackedAnswerGenerator:
                 update={"cited_evidence_ids": markers}
             )
         return draft
+
+    @staticmethod
+    def _normalize_plain_text_numeric_markers(
+        completion: str,
+        evidence_by_id: dict[str, Evidence],
+    ) -> tuple[str, bool]:
+        has_numeric_recovery = False
+
+        def _replace_bracket(match: re.Match[str]) -> str:
+            nonlocal has_numeric_recovery
+            raw_content = match.group(1)
+            tokens = [t.strip() for t in raw_content.split(",")]
+            new_tokens: list[str] = []
+            bracket_has_alias = False
+
+            for t in tokens:
+                if _CANONICAL_EVIDENCE_MARKER_PATTERN.match(t):
+                    new_tokens.append(t)
+                elif _STRICT_NUMERIC_ALIAS_PATTERN.match(t):
+                    canonical_id = f"E{t}"
+                    if canonical_id not in evidence_by_id:
+                        raise ModelError(
+                            "Model cited evidence that was not supplied"
+                        )
+                    new_tokens.append(canonical_id)
+                    bracket_has_alias = True
+                    has_numeric_recovery = True
+                else:
+                    new_tokens.append(t)
+
+            if bracket_has_alias:
+                return f"[{', '.join(new_tokens)}]"
+            return match.group(0)
+
+        normalized = _BRACKET_CONTENT_PATTERN.sub(_replace_bracket, completion)
+        return normalized, has_numeric_recovery
 
     @staticmethod
     def _extract_markers(answer: str) -> list[str]:
