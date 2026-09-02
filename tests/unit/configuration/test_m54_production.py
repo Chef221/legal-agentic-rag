@@ -39,7 +39,7 @@ def test_build_m54_online_config_returns_valid_config() -> None:
 def test_m54_retrieval_and_evidence_selection_policy_is_exact() -> None:
     """Retrieval parameters, RRF constant, and evidence selection match accepted M54 freeze."""
     cfg = build_m54_online_config()
-    
+
     # Retrieval policy
     assert cfg.retrieval.default_strategy == RetrievalStrategy.HYBRID_RERANK
     assert cfg.retrieval.candidate_k == 40
