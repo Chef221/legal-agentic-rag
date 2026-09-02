@@ -10,8 +10,10 @@ import numpy as np
 
 from legal_agentic_rag.configuration.online import (
     QueryUnderstandingConfig,
+    RerankerConfig,
     RetrievalConfig,
 )
+from legal_agentic_rag.contracts.reranker import Reranker
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, RetrievalError
 from legal_agentic_rag.indexing.bm25.v2_backend import V2SQLiteFTS5BM25Backend
 from legal_agentic_rag.indexing.vector.v2_precomputed_backend import (
@@ -149,8 +151,10 @@ def build_v2_fixed_retriever(
     *,
     retrieval_config: RetrievalConfig | None = None,
     query_understanding_config: QueryUnderstandingConfig | None = None,
+    reranker: Reranker | None = None,
+    reranker_config: RerankerConfig | None = None,
 ) -> FixedRetriever:
-    """Build a standard FixedRetriever backed by V2 BM25 and Dense branches."""
+    """Build a standard FixedRetriever backed by V2 BM25 and Dense branches with optional reranker."""
     bm25_branch = V2BM25RetrievalBranch(bm25_backend)
     dense_branch = V2DenseRetrievalBranch(dense_backend, embedding_provider)
 
@@ -166,4 +170,6 @@ def build_v2_fixed_retriever(
         dense_retriever=dense_branch,
         config=retrieval_config,
         query_understanding_config=query_understanding_config,
+        reranker=reranker,
+        reranker_config=reranker_config,
     )

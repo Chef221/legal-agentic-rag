@@ -1,8 +1,10 @@
-"""Unit tests for V2 BM25 and Dense retrieval branch adapters and hybrid fusion."""
+"""Unit tests for V2 BM25, Dense retrieval branch adapters, hybrid fusion, and reranker integration."""
 
+from collections.abc import Sequence
 from typing import Any
 import pytest
 
+from legal_agentic_rag.configuration.online import RerankerConfig
 from legal_agentic_rag.exceptions import ArtifactCompatibilityError, RetrievalError
 from legal_agentic_rag.retrieval.fixed import FixedRetriever, HybridRetriever
 from legal_agentic_rag.retrieval.v2_branches import (
@@ -93,6 +95,47 @@ class MockEmbeddingProvider:
         return [0.05] * self.dimension
 
 
+class MockReranker:
+    """Mock cross-encoder reranker conforming to Reranker protocol."""
+
+    def __init__(self, model_name: str = "mock-reranker"):
+        self.provider_name = "mock_provider"
+        self.provider_version = "1.0"
+        self.model_name = model_name
+        self.model_revision = "mock_rev_1"
+        self.last_query: RetrievalQuery | None = None
+        self.last_candidates: Sequence[RetrievalHit] = []
+
+    def rerank(
+        self, query: RetrievalQuery, candidates: Sequence[RetrievalHit]
+    ) -> RetrievalResponse:
+        self.last_query = query
+        self.last_candidates = list(candidates)
+        top_candidates = list(candidates)[: query.top_k]
+        hits: list[RetrievalHit] = []
+        for rank_idx, cand in enumerate(top_candidates, start=1):
+            score = 10.0 - float(rank_idx)
+            updated_trace = cand.retrieval_trace.model_copy(
+                update={"reranker_score": score}
+            )
+            hit = cand.model_copy(
+                update={
+                    "rank": rank_idx,
+                    "score": score,
+                    "strategy": RetrievalStrategy.RERANK,
+                    "retrieval_trace": updated_trace,
+                }
+            )
+            hits.append(hit)
+        return RetrievalResponse(
+            query=query,
+            strategy=RetrievalStrategy.RERANK,
+            hits=hits,
+            latency_ms=3.5,
+            artifact_versions={"reranker": self.model_name},
+        )
+
+
 def _create_hit(
     unit_id: str,
     doc_id: str,
@@ -105,6 +148,16 @@ def _create_hit(
     meta = metadata or {
         "provision_id": f"{doc_id}::art:1",
         "retrieval_text": "Text tim kiem",
+        "document_identity": {
+            "title": "Luật Mẫu",
+            "document_number": "01/2024/QH15",
+        },
+        "hierarchy": {
+            "article_label": "1",
+            "clause_label": "1",
+            "point_label": None,
+            "heading_path": [{"type": "CHAPTER", "label": "I", "title": "QUY ĐỊNH CHUNG"}],
+        },
         "strategy": "WHOLE_PROVISION",
     }
     trace = RetrievalTrace()
@@ -247,13 +300,10 @@ def test_bm25_adapter_delegation():
 def test_hybrid_rrf_fusion_details():
     shared_meta = {"provision_id": "doc:1::art:1", "strategy": "WHOLE_PROVISION"}
 
-    # Unit 1 is in BOTH branches (shared)
     bm25_hit_1 = _create_hit("doc:1::art:1", "doc:1", rank=1, score=-1.5, strategy=RetrievalStrategy.BM25, metadata=shared_meta)
-    # Unit 2 is BM25-only
     bm25_hit_2 = _create_hit("doc:1::art:2", "doc:1", rank=2, score=-3.2, strategy=RetrievalStrategy.BM25)
 
     dense_hit_1 = _create_hit("doc:1::art:1", "doc:1", rank=1, score=0.88, strategy=RetrievalStrategy.DENSE, metadata=shared_meta)
-    # Unit 3 is Dense-only
     dense_hit_3 = _create_hit("doc:2::art:1", "doc:2", rank=2, score=0.75, strategy=RetrievalStrategy.DENSE)
 
     bm25_backend = MockBM25Backend(source_sha="sha_same")
@@ -291,13 +341,12 @@ def test_hybrid_rrf_fusion_details():
     assert h0.retrieval_trace.dense_rrf_contribution > 0
     assert h0.retrieval_trace.rrf_score > 0
 
-    # Branch-only hits remain eligible
     chunk_ids = {h.chunk_id for h in response.hits}
-    assert "doc:1::art:2" in chunk_ids  # BM25-only hit
-    assert "doc:2::art:1" in chunk_ids  # Dense-only hit
+    assert "doc:1::art:2" in chunk_ids
+    assert "doc:2::art:1" in chunk_ids
 
 
-# 17, 18. FixedRetriever strategy routing (BM25, DENSE, HYBRID) without reranker or graph
+# 17, 18. FixedRetriever strategy routing (BM25, DENSE, HYBRID) without reranker
 def test_fixed_retriever_routing():
     bm25_backend = MockBM25Backend(source_sha="sha_same")
     bm25_backend.returned_hits = [_create_hit("doc:1::art:1", "doc:1", 1, -1.0, RetrievalStrategy.BM25)]
@@ -326,3 +375,110 @@ def test_fixed_retriever_routing():
     r_hybrid = retriever.search(q_hybrid)
     assert r_hybrid.strategy == RetrievalStrategy.HYBRID
     assert len(r_hybrid.hits) == 2
+
+
+# ==============================================================================
+# STEP 8: HYBRID-RERANK INTEGRATION TESTS
+# ==============================================================================
+
+def test_v2_fixed_retriever_accepts_reranker_and_routes_hybrid_rerank():
+    shared_meta = {
+        "provision_id": "doc:1::art:1",
+        "document_identity": {"title": "Luật Đất đai", "document_number": "31/2024/QH15"},
+        "hierarchy": {"article_label": "1", "clause_label": "1", "point_label": None, "heading_path": []},
+        "strategy": "WHOLE_PROVISION",
+    }
+
+    bm25_hit = _create_hit("doc:1::art:1", "doc:1", 1, -1.0, RetrievalStrategy.BM25, metadata=shared_meta)
+    dense_hit = _create_hit("doc:1::art:1", "doc:1", 1, 0.95, RetrievalStrategy.DENSE, metadata=shared_meta)
+    dense_hit_2 = _create_hit("doc:2::art:5", "doc:2", 2, 0.70, RetrievalStrategy.DENSE)
+
+    bm25_backend = MockBM25Backend(source_sha="sha_common_v2")
+    bm25_backend.returned_hits = [bm25_hit]
+
+    dense_backend = MockDenseBackend(source_sha="sha_common_v2")
+    dense_backend.returned_hits = [dense_hit, dense_hit_2]
+
+    provider = MockEmbeddingProvider()
+    mock_reranker = MockReranker()
+    reranker_cfg = RerankerConfig(max_candidates=40)
+
+    # 1. build_v2_fixed_retriever accepts optional reranker and config
+    retriever = build_v2_fixed_retriever(
+        bm25_backend=bm25_backend,
+        dense_backend=dense_backend,
+        embedding_provider=provider,
+        reranker=mock_reranker,
+        reranker_config=reranker_cfg,
+    )
+
+    # 11. source artifact identity remains the V2 common lineage
+    assert retriever._hybrid.source_artifact_identity == ("retrieval_units_v2", "100", "sha_common_v2")
+
+    query = RetrievalQuery(
+        query_id="q_hybrid_rerank",
+        original_question="hỏi đất đai",
+        normalized_question="hoi dat dai",
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+        top_k=2,
+        candidate_k=10,
+    )
+
+    # 2. HYBRID_RERANK routing succeeds
+    response = retriever.search(query)
+
+    # 4. Candidate stage was HYBRID (checked via mock reranker inputs)
+    assert mock_reranker.last_query is not None
+    assert mock_reranker.last_query.requested_strategy == RetrievalStrategy.RERANK
+
+    # 5. Reranker receives candidates up to candidate_k
+    assert len(mock_reranker.last_candidates) <= 10
+
+    # 6. Final response strategy is HYBRID_RERANK
+    assert response.strategy == RetrievalStrategy.HYBRID_RERANK
+
+    # 7. Final hit count <= top_k
+    assert len(response.hits) <= 2
+    assert len(response.hits) >= 1
+
+    top_hit = response.hits[0]
+
+    # 8. Retrieval provenance survives reranking (bm25_rank, dense_rank, rrf fields)
+    assert top_hit.retrieval_trace.bm25_rank == 1
+    assert top_hit.retrieval_trace.dense_rank == 1
+    assert top_hit.retrieval_trace.bm25_rrf_contribution > 0
+    assert top_hit.retrieval_trace.dense_rrf_contribution > 0
+    assert top_hit.retrieval_trace.rrf_score > 0
+
+    # 9. reranker_score survives in trace
+    assert top_hit.retrieval_trace.reranker_score is not None
+    assert top_hit.score == top_hit.retrieval_trace.reranker_score
+
+    # 10. V2 metadata survives reranking
+    assert top_hit.metadata["document_identity"]["title"] == "Luật Đất đai"
+    assert top_hit.metadata["document_identity"]["document_number"] == "31/2024/QH15"
+    assert top_hit.metadata["provision_id"] == "doc:1::art:1"
+
+
+# 3. No reranker => fail-closed behavior remains for HYBRID_RERANK
+def test_v2_fixed_retriever_fails_closed_without_reranker():
+    bm25_backend = MockBM25Backend()
+    dense_backend = MockDenseBackend()
+    provider = MockEmbeddingProvider()
+
+    retriever = build_v2_fixed_retriever(
+        bm25_backend=bm25_backend,
+        dense_backend=dense_backend,
+        embedding_provider=provider,
+        reranker=None,
+    )
+
+    query = RetrievalQuery(
+        query_id="q_fail",
+        original_question="test",
+        normalized_question="test",
+        requested_strategy=RetrievalStrategy.HYBRID_RERANK,
+    )
+
+    with pytest.raises(RetrievalError, match="has no reranker"):
+        retriever.search(query)
