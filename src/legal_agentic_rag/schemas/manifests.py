@@ -39,6 +39,10 @@ class ArtifactType(StrEnum):
     VECTOR_SERVING_METADATA = "vector_serving_metadata"
     RELATIONSHIP_MAPPING = "relationship_mapping"
     GRAPH_INDEX = "graph_index"
+    CANONICAL_DOCUMENTS_V2 = "canonical_documents_v2"
+    LEGAL_PROVISIONS_V2 = "legal_provisions_v2"
+    RETRIEVAL_UNITS_V2 = "retrieval_units_v2"
+    LEGAL_REFERENCES_V2 = "legal_references_v2"
 
 
 class DatasetManifest(BaseModel):
