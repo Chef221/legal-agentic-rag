@@ -15,6 +15,13 @@ from legal_agentic_rag.configuration.evaluation import (
     EvaluationObjectiveConfig,
 )
 from legal_agentic_rag.configuration.observability import LoggingConfig
+from legal_agentic_rag.configuration.m54_production import (
+    M54_PARAMETER_LIMIT,
+    M54_PRODUCTION_SCHEMA_VERSION,
+    M54_TOTAL_ACTIVE_MODEL_PARAMETERS,
+    build_m54_embedding_config,
+    build_m54_online_config,
+)
 from legal_agentic_rag.configuration.serving import ServingConfig
 from legal_agentic_rag.configuration.offline import (
     BM25IndexConfig,
@@ -66,6 +73,11 @@ __all__ = [
     "IndexBuildConfig",
     "LegalStructureParserConfig",
     "LoggingConfig",
+    "M54_PARAMETER_LIMIT",
+    "M54_PRODUCTION_SCHEMA_VERSION",
+    "M54_TOTAL_ACTIVE_MODEL_PARAMETERS",
+    "build_m54_embedding_config",
+    "build_m54_online_config",
     "OfflineConfig",
     "OnlineConfig",
     "OFFICIAL_CORPUS_DATASET_NAME",
