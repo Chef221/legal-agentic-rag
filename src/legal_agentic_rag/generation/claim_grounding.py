@@ -35,6 +35,48 @@ _STOPWORDS = {
     "và",
     "về",
 }
+_LEGAL_PREFIX_RE = (
+    r"(?:bộ\s+luật|luật|nghị\s+định|"
+    r"thông\s+tư|quyết\s+định|"
+    r"nghị\s+quyết|pháp\s+lệnh)"
+)
+_NUMBERED_LEGAL_REF_PATTERN = re.compile(
+    rf"\b(?:{_LEGAL_PREFIX_RE}(?:\s+số)?)?\s*([0-9]+/[0-9]+/[A-Za-z0-9_Đđ-]+)\b",
+    re.IGNORECASE | re.UNICODE,
+)
+_NAMED_LEGAL_INSTRUMENT_PATTERN = re.compile(
+    rf"\b({_LEGAL_PREFIX_RE}\s+[A-ZÀ-ỹĐ][A-Za-zÀ-ỹĐđ0-9_-]*(?:\s+[A-Za-zÀ-ỹĐđ0-9_-]+){{0,5}})",
+    re.UNICODE | re.IGNORECASE,
+)
+_LEGAL_BOUNDARY_STOP_WORDS = {
+    "năm",
+    "quy",
+    "định",
+    "ngày",
+    "thì",
+    "là",
+    "và",
+    "hoặc",
+    "khi",
+    "được",
+    "của",
+    "tại",
+    "về",
+    "có",
+    "phải",
+    "không",
+    "cho",
+    "theo",
+    "nhằm",
+    "do",
+    "để",
+    "sao",
+    "nếu",
+    "bị",
+    "gồm",
+    "như",
+    "trong",
+}
 _NEGATION_TERMS = {
     "bãi",
     "cấm",
@@ -172,6 +214,9 @@ class RuleBasedClaimGroundingVerifier:
         if self._config.require_negation_match and not negation_match:
             errors.append("negation_mismatch")
 
+        if linked and not self._check_legal_references(claim_text, linked):
+            errors.append("legal_reference_mismatch")
+
         unique_errors = list(dict.fromkeys(errors))
         return ClaimVerification(
             claim_id=claim_id,
@@ -234,6 +279,68 @@ class RuleBasedClaimGroundingVerifier:
         return RuleBasedClaimGroundingVerifier._content_terms(value) & (
             _NEGATION_TERMS
         )
+
+    @staticmethod
+    def _extract_legal_references(text: str) -> list[str]:
+        references: list[str] = []
+        for match in _NUMBERED_LEGAL_REF_PATTERN.finditer(text):
+            doc_num = match.group(1).strip().casefold()
+            if "/" in doc_num:
+                references.append(doc_num)
+
+        for match in _NAMED_LEGAL_INSTRUMENT_PATTERN.finditer(text):
+            raw = match.group(1).strip()
+            tokens = raw.split()
+            p_len = (
+                2
+                if tokens[0].casefold()
+                in {"bộ", "nghị", "thông", "quyết", "pháp"}
+                else 1
+            )
+            if len(tokens) <= p_len:
+                continue
+            name_first_word = tokens[p_len]
+            if not name_first_word[0].isupper():
+                continue
+            valid_tokens = tokens[:p_len]
+            for tok in tokens[p_len:]:
+                tok_clean = tok.strip(".,;:()[]\"'?")
+                if (
+                    tok_clean.casefold() in _LEGAL_BOUNDARY_STOP_WORDS
+                    or tok_clean.isdigit()
+                ):
+                    break
+                valid_tokens.append(tok_clean)
+            if len(valid_tokens) > p_len:
+                references.append(" ".join(valid_tokens).casefold())
+
+        return list(dict.fromkeys(references))
+
+    @staticmethod
+    def _check_legal_references(
+        claim_text: str,
+        linked: list[Evidence],
+    ) -> bool:
+        refs = RuleBasedClaimGroundingVerifier._extract_legal_references(
+            claim_text
+        )
+        if not refs:
+            return True
+        haystack_parts: list[str] = []
+        for ev in linked:
+            for field in (
+                ev.document_title,
+                ev.document_number,
+                ev.document_type,
+                ev.text,
+            ):
+                if field:
+                    haystack_parts.append(field.casefold())
+        haystack = " ".join(haystack_parts)
+        for ref in refs:
+            if ref not in haystack:
+                return False
+        return True
 
     @staticmethod
     def _evidence_text(evidence: Evidence) -> str:
