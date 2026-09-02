@@ -12,6 +12,11 @@ from legal_agentic_rag.retrieval.query_understanding import (
 )
 from legal_agentic_rag.retrieval.rerank import RerankingRetriever
 from legal_agentic_rag.retrieval.rrf import reciprocal_rank_fusion
+from legal_agentic_rag.retrieval.v2_branches import (
+    V2BM25RetrievalBranch,
+    V2DenseRetrievalBranch,
+    build_v2_fixed_retriever,
+)
 
 __all__ = [
     "DenseRetriever",
@@ -21,6 +26,9 @@ __all__ = [
     "QueryBranchResult",
     "QueryUnderstandingService",
     "RerankingRetriever",
+    "V2BM25RetrievalBranch",
+    "V2DenseRetrievalBranch",
+    "build_v2_fixed_retriever",
     "fuse_query_branches",
     "reciprocal_rank_fusion",
 ]
