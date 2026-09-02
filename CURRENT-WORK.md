@@ -1,23 +1,37 @@
 # Current Work — UIT DSC 2026 LegalQA
 
 **Canonical Git Branch:** `main`
-**Canonical Main Promotion:** `COMPLETE`
-**Current Canonical Baseline:** `M49.1-JINA35`
-**Repository Reconciliation Status:** `COMPLETE`
-**Next Engineering Work:** `NOT YET SELECTED`
-**Updated:** 2026-08-25
+**Architectural Lineage Status:** `M49→M53 CLOSED (ARCHITECTURAL RESET)`
+**Closure Authority:** [`M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md`](M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md)
+**Next Authorized Engineering Work:** `M54.0 — Raw Legal Corpus Forensics + Preprocessing V2 Design`
+**Updated:** 2026-09-02
 
 ---
 
-## 1. Executive Status
+## 1. Architectural Lineage Closure & M54 Reset
 
-Milestone **M49.1-JINA35** is the **CANONICAL CURRENT SYSTEM BASELINE** of this repository and is promoted to **`main`**.
+The **M49→M53 architectural lineage is formally CLOSED**.
 
-- **Canonical Git Branch:** `main` (synchronized locally and on GitHub).
+- **Closure Authority**: [`M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md`](M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md).
+- **Status of M49/M50/M52/M53**: All existing artifacts, models, checkpoints, traces, and metrics remain **baselines and forensics only**.
+- **Prohibitions**:
+  - Do NOT rerun M52 full SFT.
+  - Do NOT rescue M53.1 / M53.2B / M53.3.
+  - Do NOT blindly rerun O2 projector training.
+  - Do NOT burn `INTERNAL_TEST`, `Public-1000`, or `Holdout` splits.
+- **Next Authorized Work**:
+  - **`M54.0 — Raw Legal Corpus Forensics + Preprocessing V2 Design`**.
+  - **Constraint**: No full-corpus re-embedding or new model training is authorized until M54.0 corpus forensics and design are complete.
+
+---
+
+## 2. Canonical Baseline (M49.1-JINA35 Historical Control)
+
+Milestone **M49.1-JINA35** remains the historical benchmark baseline on `main`.
+
 - **History-Preserving Main Adoption Merge:** `6ebc0e5bde118e8c83e810251557a2f66c69a0d8`
 - **Pre-Promotion GitHub Main Preserved At:** `archive/main-before-m491-canonical-e1a7916` (`e1a79162c394411ab45349353678be4278dcce71`).
 - **Canonical Promotion Branch Preserved At:** `promotion/m491-jina35-canonical` (`0640a4289a098b1946c5121de90446e0d4dd09d5`).
-- The Kaggle-proven runtime behaviors (Hotfix V1 raw-question identity preservation and Hotfix V2 conservative dual-source anchored explicit-document identity matching) are fully reconciled and verified in the canonical repository source tree.
 
 ### Authoritative Final Benchmark Result
 
@@ -31,13 +45,13 @@ Milestone **M49.1-JINA35** is the **CANONICAL CURRENT SYSTEM BASELINE** of this 
 |---|---|---:|---:|---|
 | **M48 Control** | `Qwen3-Reranker-0.6B` | 0.3631401334440235 | 0.2685876695455311 | Retained Control |
 | **M49.1 Baseline** | `Qwen3-Reranker-0.6B` | 0.473653736 | 0.382772249 | Prior Milestone Baseline |
-| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Current Canonical Baseline** |
+| **M49.1-JINA35 (Final)** | `jina-reranker-v3.5` | **0.496260842** | **0.406858976** | **Historical Baseline** |
 | **Absolute Delta vs M49.1** | — | **+0.022607106** | **+0.024086727** | — |
 | **Absolute Delta vs M48** | — | **+0.133120708556** | **+0.138271306455** | — |
 
 ---
 
-## 2. Final Evaluated Production Authority Hashes
+## 3. Final Evaluated Production Authority Hashes
 
 - **Authoritative Combined Checkpoint SHA256:**
   `3e69f6d5f9f99fa997893f2fd9d263dd7f6cba932adef46e484e79da23724eec`
@@ -56,13 +70,11 @@ Milestone **M49.1-JINA35** is the **CANONICAL CURRENT SYSTEM BASELINE** of this 
 
 ---
 
-## 3. Operational Policy & Next Engineering Work
+## 4. Operational Policy & Governance
 
-1. **Closed Work Policy:**
-   M49.1-JINA35 Public-1000 execution is **CLOSED** (1000/1000 strict valid records). Closed work must not be rerun merely to verify or reproduce it. A future Public-1000 run is allowed only under a NEW explicitly stated hypothesis/objective with newly established execution authority.
-2. **Repository Reconciliation & Main Promotion — Complete:**
-   The Kaggle-proven Hotfix V1/V2 semantic changes are fully integrated into the repository source tree with full regression test coverage and promoted to `main`.
-3. **Next Engineering Work:**
-   **NOT YET SELECTED.** Do not prematurely resume historical experimental lines without a defined hypothesis and user approval.
-4. **Detailed Documentation:**
-   Consult [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md) for the complete causal history, root cause analysis, and audit trail.
+1. **Closed Lineage Policy:**
+   M49→M53 lineage is **CLOSED**. Artifacts are preserved strictly for baseline comparison and forensics.
+2. **Next Authorized Work:**
+   **M54.0 — Raw Legal Corpus Forensics + Preprocessing V2 Design**. No training or re-embedding prior to M54.0 completion.
+3. **Detailed Documentation:**
+   Consult [`M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md`](M49_M53_ARCHITECTURAL_RESET_HANDOFF_2026-09-02.md) and [`docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md`](docs/21-M491-JINA35-PUBLIC1000-FINAL-SUBMISSION.md).
