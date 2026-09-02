@@ -842,9 +842,17 @@ class ModelBackedAnswerGenerator:
         if unknown_markers:
             raise ModelError("Model answer used an unknown evidence marker")
         if draft.insufficient_evidence:
+            if draft.cited_evidence_ids:
+                raise ModelError(
+                    "Insufficient model answer declared evidence citations"
+                )
             if markers:
                 raise ModelError(
                     "Insufficient model answer used evidence markers"
+                )
+            if " ".join(draft.answer.split()) != " ".join(ABSTENTION_TEXT.split()):
+                raise ModelError(
+                    "Insufficient model answer contains non-abstention text"
                 )
             return draft
         if not markers:

@@ -7,6 +7,7 @@ import pytest
 
 from legal_agentic_rag.contracts import AnswerGenerator, ChatModelProvider
 from legal_agentic_rag.exceptions import DataValidationError, ModelError
+from legal_agentic_rag.generation.extractive_generator import ABSTENTION_TEXT
 from legal_agentic_rag.generation import ModelBackedAnswerGenerator
 from legal_agentic_rag.generation import RuleBasedCitationVerifier
 from legal_agentic_rag.schemas import Evidence, RetrievalQuery, RetrievalStrategy
@@ -528,7 +529,7 @@ def test_model_generator_abstains_without_calling_provider() -> None:
 def test_model_generator_accepts_json_fence_and_enforces_model_abstention() -> None:
     """A common JSON fence is parsed, but insufficient output stays fail-closed."""
     completion = _completion(
-        answer="Không đủ căn cứ.",
+        answer=ABSTENTION_TEXT,
         cited_evidence_ids=[],
         insufficient_evidence=True,
         warnings=["thiếu phạm vi áp dụng"],
@@ -853,3 +854,187 @@ def test_model_generator_forensic_shape_regression() -> None:
     assert "[1]" not in response.answer
     assert len(response.citations) == 1
     assert response.citations[0].evidence_id == "E1"
+
+
+# =============================================================================
+# Step 11B: Strict Abstention Invariant Tests
+# =============================================================================
+
+def test_model_generator_abstention_invariant_exact_abstention_text_passes() -> None:
+    """insufficient_evidence=True with exact ABSTENTION_TEXT, no citations, no markers passes."""
+    completion = _completion(
+        answer=ABSTENTION_TEXT,
+        cited_evidence_ids=[],
+        insufficient_evidence=True,
+        warnings=[],
+    )
+    provider = _FixtureProvider(completion)
+    response = ModelBackedAnswerGenerator(provider).generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.insufficient_evidence is True
+    assert response.citations == []
+    assert response.answer == ABSTENTION_TEXT
+    assert "model_reported_insufficient_evidence" in response.warnings
+
+
+def test_model_generator_abstention_invariant_substantive_answer_with_empty_citations_rejected() -> None:
+    """insufficient_evidence=True with substantive answer and empty cited IDs fails validation."""
+    substantive_prose = "Thời hiệu xử phạt vi phạm hành chính trong lĩnh vực bảo vệ môi trường là 02 năm."
+    completion = _completion(
+        answer=substantive_prose,
+        cited_evidence_ids=[],
+        insufficient_evidence=True,
+        warnings=[],
+    )
+    provider = _FixtureProvider(completion)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        model_failure_policy="top_evidence",
+        max_structured_output_retries=0,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.metadata.get("semantic_synthesis") is False
+    assert "generator_model_error_fallback" in response.warnings
+
+
+def test_model_generator_abstention_invariant_insufficient_with_marker_rejected() -> None:
+    """insufficient_evidence=True with evidence marker [E1] fails validation."""
+    completion = _completion(
+        answer=f"{ABSTENTION_TEXT} [E1]",
+        cited_evidence_ids=[],
+        insufficient_evidence=True,
+        warnings=[],
+    )
+    provider = _FixtureProvider(completion)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        model_failure_policy="top_evidence",
+        max_structured_output_retries=0,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.metadata.get("semantic_synthesis") is False
+    assert "generator_model_error_fallback" in response.warnings
+
+
+def test_model_generator_abstention_invariant_insufficient_with_cited_ids_rejected() -> None:
+    """insufficient_evidence=True with non-empty cited_evidence_ids fails validation."""
+    completion = _completion(
+        answer=ABSTENTION_TEXT,
+        cited_evidence_ids=["E1"],
+        insufficient_evidence=True,
+        warnings=[],
+    )
+    provider = _FixtureProvider(completion)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        model_failure_policy="top_evidence",
+        max_structured_output_retries=0,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.metadata.get("semantic_synthesis") is False
+    assert "generator_model_error_fallback" in response.warnings
+
+
+def test_model_generator_abstention_invariant_step11b_q1_compact_draft_rejected() -> None:
+    """Compact JSON draft mirroring Step11B Q1 (substantive answer + insufficient=True) is rejected."""
+    q1_draft_json = (
+        '{\n'
+        '  "answer": "Thời hiệu xử phạt vi phạm hành chính trong lĩnh vực bảo vệ môi trường là 02 năm đối với hành vi vi phạm hành chính đã kết thúc.",\n'
+        '  "cited_evidence_ids": [],\n'
+        '  "insufficient_evidence": true,\n'
+        '  "warnings": []\n'
+        '}'
+    )
+    provider = _FixtureProvider(q1_draft_json)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        model_failure_policy="top_evidence",
+        max_structured_output_retries=0,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.metadata.get("semantic_synthesis") is False
+    assert "generator_model_error_fallback" in response.warnings
+
+
+def test_model_generator_abstention_invariant_step11b_q2_compact_draft_rejected() -> None:
+    """Compact JSON draft mirroring Step11B Q2 (substantive answer + insufficient=True) is rejected."""
+    q2_draft_json = (
+        '{\n'
+        '  "answer": "Điều kiện để cấp giấy phép xây dựng nhà ở riêng lẻ tại đô thị gồm phù hợp với quy hoạch chi tiết xây dựng và bảo đảm an toàn công trình.",\n'
+        '  "cited_evidence_ids": [],\n'
+        '  "insufficient_evidence": true,\n'
+        '  "warnings": []\n'
+        '}'
+    )
+    provider = _FixtureProvider(q2_draft_json)
+    generator = ModelBackedAnswerGenerator(
+        provider,
+        model_failure_policy="top_evidence",
+        max_structured_output_retries=0,
+    )
+    response = generator.generate(
+        _query(),
+        [_evidence()],
+        RetrievalStrategy.HYBRID,
+        "model-answer-query",
+    )
+    assert response.metadata.get("semantic_synthesis") is False
+    assert "generator_model_error_fallback" in response.warnings
+
+
+def test_model_generator_sufficient_canonical_and_numeric_paths_preserved() -> None:
+    """insufficient_evidence=False paths for canonical and numeric markers remain preserved."""
+    # Canonical [E1]
+    provider_canonical = _FixtureProvider("Doanh nghiệp phải nộp thuế [E1].")
+    gen_canonical = ModelBackedAnswerGenerator(
+        provider_canonical,
+        prompt_schema_mode="plain_text_markers",
+    )
+    resp1 = gen_canonical.generate(
+        _query(),
+        [_evidence("E1")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert resp1.metadata.get("semantic_synthesis") is True
+    assert [c.evidence_id for c in resp1.citations] == ["E1"]
+
+    # Numeric [1] -> [E1]
+    provider_numeric = _FixtureProvider("Doanh nghiệp phải nộp thuế [1].")
+    gen_numeric = ModelBackedAnswerGenerator(
+        provider_numeric,
+        prompt_schema_mode="plain_text_markers",
+    )
+    resp2 = gen_numeric.generate(
+        _query(),
+        [_evidence("E1")],
+        RetrievalStrategy.HYBRID_RERANK,
+        "model-answer-query",
+    )
+    assert resp2.metadata.get("semantic_synthesis") is True
+    assert [c.evidence_id for c in resp2.citations] == ["E1"]
+    assert "plain_text_numeric_marker_recovery" in resp2.warnings
