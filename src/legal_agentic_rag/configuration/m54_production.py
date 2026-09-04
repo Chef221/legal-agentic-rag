@@ -118,7 +118,7 @@ def build_m54_online_config() -> OnlineConfig:
             model_failure_policy="top_evidence",
             max_grounding_repair_retries=1,
             grounding_failure_policy="supported_claims_or_top_evidence",
-            extractive_fallback_max_evidence=1,
+            extractive_fallback_max_evidence=3,
             salvage_rendering="standalone",
             prompt_schema_mode="compact_example",
             answer_style="competition_reference",

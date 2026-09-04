@@ -119,7 +119,7 @@ def test_m54_generator_stock_identities_and_compact_policy() -> None:
     assert gen.model_failure_policy == "top_evidence"
     assert gen.max_grounding_repair_retries == 1
     assert gen.grounding_failure_policy == "supported_claims_or_top_evidence"
-    assert gen.extractive_fallback_max_evidence == 1
+    assert gen.extractive_fallback_max_evidence == 3
     assert gen.salvage_rendering == "standalone"
 
 
