@@ -12,6 +12,7 @@ from legal_agentic_rag.configuration.offline import EmbeddingConfig
 from legal_agentic_rag.configuration.online import (
     ArticleAnswerConfig,
     OnlineConfig,
+    RetrievalArtifactMode,
 )
 
 M55_PRODUCTION_SCHEMA_VERSION = "m55_production_v1"
@@ -40,6 +41,7 @@ def build_m55_online_config() -> OnlineConfig:
     m54_online = build_m54_online_config()
     return m54_online.model_copy(
         update={
+            "retrieval_artifact_mode": RetrievalArtifactMode.V2_PRECOMPUTED,
             "article_answer": ArticleAnswerConfig(
                 enabled=True,
                 max_articles=M55_MAX_ARTICLES,
@@ -47,6 +49,6 @@ def build_m55_online_config() -> OnlineConfig:
                 lookup_sha256=M55_LOOKUP_SHA256,
                 expected_record_count=M55_EXPECTED_RECORD_COUNT,
                 structural_fallback_max_evidence=M55_STRUCTURAL_FALLBACK_MAX_EVIDENCE,
-            )
+            ),
         }
     )

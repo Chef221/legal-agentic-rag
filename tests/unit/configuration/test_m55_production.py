@@ -1,4 +1,5 @@
-﻿"""Tests for frozen M55 production runtime configuration."""
+from pathlib import Path
+"""Tests for frozen M55 production runtime configuration."""
 
 from legal_agentic_rag.configuration import (
     EmbeddingConfig,
@@ -64,3 +65,23 @@ def test_m55_and_m54_retrieval_reranker_evidence_selection_are_identical() -> No
     assert m55.query_understanding == m54.query_understanding
     assert m55.agent == m54.agent
     assert m55.startup_validation == m54.startup_validation
+
+def test_retrieval_artifact_mode_defaults_and_m55_setting() -> None:
+    from legal_agentic_rag.configuration.online import RetrievalArtifactMode
+    m54 = build_m54_online_config()
+    m55 = build_m55_online_config()
+
+    assert m54.retrieval_artifact_mode == RetrievalArtifactMode.LEGACY
+    assert m55.retrieval_artifact_mode == RetrievalArtifactMode.V2_PRECOMPUTED
+
+
+def test_v2_artifact_directories_in_artifact_config(tmp_path: Path) -> None:
+    from legal_agentic_rag.configuration.artifacts import ArtifactConfig
+    cfg = ArtifactConfig(root_path=tmp_path)
+
+    assert cfg.retrieval_units_v2_directory == "retrieval_units_v2"
+    assert cfg.bm25_v2_directory == "bm25_v2"
+    assert cfg.dense_v2_directory == "dense_v2"
+    assert cfg.directory("retrieval_units_v2_directory") == tmp_path / "retrieval_units_v2"
+    assert cfg.directory("bm25_v2_directory") == tmp_path / "bm25_v2"
+    assert cfg.directory("dense_v2_directory") == tmp_path / "dense_v2"

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+from enum import StrEnum
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -563,11 +564,21 @@ class ArticleAnswerConfig(BaseModel):
         return self
 
 
+class RetrievalArtifactMode(StrEnum):
+    """Persisted retrieval artifact and backend mode."""
+
+    LEGACY = "legacy"
+    V2_PRECOMPUTED = "v2_precomputed"
+
+
 class OnlineConfig(BaseModel):
     """Top-level typed configuration for future online consumers."""
 
     model_config = ConfigDict(extra="forbid")
 
+    retrieval_artifact_mode: RetrievalArtifactMode = (
+        RetrievalArtifactMode.LEGACY
+    )
     retrieval: RetrievalConfig = Field(default_factory=RetrievalConfig)
     bm25_runtime: BM25RuntimeConfig = Field(default_factory=BM25RuntimeConfig)
     startup_validation: StartupValidationConfig = Field(

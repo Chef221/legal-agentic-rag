@@ -12,6 +12,12 @@ from legal_agentic_rag.agent import (
     DeterministicStrategyRouter,
 )
 from legal_agentic_rag.configuration.application import ApplicationConfig
+from legal_agentic_rag.configuration.online import RetrievalArtifactMode
+from legal_agentic_rag.indexing.bm25.v2_backend import V2SQLiteFTS5BM25Backend
+from legal_agentic_rag.indexing.vector.v2_precomputed_backend import (
+    V2PrecomputedDenseBackend,
+)
+from legal_agentic_rag.retrieval.v2_branches import build_v2_fixed_retriever
 from legal_agentic_rag.contracts import (
     AgentWorkflow,
     AnswerGenerator,
@@ -158,6 +164,7 @@ class OnlineRuntimeFactory:
         self._context_grader = context_grader or RuleBasedContextGrader(
             config.online.context_grading
         )
+        self._retrieval_artifact_mode = config.online.retrieval_artifact_mode
         self._article_answer_enabled = config.online.article_answer.enabled
         self._article_store: ArticleAuthorityStore | None = None
         self._article_assembler: FirstKFullArticleAnswerAssembler | None = None
@@ -226,6 +233,152 @@ class OnlineRuntimeFactory:
 
     def build(self) -> OnlineRuntime:
         """Load, validate, and compose all online capabilities without mutation."""
+        if self._retrieval_artifact_mode == RetrievalArtifactMode.V2_PRECOMPUTED:
+            return self._build_v2()
+        return self._build_legacy()
+
+    def _build_v2(self) -> OnlineRuntime:
+        """Build runtime backed by verified V2 BM25 and precomputed Dense artifacts."""
+        startup_started = perf_counter()
+        deep_validation = (
+            self._config.online.startup_validation.mode == "full"
+        )
+        _LOGGER.info(
+            "online_v2_runtime_load_started",
+            extra={
+                "startup_validation_mode": (
+                    self._config.online.startup_validation.mode
+                )
+            },
+        )
+        units_path = (
+            self._directory("retrieval_units_v2_directory")
+            / "records.jsonl"
+        )
+        bm25_dir = self._directory("bm25_v2_directory")
+        dense_dir = self._directory("dense_v2_directory")
+
+        bm25_started = perf_counter()
+        _LOGGER.info("online_v2_bm25_load_started")
+        bm25_backend = V2SQLiteFTS5BM25Backend.load(
+            artifact_dir=bm25_dir,
+            units_path=units_path,
+            verify_db_sha=deep_validation,
+            runtime_config=self._config.online.bm25_runtime,
+            strict_manifest=True,
+        )
+        _LOGGER.info(
+            "online_v2_bm25_load_completed",
+            extra={"latency_ms": (perf_counter() - bm25_started) * 1000},
+        )
+
+        dense_started = perf_counter()
+        _LOGGER.info("online_v2_dense_load_started")
+        dense_backend = V2PrecomputedDenseBackend.load(
+            matrix_dir=dense_dir,
+            units_path=units_path,
+            verify_integrity=deep_validation,
+            strict_manifest=True,
+        )
+        _LOGGER.info(
+            "online_v2_dense_load_completed",
+            extra={"latency_ms": (perf_counter() - dense_started) * 1000},
+        )
+
+        query_understanding = QueryUnderstandingService(
+            self._config.online.query_understanding
+        )
+        retriever = build_v2_fixed_retriever(
+            bm25_backend=bm25_backend,
+            dense_backend=dense_backend,
+            embedding_provider=self._embedding_provider,
+            retrieval_config=self._config.online.retrieval,
+            query_understanding_config=(
+                self._config.online.query_understanding
+            ),
+            reranker=self._reranker,
+            reranker_config=self._config.online.reranker,
+        )
+
+        if self._article_answer_enabled:
+            registry = build_retrieval_grading_tool_registry(
+                retriever=retriever,
+                context_grader=self._context_grader,
+                retrieval_timeout_seconds=(
+                    self._config.online.retrieval.timeout_seconds
+                ),
+                grading_timeout_seconds=(
+                    self._config.online.generation.timeout_seconds
+                ),
+            )
+            workflow = DeterministicAgentWorkflow(
+                registry,
+                article_answerer=self._article_assembler,
+                agent_config=self._config.online.agent,
+                generation_config=self._config.online.generation,
+                evidence_selection_config=(
+                    self._config.online.evidence_selection
+                ),
+                router=DeterministicStrategyRouter(
+                    self._config.online.agent,
+                    self._config.online.query_understanding,
+                ),
+            )
+        else:
+            assert self._answer_generator is not None
+            assert self._citation_verifier is not None
+            registry = build_fixed_tool_registry(
+                retriever=retriever,
+                context_grader=self._context_grader,
+                answer_generator=self._answer_generator,
+                citation_verifier=self._citation_verifier,
+                retrieval_timeout_seconds=(
+                    self._config.online.retrieval.timeout_seconds
+                ),
+                generation_timeout_seconds=(
+                    self._config.online.generation.timeout_seconds
+                ),
+                verification_timeout_seconds=(
+                    self._config.online.semantic_verification.timeout_seconds
+                    if (
+                        self._config.online.semantic_verification.backend
+                        != "disabled"
+                    )
+                    else self._config.online.generation.timeout_seconds
+                ),
+            )
+            workflow = DeterministicAgentWorkflow(
+                registry,
+                agent_config=self._config.online.agent,
+                generation_config=self._config.online.generation,
+                evidence_selection_config=(
+                    self._config.online.evidence_selection
+                ),
+                router=DeterministicStrategyRouter(
+                    self._config.online.agent,
+                    self._config.online.query_understanding,
+                ),
+            )
+
+        manifests: dict[str, ArtifactManifest] = {}
+        _LOGGER.info(
+            "online_v2_runtime_initialized",
+            extra={
+                "tool_count": len(registry.descriptors()),
+                "reranker_model": self._reranker.model_name,
+                "latency_ms": (perf_counter() - startup_started) * 1000,
+            },
+        )
+        return OnlineRuntime(
+            workflow=workflow,
+            retriever=retriever,
+            registry=registry,
+            manifests=manifests,
+            query_understanding=query_understanding,
+        )
+
+    def _build_legacy(self) -> OnlineRuntime:
+        """Load, validate, and compose legacy online capabilities without mutation."""
         startup_started = perf_counter()
         deep_validation = (
             self._config.online.startup_validation.mode == "full"

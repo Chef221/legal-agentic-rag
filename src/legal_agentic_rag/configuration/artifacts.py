@@ -24,6 +24,9 @@ class ArtifactConfig(BaseModel):
     vector_serving_directory: str = "vector_serving"
     graph_directory: str = "graph"
     article_authority_directory: str = "article_authority"
+    retrieval_units_v2_directory: str = "retrieval_units_v2"
+    bm25_v2_directory: str = "bm25_v2"
+    dense_v2_directory: str = "dense_v2"
 
     @field_validator(
         "audit_directory",
@@ -37,6 +40,9 @@ class ArtifactConfig(BaseModel):
         "vector_serving_directory",
         "graph_directory",
         "article_authority_directory",
+        "retrieval_units_v2_directory",
+        "bm25_v2_directory",
+        "dense_v2_directory",
     )
     @classmethod
     def validate_directory_name(cls, value: str) -> str:
@@ -67,6 +73,9 @@ class ArtifactConfig(BaseModel):
             self.vector_serving_directory,
             self.graph_directory,
             self.article_authority_directory,
+            self.retrieval_units_v2_directory,
+            self.bm25_v2_directory,
+            self.dense_v2_directory,
         ]
         if len(names) != len(set(names)):
             raise ValueError("artifact directories must be unique")
