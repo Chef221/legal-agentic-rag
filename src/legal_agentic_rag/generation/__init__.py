@@ -1,5 +1,9 @@
 """Fixed grounded answer generation and verification pipeline."""
 
+from legal_agentic_rag.generation.article_authority import (
+    ArticleAuthorityStore,
+    FirstKFullArticleAnswerAssembler,
+)
 from legal_agentic_rag.generation.citation_verifier import (
     RuleBasedCitationVerifier,
 )
@@ -32,6 +36,8 @@ from legal_agentic_rag.generation.transformers_provider import (
 )
 
 __all__ = [
+    "ArticleAuthorityStore",
+    "FirstKFullArticleAnswerAssembler",
     "ContextBuilder",
     "EvidenceSelector",
     "ExtractiveAnswerGenerator",

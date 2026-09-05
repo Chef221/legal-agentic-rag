@@ -22,6 +22,17 @@ from legal_agentic_rag.configuration.m54_production import (
     build_m54_embedding_config,
     build_m54_online_config,
 )
+from legal_agentic_rag.configuration.m55_production import (
+    M55_EXPECTED_RECORD_COUNT,
+    M55_LOOKUP_FILENAME,
+    M55_LOOKUP_SHA256,
+    M55_MAX_ARTICLES,
+    M55_PARAMETER_LIMIT,
+    M55_PRODUCTION_SCHEMA_VERSION,
+    M55_STRUCTURAL_FALLBACK_MAX_EVIDENCE,
+    build_m55_embedding_config,
+    build_m55_online_config,
+)
 from legal_agentic_rag.configuration.serving import ServingConfig
 from legal_agentic_rag.configuration.offline import (
     BM25IndexConfig,
@@ -36,6 +47,7 @@ from legal_agentic_rag.configuration.offline import (
 )
 from legal_agentic_rag.configuration.online import (
     AgentConfig,
+    ArticleAnswerConfig,
     BM25RuntimeConfig,
     ClaimVerificationConfig,
     ContextGradingConfig,
@@ -52,6 +64,7 @@ from legal_agentic_rag.configuration.online import (
 
 __all__ = [
     "AgentConfig",
+    "ArticleAnswerConfig",
     "BM25RuntimeConfig",
     "ApplicationConfig",
     "ArtifactConfig",
@@ -78,6 +91,15 @@ __all__ = [
     "M54_TOTAL_ACTIVE_MODEL_PARAMETERS",
     "build_m54_embedding_config",
     "build_m54_online_config",
+    "M55_EXPECTED_RECORD_COUNT",
+    "M55_LOOKUP_FILENAME",
+    "M55_LOOKUP_SHA256",
+    "M55_MAX_ARTICLES",
+    "M55_PARAMETER_LIMIT",
+    "M55_PRODUCTION_SCHEMA_VERSION",
+    "M55_STRUCTURAL_FALLBACK_MAX_EVIDENCE",
+    "build_m55_embedding_config",
+    "build_m55_online_config",
     "OfflineConfig",
     "OnlineConfig",
     "OFFICIAL_CORPUS_DATASET_NAME",

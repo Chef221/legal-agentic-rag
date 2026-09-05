@@ -1,7 +1,10 @@
 """Closed typed tool wrappers for the later Agent workflow."""
 
 from legal_agentic_rag.tools.contracts import TypedTool
-from legal_agentic_rag.tools.factory import build_fixed_tool_registry
+from legal_agentic_rag.tools.factory import (
+    build_fixed_tool_registry,
+    build_retrieval_grading_tool_registry,
+)
 from legal_agentic_rag.tools.generation import (
     AnswerGenerationTool,
     CitationVerificationTool,
@@ -18,5 +21,6 @@ __all__ = [
     "ToolRegistry",
     "TypedTool",
     "build_fixed_tool_registry",
+    "build_retrieval_grading_tool_registry",
     "fixed_retrieval_tools",
 ]

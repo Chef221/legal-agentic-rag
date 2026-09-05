@@ -21,8 +21,10 @@ from legal_agentic_rag.contracts import (
     Reranker,
 )
 from legal_agentic_rag.embeddings import SentenceTransformerEmbeddingProvider
-from legal_agentic_rag.exceptions import ArtifactCompatibilityError
+from legal_agentic_rag.exceptions import ArtifactCompatibilityError, ConfigurationError
 from legal_agentic_rag.generation import (
+    ArticleAuthorityStore,
+    FirstKFullArticleAnswerAssembler,
     RuleBasedContextGrader,
     build_answer_generator,
     build_citation_verifier,
@@ -45,7 +47,7 @@ from legal_agentic_rag.schemas import (
     RetrievalResponse,
     ToolDescriptor,
 )
-from legal_agentic_rag.tools import ToolRegistry, build_fixed_tool_registry
+from legal_agentic_rag.tools import ToolRegistry, build_fixed_tool_registry, build_retrieval_grading_tool_registry
 from legal_agentic_rag.runtime.artifact_store import load_artifact_manifest
 from legal_agentic_rag.runtime.startup_validation import (
     validate_competition_artifact_lineage,
@@ -156,30 +158,71 @@ class OnlineRuntimeFactory:
         self._context_grader = context_grader or RuleBasedContextGrader(
             config.online.context_grading
         )
-        if answer_generator is None and citation_verifier is None:
-            (
-                self._answer_generator,
-                self._citation_verifier,
-            ) = build_generation_components(
-                config.online.generation,
-                config.online.claim_verification,
-                config.online.semantic_verification,
+        self._article_answer_enabled = config.online.article_answer.enabled
+        self._article_store: ArticleAuthorityStore | None = None
+        self._article_assembler: FirstKFullArticleAnswerAssembler | None = None
+
+        if self._article_answer_enabled:
+            if answer_generator is not None or citation_verifier is not None:
+                raise ConfigurationError(
+                    "Cannot provide answer_generator or citation_verifier when article_answer mode is enabled"
+                )
+            self._answer_generator = None
+            self._citation_verifier = None
+            lookup_path = (
+                config.artifacts.directory("article_authority_directory")
+                / config.online.article_answer.lookup_filename
+            )
+            self._article_store = ArticleAuthorityStore.from_jsonl(
+                lookup_path,
+                expected_sha256=config.online.article_answer.lookup_sha256,
+                expected_record_count=config.online.article_answer.expected_record_count,
+            )
+            self._article_assembler = FirstKFullArticleAnswerAssembler(
+                self._article_store,
+                config=config.online.article_answer,
+            )
+            _LOGGER.info(
+                "online_runtime_factory_article_answer_mode_configured",
+                extra={
+                    "article_answer_enabled": True,
+                    "lookup_record_count": self._article_store.record_count,
+                    "lookup_authority_sha": self._article_store.sha256,
+                    "max_articles": config.online.article_answer.max_articles,
+                    "qwen_generation_components_constructed": False,
+                },
             )
         else:
-            self._answer_generator = (
-                answer_generator
-                or build_answer_generator(
-                    config.online.generation,
-                    claim_config=config.online.claim_verification,
-                )
+            _LOGGER.info(
+                "online_runtime_factory_legacy_generation_mode_configured",
+                extra={
+                    "article_answer_enabled": False,
+                },
             )
-            self._citation_verifier = (
-                citation_verifier
-                or build_citation_verifier(
+            if answer_generator is None and citation_verifier is None:
+                (
+                    self._answer_generator,
+                    self._citation_verifier,
+                ) = build_generation_components(
+                    config.online.generation,
                     config.online.claim_verification,
                     config.online.semantic_verification,
                 )
-            )
+            else:
+                self._answer_generator = (
+                    answer_generator
+                    or build_answer_generator(
+                        config.online.generation,
+                        claim_config=config.online.claim_verification,
+                    )
+                )
+                self._citation_verifier = (
+                    citation_verifier
+                    or build_citation_verifier(
+                        config.online.claim_verification,
+                        config.online.semantic_verification,
+                    )
+                )
 
     def build(self) -> OnlineRuntime:
         """Load, validate, and compose all online capabilities without mutation."""
@@ -294,38 +337,65 @@ class OnlineRuntimeFactory:
             graph_backend=graph,
             chunk_manifest=chunk_manifest,
         )
-        registry = build_fixed_tool_registry(
-            retriever=retriever,
-            context_grader=self._context_grader,
-            answer_generator=self._answer_generator,
-            citation_verifier=self._citation_verifier,
-            retrieval_timeout_seconds=(
-                self._config.online.retrieval.timeout_seconds
-            ),
-            generation_timeout_seconds=(
-                self._config.online.generation.timeout_seconds
-            ),
-            verification_timeout_seconds=(
-                self._config.online.semantic_verification.timeout_seconds
-                if (
-                    self._config.online.semantic_verification.backend
-                    != "disabled"
-                )
-                else self._config.online.generation.timeout_seconds
-            ),
-        )
-        workflow = DeterministicAgentWorkflow(
-            registry,
-            agent_config=self._config.online.agent,
-            generation_config=self._config.online.generation,
-            evidence_selection_config=(
-                self._config.online.evidence_selection
-            ),
-            router=DeterministicStrategyRouter(
-                self._config.online.agent,
-                self._config.online.query_understanding,
-            ),
-        )
+        if self._article_answer_enabled:
+            registry = build_retrieval_grading_tool_registry(
+                retriever=retriever,
+                context_grader=self._context_grader,
+                retrieval_timeout_seconds=(
+                    self._config.online.retrieval.timeout_seconds
+                ),
+                grading_timeout_seconds=(
+                    self._config.online.generation.timeout_seconds
+                ),
+            )
+            workflow = DeterministicAgentWorkflow(
+                registry,
+                article_answerer=self._article_assembler,
+                agent_config=self._config.online.agent,
+                generation_config=self._config.online.generation,
+                evidence_selection_config=(
+                    self._config.online.evidence_selection
+                ),
+                router=DeterministicStrategyRouter(
+                    self._config.online.agent,
+                    self._config.online.query_understanding,
+                ),
+            )
+        else:
+            assert self._answer_generator is not None
+            assert self._citation_verifier is not None
+            registry = build_fixed_tool_registry(
+                retriever=retriever,
+                context_grader=self._context_grader,
+                answer_generator=self._answer_generator,
+                citation_verifier=self._citation_verifier,
+                retrieval_timeout_seconds=(
+                    self._config.online.retrieval.timeout_seconds
+                ),
+                generation_timeout_seconds=(
+                    self._config.online.generation.timeout_seconds
+                ),
+                verification_timeout_seconds=(
+                    self._config.online.semantic_verification.timeout_seconds
+                    if (
+                        self._config.online.semantic_verification.backend
+                        != "disabled"
+                    )
+                    else self._config.online.generation.timeout_seconds
+                ),
+            )
+            workflow = DeterministicAgentWorkflow(
+                registry,
+                agent_config=self._config.online.agent,
+                generation_config=self._config.online.generation,
+                evidence_selection_config=(
+                    self._config.online.evidence_selection
+                ),
+                router=DeterministicStrategyRouter(
+                    self._config.online.agent,
+                    self._config.online.query_understanding,
+                ),
+            )
         manifests = {
             manifest.artifact_type.value: manifest
             for manifest in (

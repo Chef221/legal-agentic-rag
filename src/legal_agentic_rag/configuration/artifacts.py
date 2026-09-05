@@ -23,6 +23,7 @@ class ArtifactConfig(BaseModel):
     vector_directory: str = "vector"
     vector_serving_directory: str = "vector_serving"
     graph_directory: str = "graph"
+    article_authority_directory: str = "article_authority"
 
     @field_validator(
         "audit_directory",
@@ -35,6 +36,7 @@ class ArtifactConfig(BaseModel):
         "vector_directory",
         "vector_serving_directory",
         "graph_directory",
+        "article_authority_directory",
     )
     @classmethod
     def validate_directory_name(cls, value: str) -> str:
@@ -64,6 +66,7 @@ class ArtifactConfig(BaseModel):
             self.vector_directory,
             self.vector_serving_directory,
             self.graph_directory,
+            self.article_authority_directory,
         ]
         if len(names) != len(set(names)):
             raise ValueError("artifact directories must be unique")

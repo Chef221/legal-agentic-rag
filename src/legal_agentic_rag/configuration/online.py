@@ -533,6 +533,36 @@ class AgentConfig(BaseModel):
         return values
 
 
+class ArticleAnswerConfig(BaseModel):
+    """Deterministic full-Article answer assembly configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    max_articles: int = Field(default=2, ge=1, le=3)
+    lookup_filename: str = "m55_a4_full_article_lookup_v1.jsonl"
+    lookup_sha256: str = (
+        "202ba43b02403aa89ad1994a9979702efe1e7436e3b5178e964f65663c926dae"
+    )
+    expected_record_count: int = 139073
+    structural_fallback_max_evidence: int = Field(default=3, ge=1)
+
+    @model_validator(mode="after")
+    def validate_article_answer_config(self) -> "ArticleAnswerConfig":
+        """Require valid lookup metadata when article answering is enabled."""
+        if self.enabled:
+            normalized_sha = self.lookup_sha256.strip().lower()
+            if not _HEX_64_PATTERN.match(normalized_sha):
+                raise ValueError(
+                    "lookup_sha256 must be a 64-character lowercase hex string"
+                )
+            if self.expected_record_count <= 0:
+                raise ValueError("expected_record_count must be positive")
+            if not self.lookup_filename.strip():
+                raise ValueError("lookup_filename must not be empty")
+        return self
+
+
 class OnlineConfig(BaseModel):
     """Top-level typed configuration for future online consumers."""
 
@@ -564,3 +594,6 @@ class OnlineConfig(BaseModel):
         default_factory=ContextGradingConfig
     )
     agent: AgentConfig = Field(default_factory=AgentConfig)
+    article_answer: ArticleAnswerConfig = Field(
+        default_factory=ArticleAnswerConfig
+    )

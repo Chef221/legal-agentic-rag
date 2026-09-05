@@ -106,6 +106,7 @@ class AgentStopReason(StrEnum):
     """Explicit terminal reasons for a bounded Agent run."""
 
     ANSWER_VERIFIED = "answer_verified"
+    AUTHORITY_ANSWER_ASSEMBLED = "authority_answer_assembled"
     MAX_RETRY_REACHED = "max_retry_reached"
     NO_NEW_STRATEGY = "no_new_strategy"
     NON_RETRYABLE_TOOL_ERROR = "non_retryable_tool_error"
@@ -140,10 +141,12 @@ class AgentRunResult(BaseModel):
             raise ValueError("response strategy must match terminal Agent state")
         if self.state.retry_count != max(0, len(self.state.retrieval_history) - 1):
             raise ValueError("retry_count must equal completed attempts minus one")
-        if (
-            self.stop_reason == AgentStopReason.ANSWER_VERIFIED
-        ) == self.response.insufficient_evidence:
+        is_success_stop = self.stop_reason in {
+            AgentStopReason.ANSWER_VERIFIED,
+            AgentStopReason.AUTHORITY_ANSWER_ASSEMBLED,
+        }
+        if is_success_stop == self.response.insufficient_evidence:
             raise ValueError(
-                "only answer_verified may return a non-abstaining response"
+                "only answer_verified or authority_answer_assembled may return a non-abstaining response"
             )
         return self

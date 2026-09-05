@@ -4,6 +4,17 @@ from __future__ import annotations
 
 import logging
 from time import perf_counter
+from typing import Protocol
+
+
+class ArticleAnswerer(Protocol):
+    def assemble(
+        self,
+        *,
+        query: RetrievalQuery,
+        strategy: RetrievalStrategy,
+        context: ContextBuildResult,
+    ) -> AnswerResponse: ...
 
 from legal_agentic_rag.configuration.online import (
     AgentConfig,
@@ -68,6 +79,7 @@ class DeterministicAgentWorkflow:
         self,
         registry: ToolRegistry,
         *,
+        article_answerer: ArticleAnswerer | None = None,
         agent_config: AgentConfig | None = None,
         generation_config: GenerationConfig | None = None,
         evidence_selection_config: EvidenceSelectionConfig | None = None,
@@ -76,6 +88,7 @@ class DeterministicAgentWorkflow:
         query_rewriter: ConservativeQueryRewriter | None = None,
     ) -> None:
         self._registry = registry
+        self._article_answerer = article_answerer
         self._config = agent_config or AgentConfig()
         self._router = router or DeterministicStrategyRouter(self._config)
         self._rewriter = query_rewriter or ConservativeQueryRewriter()
@@ -84,9 +97,13 @@ class DeterministicAgentWorkflow:
             evidence_selection_config,
         )
         registered = {descriptor.name for descriptor in registry.descriptors()}
-        missing = _REQUIRED_FINAL_TOOLS - registered
-        if missing:
-            raise ConfigurationError("Agent registry is missing required online tools")
+        if self._article_answerer is None:
+            missing = _REQUIRED_FINAL_TOOLS - registered
+            if missing:
+                raise ConfigurationError("Agent registry is missing required online tools")
+        else:
+            if ToolName.CONTEXT_GRADING not in registered:
+                raise ConfigurationError("Agent registry is missing context grading tool")
         if not registered.intersection(_RETRIEVAL_TOOLS):
             raise ConfigurationError("Agent registry has no retrieval tool")
         self._registered_tools = registered
@@ -232,13 +249,25 @@ class DeterministicAgentWorkflow:
                 )
             )
             if latest_grade.is_sufficient:
-                response, stop_reason = self._generate_and_verify(
-                    query=routed_query,
-                    strategy=route.strategy,
-                    context=latest_context,
-                    attempt_number=attempt_index,
-                    invocation_trace=invocation_trace,
-                )
+                if self._article_answerer is not None:
+                    response = self._article_answerer.assemble(
+                        query=routed_query,
+                        strategy=route.strategy,
+                        context=latest_context,
+                    )
+                    stop_reason = (
+                        AgentStopReason.AUTHORITY_ANSWER_ASSEMBLED
+                        if not response.insufficient_evidence
+                        else AgentStopReason.NO_NEW_STRATEGY
+                    )
+                else:
+                    response, stop_reason = self._generate_and_verify(
+                        query=routed_query,
+                        strategy=route.strategy,
+                        context=latest_context,
+                        attempt_number=attempt_index,
+                        invocation_trace=invocation_trace,
+                    )
                 return self._finish(
                     query,
                     current_query,
@@ -452,6 +481,11 @@ class DeterministicAgentWorkflow:
                 "total_latency_ms": total_latency_ms,
             },
         )
+        if (
+            stop_reason == AgentStopReason.AUTHORITY_ANSWER_ASSEMBLED
+            and state.answer != final_response.answer
+        ):
+            state = state.model_copy(update={"answer": final_response.answer})
         _LOGGER.info(
             "agent_workflow_completed",
             extra={

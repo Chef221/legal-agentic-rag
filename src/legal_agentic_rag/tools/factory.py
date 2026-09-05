@@ -58,3 +58,26 @@ def build_fixed_tool_registry(
             ),
         ]
     )
+
+
+def build_retrieval_grading_tool_registry(
+    *,
+    retriever: _Retriever,
+    context_grader: ContextGrader,
+    retrieval_timeout_seconds: float = 30.0,
+    grading_timeout_seconds: float = 30.0,
+) -> ToolRegistry:
+    """Build fixed retrieval tools and context grading tool without generator or verifier."""
+    tools = fixed_retrieval_tools(
+        retriever,
+        timeout_seconds=retrieval_timeout_seconds,
+    )
+    return ToolRegistry(
+        [
+            *tools,
+            ContextGradingTool(
+                context_grader,
+                timeout_seconds=grading_timeout_seconds,
+            ),
+        ]
+    )

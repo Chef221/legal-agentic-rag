@@ -250,3 +250,17 @@ def test_semantic_verification_contract_is_strict_and_provenanced() -> None:
             claim_level_verification_performed=True,
             semantic_verification=semantic,
         )
+
+
+def test_answer_response_strips_surrounding_whitespace() -> None:
+    """AnswerResponse strips surrounding whitespace as required by baseline schema."""
+    from legal_agentic_rag.schemas.retrieval import RetrievalStrategy
+
+    resp = AnswerResponse(
+        question="  Câu hỏi?  ",
+        answer="  legacy answer  ",
+        insufficient_evidence=True,
+        retrieval_strategy=RetrievalStrategy.HYBRID_RERANK,
+        trace_id="t-ws",
+    )
+    assert resp.answer == "legacy answer"

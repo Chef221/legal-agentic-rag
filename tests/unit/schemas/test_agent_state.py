@@ -89,3 +89,24 @@ def test_agent_run_result_requires_response_and_state_alignment() -> None:
     )
 
     assert result.response.answer == result.state.answer
+
+
+def test_agent_state_normalizes_whitespace_to_baseline() -> None:
+    """AgentState strips surrounding whitespace and treats blank answers as None."""
+    state_padded = AgentState(
+        trace_id="trace-ws",
+        original_question="Câu hỏi",
+        normalized_question="câu hỏi",
+        current_query="câu hỏi",
+        answer="  legacy answer  ",
+    )
+    assert state_padded.answer == "legacy answer"
+
+    state_blank = AgentState(
+        trace_id="trace-ws-blank",
+        original_question="Câu hỏi",
+        normalized_question="câu hỏi",
+        current_query="câu hỏi",
+        answer="   \n\t  ",
+    )
+    assert state_blank.answer is None
