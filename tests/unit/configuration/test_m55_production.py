@@ -9,6 +9,7 @@ from legal_agentic_rag.configuration import (
     M55_LOOKUP_SHA256,
     M55_MAX_ARTICLES,
     M55_PRODUCTION_SCHEMA_VERSION,
+    M55_RETRIEVAL_TIMEOUT_SECONDS,
     M55_STRUCTURAL_FALLBACK_MAX_EVIDENCE,
     OnlineConfig,
     build_m54_online_config,
@@ -32,6 +33,7 @@ def test_build_m55_online_config_constants_and_version() -> None:
     assert M55_EXPECTED_RECORD_COUNT == 139073
     assert M55_MAX_ARTICLES == 2
     assert M55_STRUCTURAL_FALLBACK_MAX_EVIDENCE == 3
+    assert M55_RETRIEVAL_TIMEOUT_SECONDS == 60.0
 
 
 def test_build_m55_online_config_article_answer_enabled() -> None:
@@ -51,12 +53,27 @@ def test_m54_default_article_answer_is_disabled() -> None:
     assert m54.article_answer.enabled is False
 
 
-def test_m55_and_m54_retrieval_reranker_evidence_selection_are_identical() -> None:
+def test_m55_retrieval_timeout_is_60s_and_m54_is_30s() -> None:
     m54 = build_m54_online_config()
     m55 = build_m55_online_config()
 
-    # Assert all sub-configs other than article_answer are strictly equal
-    assert m55.retrieval == m54.retrieval
+    assert m54.retrieval.timeout_seconds == 30.0
+    assert m55.retrieval.timeout_seconds == 60.0
+    # Retrieval configs differ ONLY in timeout_seconds
+    assert m55.retrieval.model_copy(update={"timeout_seconds": 30.0}) == m54.retrieval
+
+
+def test_m55_and_m54_other_subconfigs_and_retrieval_scoring_are_identical() -> None:
+    m54 = build_m54_online_config()
+    m55 = build_m55_online_config()
+
+    # Retrieval scoring parameters identical
+    assert m55.retrieval.top_k == m54.retrieval.top_k == 10
+    assert m55.retrieval.candidate_k == m54.retrieval.candidate_k == 40
+    assert m55.retrieval.rrf_constant == m54.retrieval.rrf_constant == 60
+    assert m55.retrieval.default_strategy == m54.retrieval.default_strategy
+
+    # Assert all sub-configs other than article_answer and retrieval timeout are strictly equal
     assert m55.bm25_runtime == m54.bm25_runtime
     assert m55.vector_runtime == m54.vector_runtime
     assert m55.reranker == m54.reranker

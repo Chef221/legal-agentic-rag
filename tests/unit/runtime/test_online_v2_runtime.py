@@ -205,15 +205,19 @@ def test_a4_authority_wiring_identity() -> None:
 
 
 def test_m55_online_config_retrieval_parameters_unchanged_from_m54() -> None:
-    """M55 switches retrieval_artifact_mode to V2_PRECOMPUTED while keeping all parameters identical to M54."""
+    """M55 switches retrieval_artifact_mode to V2_PRECOMPUTED and sets 60s timeout while keeping all scoring parameters identical to M54."""
     m54 = build_m54_online_config()
     m55 = build_m55_online_config()
 
     assert m54.retrieval_artifact_mode == RetrievalArtifactMode.LEGACY
     assert m55.retrieval_artifact_mode == RetrievalArtifactMode.V2_PRECOMPUTED
 
-    # Exact parameter identity
-    assert m55.retrieval == m54.retrieval
+    # Retrieval timeouts: M54 is 30s, M55 is 60s
+    assert m54.retrieval.timeout_seconds == 30.0
+    assert m55.retrieval.timeout_seconds == 60.0
+    assert m55.retrieval.model_copy(update={"timeout_seconds": 30.0}) == m54.retrieval
+
+    # Exact parameter identity across all other sub-configs
     assert m55.bm25_runtime == m54.bm25_runtime
     assert m55.vector_runtime == m54.vector_runtime
     assert m55.reranker == m54.reranker
@@ -221,3 +225,71 @@ def test_m55_online_config_retrieval_parameters_unchanged_from_m54() -> None:
     assert m55.context_grading == m54.context_grading
     assert m55.query_understanding == m54.query_understanding
     assert m55.agent == m54.agent
+
+
+def test_online_runtime_factory_passes_retrieval_timeout_to_registry(tmp_path: Path) -> None:
+    """OnlineRuntimeFactory passes the configured retrieval timeout (60s in M55, 30s in M54) to the tool registry."""
+    from legal_agentic_rag.configuration.artifacts import ArtifactConfig
+    from legal_agentic_rag.configuration.evaluation import EvaluationConfig
+    from legal_agentic_rag.configuration.offline import OfflineConfig
+    from legal_agentic_rag.configuration.m55_production import build_m55_embedding_config
+    from legal_agentic_rag.generation.article_authority import ArticleAuthorityStore
+    from legal_agentic_rag.schemas import ToolName
+
+    # 1. M55 production config (60.0s)
+    app_cfg_m55 = ApplicationConfig(
+        artifacts=ArtifactConfig(root_path=tmp_path),
+        offline=OfflineConfig(embedding=build_m55_embedding_config()),
+        online=build_m55_online_config(),
+        evaluation=EvaluationConfig(candidate_k=40),
+    )
+
+    with (
+        patch("legal_agentic_rag.runtime.online.V2SQLiteFTS5BM25Backend.load", return_value=MagicMock(spec=V2SQLiteFTS5BM25Backend)),
+        patch("legal_agentic_rag.runtime.online.V2PrecomputedDenseBackend.load", return_value=MagicMock(spec=V2PrecomputedDenseBackend)),
+        patch("legal_agentic_rag.runtime.online.build_v2_fixed_retriever", return_value=MagicMock()),
+        patch("legal_agentic_rag.runtime.online.ArticleAuthorityStore.from_jsonl", return_value=MagicMock(spec=ArticleAuthorityStore)),
+    ):
+        factory_m55 = OnlineRuntimeFactory(
+            app_cfg_m55,
+            embedding_provider=MagicMock(),
+            reranker=MagicMock(),
+            context_grader=MagicMock(),
+        )
+        runtime_m55 = factory_m55.build()
+        for tool_name in [ToolName.BM25_SEARCH, ToolName.DENSE_SEARCH, ToolName.HYBRID_SEARCH]:
+            tool = runtime_m55._registry._tools.get(tool_name)
+            assert tool is not None
+            assert tool.timeout_seconds == 60.0
+
+    # 2. M54 production config (30.0s)
+    app_cfg_m54 = ApplicationConfig(
+        artifacts=ArtifactConfig(root_path=tmp_path),
+        offline=OfflineConfig(embedding=build_m55_embedding_config()),
+        online=build_m54_online_config(),
+        evaluation=EvaluationConfig(candidate_k=40),
+    )
+
+    with (
+        patch.object(OnlineRuntimeFactory, "_validate_manifests"),
+        patch.object(OnlineRuntimeFactory, "_validate_embedding_provider"),
+        patch("legal_agentic_rag.runtime.online.SQLiteFTS5BM25Backend"),
+        patch("legal_agentic_rag.runtime.online.NumpyVectorBackend"),
+        patch("legal_agentic_rag.runtime.online.AdjacencyGraphBackend"),
+        patch("legal_agentic_rag.runtime.online.FixedRetriever", return_value=MagicMock()),
+        patch("legal_agentic_rag.runtime.online.build_generation_components", return_value=(MagicMock(), MagicMock())),
+        patch("legal_agentic_rag.runtime.online.load_artifact_manifest", return_value=MagicMock()),
+        patch("legal_agentic_rag.runtime.online.validate_competition_artifact_lineage"),
+        patch("legal_agentic_rag.runtime.online.validate_startup_report"),
+    ):
+        factory_m54 = OnlineRuntimeFactory(
+            app_cfg_m54,
+            embedding_provider=MagicMock(),
+            reranker=MagicMock(),
+            context_grader=MagicMock(),
+        )
+        runtime_m54 = factory_m54.build()
+        for tool_name in [ToolName.BM25_SEARCH, ToolName.DENSE_SEARCH, ToolName.HYBRID_SEARCH]:
+            tool = runtime_m54._registry._tools.get(tool_name)
+            assert tool is not None
+            assert tool.timeout_seconds == 30.0

@@ -36,12 +36,18 @@ def build_m55_embedding_config() -> EmbeddingConfig:
     return build_m54_embedding_config()
 
 
+M55_RETRIEVAL_TIMEOUT_SECONDS = 60.0
+
+
 def build_m55_online_config() -> OnlineConfig:
     """Return the frozen M55 production online configuration with deterministic Article answering."""
     m54_online = build_m54_online_config()
     return m54_online.model_copy(
         update={
             "retrieval_artifact_mode": RetrievalArtifactMode.V2_PRECOMPUTED,
+            "retrieval": m54_online.retrieval.model_copy(
+                update={"timeout_seconds": M55_RETRIEVAL_TIMEOUT_SECONDS}
+            ),
             "article_answer": ArticleAnswerConfig(
                 enabled=True,
                 max_articles=M55_MAX_ARTICLES,
